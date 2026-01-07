@@ -232,7 +232,25 @@ def refine_splat_camera_poses(
         k: StepLR(opt, 20, gamma=0.1) for k, opt in optimizers_dict.items()
     }
     loss_fn = nn.L1Loss()
-    means = quats = scales = opacities = colors = None
+    rel_trans = SE3_vector_to_pose(
+        torch.cat([params["rel_translation"], params["rel_rotation"]], dim=-1)
+    )
+    rel_trans_lhs = object_pose @ rel_trans @ torch.linalg.inv(object_pose)
+    means_right, colors_right, quats_right = transform_splats(
+        splats_right["means"],
+        torch.cat((params["sh0"], params["sh1"], params["sh2"]), dim=1),
+        params["quats"],
+        rel_trans_lhs,
+    )
+    scales_right = params["scales"]
+    opacities_right = params["opacities"]
+    means = torch.cat([splats_left["means"], means_right], dim=0)
+    colors = torch.cat([splats_left["colors"], colors_right], dim=0)
+    quats = torch.cat([splats_left["quats"], quats_right], dim=0)
+    scales = torch.cat([splats_left["scales"], scales_right], dim=0)
+    opacities = torch.logit(
+        torch.cat([splats_left["opacities"], opacities_right], dim=0)
+    )
     resolution_schedule = schedule_resolutions(config.num_epochs, ctf_sizes)
     losses_log = []
     poses_log = []
@@ -264,6 +282,7 @@ def refine_splat_camera_poses(
             output_dir=Path("/gs_output"),
             mode="training",
         )
+    viewer.state = "paused"
     for epoch in tqdm(range(config.num_epochs), desc="Refining Epochs"):
         # for optimizer in optimizers:
         #     for param_group in optimizer.param_groups:
