@@ -19,7 +19,10 @@ class LFDataset:
         self.size = len(self.frames)
         self.camera_poses_dir = os.path.join(self.folder, "camera_poses")
         self.depth_dir = os.path.join(self.folder, "depth")
+        self.depth_fnames = list(sorted(os.listdir(self.depth_dir)))
+
         self.object_poses_dir = os.path.join(self.folder, "object_poses")
+        self.object_poses_fnames = list(sorted(os.listdir(self.object_poses_dir)))
 
         self.camera_poses = []
         for pose_file in sorted(os.listdir(self.camera_poses_dir)):
@@ -56,9 +59,13 @@ class LFDataset:
         )
         LF /= LF.max()
         s_mid, t_mid = LF.shape[0] // 2, LF.shape[1] // 2
-        depth = np.array(Image.open(os.path.join(self.depth_dir, f"{idx:04d}.png")))
+        depth = np.array(
+            Image.open(os.path.join(self.depth_dir, self.depth_fnames[idx]))
+        )
         depth = torch.tensor(depth, dtype=torch.float64) / 1000.0
-        object_pose = np.loadtxt(os.path.join(self.object_poses_dir, f"{idx:04d}.txt"))
+        object_pose = np.loadtxt(
+            os.path.join(self.object_poses_dir, self.object_poses_fnames[idx])
+        )
         object_pose = torch.tensor(object_pose, dtype=torch.float64)
 
         masks_dir = os.path.join(frame_path, "masks")
