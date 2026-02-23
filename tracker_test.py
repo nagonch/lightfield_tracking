@@ -10,19 +10,31 @@ from SAM_functions import (
 )
 from PIL import Image
 import numpy as np
+import hydra
+from cutie.inference.inference_core import InferenceCore
+from cutie.utils.get_default_model import get_default_model
+import torch
+import os
 
 
-if __name__ == "__main__":
+@torch.inference_mode()
+@torch.cuda.amp.autocast()
+def main():
     dataset = LFDataset("/home/ngoncharov/cvpr2026/datasets/ycbv_lf/bleach0")
     s_size, t_size = dataset.metadata["n_views"]
     time_now = time()
 
     image_predictor = get_image_predictor()
     processor, grounding_model = get_dino_models()
+    hydra.core.global_hydra.GlobalHydra.instance().clear()
+    cutie = get_default_model()
+    cutie_processor = InferenceCore(cutie, cfg=cutie.cfg)
+
     PROMPT = "bottle"
 
     for i, frame in enumerate(dataset):
         img_central = frame["LF"][s_size // 2, t_size // 2]
+
         if i == 0:
             image_pil = Image.fromarray(
                 (img_central * 255).cpu().numpy().astype(np.uint8)
@@ -34,10 +46,28 @@ if __name__ == "__main__":
                 grounding_model,
                 return_full=False,
             )
-            image_mask = get_image_masks_from_boxes(image_predictor, boxes, image_pil)
+            image_mask = get_image_masks_from_boxes(image_predictor, boxes, image_pil)[
+                0
+            ]
             del image_predictor, processor, grounding_model
-            print(image_mask)
-            raise
-
+            out_prob = cutie_processor.step(
+                img_central.permute(2, 0, 1),
+                torch.from_numpy(np.array(image_mask)).cuda(),
+                objects=[
+                    1,
+                ],
+            )
+        else:
+            out_prob = cutie_processor.step(
+                img_central.permute(2, 0, 1),
+            )
+        mask = cutie_processor.output_prob_to_mask(out_prob)
+        Image.fromarray((mask.cpu().numpy() * 255).astype(np.uint8)).save(
+            f"cutie_output/frame_{i:04d}.png"
+        )
     time_per_frame = (time() - time_now) / len(dataset)
     print(time_per_frame)
+
+
+if __name__ == "__main__":
+    main()
