@@ -4,3 +4,6 @@
 [submodule "Video-Depth-Anything"]
 	path = Video-Depth-Anything
 	url = https://github.com/DepthAnything/Video-Depth-Anything.git
+[submodule "Cutie"]
+	path = Cutie
+	url = https://github.com/hkchengrex/Cutie.git
