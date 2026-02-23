@@ -20,7 +20,9 @@ import os
 @torch.inference_mode()
 @torch.cuda.amp.autocast()
 def main():
-    dataset = LFDataset("/home/ngoncharov/cvpr2026/datasets/ycbv_lf/bleach0")
+    dataset = LFDataset(
+        "/home/ngoncharov/cvpr2026/datasets/LiFT_dataset/box_motion_prod"
+    )
     s_size, t_size = dataset.metadata["n_views"]
     time_now = time()
 
@@ -30,11 +32,10 @@ def main():
     cutie = get_default_model()
     cutie_processor = InferenceCore(cutie, cfg=cutie.cfg)
 
-    PROMPT = "bottle"
+    PROMPT = "white and blue box."
 
     for i, frame in enumerate(dataset):
         img_central = frame["LF"][s_size // 2, t_size // 2]
-
         if i == 0:
             image_pil = Image.fromarray(
                 (img_central * 255).cpu().numpy().astype(np.uint8)
@@ -50,6 +51,7 @@ def main():
                 0
             ]
             del image_predictor, processor, grounding_model
+            print(img_central.shape)
             out_prob = cutie_processor.step(
                 img_central.permute(2, 0, 1),
                 torch.from_numpy(np.array(image_mask)).cuda(),
