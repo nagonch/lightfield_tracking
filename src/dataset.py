@@ -115,4 +115,7 @@ class LFDataset:
 
 
 if __name__ == "__main__":
-    pass
+    dataset = LFDataset(
+        "/home/ngoncharov/cvpr2026/datasets/ycbv_lf/cracker_box_yalehand0"
+    )
+    print(dataset[0].keys())
