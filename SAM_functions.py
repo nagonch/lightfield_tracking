@@ -48,7 +48,7 @@ def get_dino_models():
     return processor, grounding_model
 
 
-def get_dino_boxes(image, prompt, processor, model):
+def get_dino_boxes(image, prompt, processor, model, return_full=False):
     inputs = processor(images=image, text=prompt, return_tensors="pt").to("cuda")
     with torch.no_grad():
         outputs = model(**inputs)
@@ -59,7 +59,10 @@ def get_dino_boxes(image, prompt, processor, model):
         text_threshold=0.3,
         target_sizes=[image.size[::-1]],
     )
-    return results[0]["boxes"]
+    if return_full:
+        return results
+    else:
+        return results[0]["boxes"]
 
 
 def get_image_masks_from_boxes(image_predictor, boxes, image):
