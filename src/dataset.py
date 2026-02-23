@@ -9,7 +9,7 @@ class LFDataset:
     def __init__(self, folder):
         self.folder = folder
         self.camera_matrix = torch.tensor(
-            np.loadtxt(f"{self.folder}/camera_matrix.txt"), dtype=torch.float64
+            np.loadtxt(f"{self.folder}/camera_matrix.txt"), dtype=torch.float32
         )
         with open(f"{self.folder}/metadata.json", "r") as f:
             self.metadata = json.load(f)
@@ -28,7 +28,7 @@ class LFDataset:
         for pose_file in sorted(os.listdir(self.camera_poses_dir)):
             if pose_file.endswith(".txt"):
                 pose_path = os.path.join(self.camera_poses_dir, pose_file)
-                pose = torch.tensor(np.loadtxt(pose_path), dtype=torch.float64)
+                pose = torch.tensor(np.loadtxt(pose_path), dtype=torch.float32)
                 self.camera_poses.append(pose)
         self.camera_poses = torch.stack(self.camera_poses, dim=0).reshape(
             self.metadata["n_views"][0],
@@ -50,7 +50,7 @@ class LFDataset:
         )
 
         imgs = [
-            torch.tensor(np.array(Image.open(p)), dtype=torch.float64)
+            torch.tensor(np.array(Image.open(p)), dtype=torch.float32)
             for p in img_paths
         ]
         LF = torch.stack(imgs, dim=0)
@@ -62,11 +62,11 @@ class LFDataset:
         depth = np.array(
             Image.open(os.path.join(self.depth_dir, self.depth_fnames[idx]))
         )
-        depth = torch.tensor(depth, dtype=torch.float64) / 1000.0
+        depth = torch.tensor(depth, dtype=torch.float32) / 1000.0
         object_pose = np.loadtxt(
             os.path.join(self.object_poses_dir, self.object_poses_fnames[idx])
         )
-        object_pose = torch.tensor(object_pose, dtype=torch.float64)
+        object_pose = torch.tensor(object_pose, dtype=torch.float32)
 
         masks_dir = os.path.join(frame_path, "masks")
         if os.path.exists(masks_dir):
@@ -94,7 +94,7 @@ class LFDataset:
         predicted_depth_path = os.path.join(frame_path, "predicted_depth.npy")
         if os.path.exists(predicted_depth_path):
             predicted_depth = torch.tensor(
-                np.load(predicted_depth_path), dtype=torch.float64
+                np.load(predicted_depth_path), dtype=torch.float32
             ).cuda()
         else:
             predicted_depth = None
