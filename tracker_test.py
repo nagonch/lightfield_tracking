@@ -18,7 +18,6 @@ if __name__ == "__main__":
     time_now = time()
 
     image_predictor = get_image_predictor()
-    video_predictor = get_video_predictor()
     processor, grounding_model = get_dino_models()
     PROMPT = "bottle"
 
@@ -36,8 +35,9 @@ if __name__ == "__main__":
                 return_full=False,
             )
             image_mask = get_image_masks_from_boxes(image_predictor, boxes, image_pil)
-        else:
-
+            del image_predictor, processor, grounding_model
+            print(image_mask)
+            raise
 
     time_per_frame = (time() - time_now) / len(dataset)
     print(time_per_frame)
