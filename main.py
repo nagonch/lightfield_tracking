@@ -3,12 +3,14 @@ from time import time
 from PIL import Image
 import os
 from segmentor import Segmentor
+from depth_anything_3.api import DepthAnything3
 
 
 def main():
     dataset = LFDataset("/home/ngoncharov/cvpr2026/datasets/ycbv_lf/mustard0")
     s_size, t_size = dataset.metadata["n_views"]
     segmentor = Segmentor(prompt="bottle.")
+
     os.makedirs("cutie_output", exist_ok=True)
     time_now = time()
     for i, frame in enumerate(dataset):

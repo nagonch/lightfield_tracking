@@ -1,5 +1,0 @@
-"dataset-path": "/home/ngoncharov/real_data/box_motion"
-"exp-name": "jug_tilt_ablation_no_initialisation"
-"object-mesh-path": "/home/ngoncharov/real_data/jug_ref/model.obj"
-"upscale-model": 1
-"enable-cache": false

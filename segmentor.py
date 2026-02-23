@@ -1,10 +1,6 @@
-from src.dataset import LFDataset
-from src.utilities import Visualizer, backproject_depth_to_pointcloud
-from time import time
 from SAM_functions import (
     get_dino_models,
     get_image_predictor,
-    get_video_predictor,
     get_image_masks_from_boxes,
     get_dino_boxes,
 )
@@ -14,7 +10,6 @@ import hydra
 from cutie.inference.inference_core import InferenceCore
 from cutie.utils.get_default_model import get_default_model
 import torch
-import os
 
 
 class Segmentor:
@@ -30,7 +25,7 @@ class Segmentor:
         self.cutie_processor = InferenceCore(cutie, cfg=cutie.cfg)
 
     @torch.inference_mode()
-    @torch.cuda.amp.autocast()
+    @torch.amp.autocast("cuda:0")
     def __call__(self, img_tensor_hwc):
         """
         img_tensor_hwc : torch tensor HWC float [0,1]
@@ -73,26 +68,5 @@ class Segmentor:
         return mask
 
 
-def main():
-    dataset = LFDataset(
-        "/home/ngoncharov/cvpr2026/datasets/LiFT_dataset/box_motion_prod"
-    )
-    s_size, t_size = dataset.metadata["n_views"]
-    segmentor = Segmentor(prompt="white and blue box.")
-    os.makedirs("cutie_output", exist_ok=True)
-    time_now = time()
-    for i, frame in enumerate(dataset):
-        img_central = frame["LF"][s_size // 2, t_size // 2]
-
-        mask = segmentor(img_central)
-
-        Image.fromarray((mask.cpu().numpy() * 255).astype("uint8")).save(
-            f"cutie_output/frame_{i:04d}.png"
-        )
-
-    time_per_frame = (time() - time_now) / len(dataset)
-    print(time_per_frame)
-
-
 if __name__ == "__main__":
-    main()
+    pass
