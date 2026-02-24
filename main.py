@@ -54,11 +54,18 @@ def main():
             pc_gt = pc_gt[(mask > 0).reshape(-1)]
 
             v.add_point_cloud(
-                f"testpc_{i}", points=pc.cpu().numpy(), colors=color.cpu().numpy()
+                f"testpc_{i}",
+                points=pc.cpu().numpy(),
+                colors=color.cpu().numpy(),
+                point_size=5e-4,
             )
             v.add_point_cloud(
-                f"testpc_{i}_gt", points=pc_gt.cpu().numpy(), colors=color.cpu().numpy()
+                f"testpc_{i}_gt",
+                points=pc_gt.cpu().numpy(),
+                colors=color.cpu().numpy(),
+                point_size=5e-4,
             )
+            break
     v.run()
 
 
