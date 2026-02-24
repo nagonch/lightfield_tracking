@@ -54,6 +54,7 @@ def da3_run_from_tensors(
     ref_view_strategy: str = "saddle_balanced",
 ):
     device = next(da3_model.parameters()).device
+    m, orig_h, orig_w, _ = images_mhw3.shape
 
     # --- images: (m,h,w,3) -> (m,3,h,w) -> resize -> imagenet normalize -> add batch -> (1,m,3,H,W)
     images_mhw3 = images_mhw3.to(device=device, dtype=torch.float32)
@@ -97,9 +98,15 @@ def da3_run_from_tensors(
         use_ray_pose=use_ray_pose,
         ref_view_strategy=ref_view_strategy,
     )
-    depth = raw_output["depth"]
-    depth_conf = raw_output["depth_conf"]
-    return raw_output  # dict[str, torch.Tensor]
+    depth = raw_output["depth"][0]
+    depth = torch.nn.functional.interpolate(
+        depth.unsqueeze(1),  # [n,1,h',w']
+        size=(orig_h, orig_w),
+        mode="bilinear",
+        align_corners=False,
+    )[:, 0]
+
+    return depth
 
 
 if __name__ == "__main__":

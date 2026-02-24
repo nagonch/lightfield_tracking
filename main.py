@@ -32,7 +32,7 @@ def main():
             poses_are_c2w=True,
             process_res=512,
         )
-        print(result)
+        print(result.shape)
         torch.save(result, f"frame_{i:04d}_da3.pt")
         raise
         mask = segmentor(img_central)
