@@ -1,5 +1,4 @@
 import torch
-from tqdm import tqdm
 
 C0 = 0.28209479177387814
 C1 = 0.4886025119029199
@@ -32,167 +31,170 @@ C4 = [
 ]
 
 
-def rgb_to_sh_values(rgb_0_1: torch.Tensor) -> torch.Tensor:
-    """RGB in [0,1] -> SH-space values (same mapping as your RGB2SH)."""
-    return (rgb_0_1 - 0.5) / C0
+def RGB2SH(rgb: torch.Tensor) -> torch.Tensor:
+    # rgb: (..., 3) in [0,1]
+    return (rgb - 0.5) / C0
 
 
-def sh_to_rgb_values(sh_values: torch.Tensor) -> torch.Tensor:
-    """SH-space values -> RGB in [0,1] (same mapping as your SH2RGB)."""
-    return sh_values * C0 + 0.5
+def SH2RGB(sh: torch.Tensor) -> torch.Tensor:
+    return sh * C0 + 0.5
 
 
-def real_sh_basis_from_dirs(dirs_unit: torch.Tensor, degree: int) -> torch.Tensor:
+def get_sh_bases_torch(view_dirs: torch.Tensor, max_degree: int) -> torch.Tensor:
     """
-    Build real SH basis values B for dirs, matching the coefficient ordering in eval_sh().
-    Args:
-        dirs_unit: [M, 3] unit directions
-        degree: 0..4
-    Returns:
-        B: [M, K] where K=(degree+1)^2
+    view_dirs: [b, n, 3] (assumed unit, but we normalize anyway)
+    returns:   [b, n, (max_degree+1)^2]
+    Basis ordering matches eval_sh hardcoded coefficients:
+      l=0: 0
+      l=1: 1..3
+      l=2: 4..8
+      l=3: 9..15
+      l=4: 16..24
     """
-    assert 0 <= degree <= 4
-    device = dirs_unit.device
-    dtype = dirs_unit.dtype
+    assert 0 <= max_degree <= 4
 
-    M = dirs_unit.shape[0]
-    K = (degree + 1) ** 2
-    B = torch.zeros((M, K), device=device, dtype=dtype)
+    view_dirs = view_dirs / (view_dirs.norm(dim=-1, keepdim=True).clamp_min(1e-12))
+    x = view_dirs[..., 0]
+    y = view_dirs[..., 1]
+    z = view_dirs[..., 2]
 
-    x = dirs_unit[:, 0:1]
-    y = dirs_unit[:, 1:2]
-    z = dirs_unit[:, 2:3]
+    b, n, _ = view_dirs.shape
+    n_coeffs = (max_degree + 1) ** 2
+    bases = view_dirs.new_zeros((b, n, n_coeffs))
 
     # l=0
-    B[:, 0] = C0
+    bases[..., 0] = C0
 
-    if degree >= 1:
-        # coefficients 1..3 (match: -C1*y, +C1*z, -C1*x)
-        B[:, 1] = (-C1 * y).squeeze(-1)
-        B[:, 2] = (C1 * z).squeeze(-1)
-        B[:, 3] = (-C1 * x).squeeze(-1)
+    if max_degree >= 1:
+        bases[..., 1] = -C1 * y
+        bases[..., 2] = C1 * z
+        bases[..., 3] = -C1 * x
 
-    if degree >= 2:
+    if max_degree >= 2:
         xx, yy, zz = x * x, y * y, z * z
         xy, yz, xz = x * y, y * z, x * z
+        bases[..., 4] = C2[0] * xy
+        bases[..., 5] = C2[1] * yz
+        bases[..., 6] = C2[2] * (2.0 * zz - xx - yy)
+        bases[..., 7] = C2[3] * xz
+        bases[..., 8] = C2[4] * (xx - yy)
 
-        B[:, 4] = (C2[0] * xy).squeeze(-1)
-        B[:, 5] = (C2[1] * yz).squeeze(-1)
-        B[:, 6] = (C2[2] * (2.0 * zz - xx - yy)).squeeze(-1)
-        B[:, 7] = (C2[3] * xz).squeeze(-1)
-        B[:, 8] = (C2[4] * (xx - yy)).squeeze(-1)
+    if max_degree >= 3:
+        xx, yy, zz = x * x, y * y, z * z
+        bases[..., 9] = C3[0] * y * (3 * xx - yy)
+        bases[..., 10] = C3[1] * (x * y) * z
+        bases[..., 11] = C3[2] * y * (4 * zz - xx - yy)
+        bases[..., 12] = C3[3] * z * (2 * zz - 3 * xx - 3 * yy)
+        bases[..., 13] = C3[4] * x * (4 * zz - xx - yy)
+        bases[..., 14] = C3[5] * z * (xx - yy)
+        bases[..., 15] = C3[6] * x * (xx - 3 * yy)
 
-    if degree >= 3:
+    if max_degree >= 4:
         xx, yy, zz = x * x, y * y, z * z
         xy, yz, xz = x * y, y * z, x * z
+        bases[..., 16] = C4[0] * xy * (xx - yy)
+        bases[..., 17] = C4[1] * yz * (3 * xx - yy)
+        bases[..., 18] = C4[2] * xy * (7 * zz - 1)
+        bases[..., 19] = C4[3] * yz * (7 * zz - 3)
+        bases[..., 20] = C4[4] * (zz * (35 * zz - 30) + 3)
+        bases[..., 21] = C4[5] * xz * (7 * zz - 3)
+        bases[..., 22] = C4[6] * (xx - yy) * (7 * zz - 1)
+        bases[..., 23] = C4[7] * xz * (xx - 3 * yy)
+        bases[..., 24] = C4[8] * (xx * (xx - 3 * yy) - yy * (3 * xx - yy))
 
-        B[:, 9] = (C3[0] * y * (3 * xx - yy)).squeeze(-1)
-        B[:, 10] = (C3[1] * xy * z).squeeze(-1)
-        B[:, 11] = (C3[2] * y * (4 * zz - xx - yy)).squeeze(-1)
-        B[:, 12] = (C3[3] * z * (2 * zz - 3 * xx - 3 * yy)).squeeze(-1)
-        B[:, 13] = (C3[4] * x * (4 * zz - xx - yy)).squeeze(-1)
-        B[:, 14] = (C3[5] * z * (xx - yy)).squeeze(-1)
-        B[:, 15] = (C3[6] * x * (xx - 3 * yy)).squeeze(-1)
-
-    if degree >= 4:
-        xx, yy, zz = x * x, y * y, z * z
-        xy, yz, xz = x * y, y * z, x * z
-
-        B[:, 16] = (C4[0] * xy * (xx - yy)).squeeze(-1)
-        B[:, 17] = (C4[1] * yz * (3 * xx - yy)).squeeze(-1)
-        B[:, 18] = (C4[2] * xy * (7 * zz - 1)).squeeze(-1)
-        B[:, 19] = (C4[3] * yz * (7 * zz - 3)).squeeze(-1)
-        B[:, 20] = (C4[4] * (zz * (35 * zz - 30) + 3)).squeeze(-1)
-        B[:, 21] = (C4[5] * xz * (7 * zz - 3)).squeeze(-1)
-        B[:, 22] = (C4[6] * (xx - yy) * (7 * zz - 1)).squeeze(-1)
-        B[:, 23] = (C4[7] * xz * (xx - 3 * yy)).squeeze(-1)
-        B[:, 24] = (C4[8] * (xx * (xx - 3 * yy) - yy * (3 * xx - yy))).squeeze(-1)
-
-    return B
-
-
-def sh_ridge_reg_vector(degree: int, device, dtype) -> torch.Tensor:
-    """
-    Regularizer per coefficient, matching your idea: exp(l) for all m in each l.
-    Length K=(degree+1)^2.
-    """
-    assert 0 <= degree <= 4
-    reg_list = []
-    for l in range(degree + 1):
-        count = 2 * l + 1
-        reg_list.extend(
-            [torch.exp(torch.tensor(float(l), device=device, dtype=dtype))] * count
-        )
-    return torch.stack(reg_list, dim=0)  # [K]
+    return bases
 
 
 def fit_sh_coeffs_per_point(
-    colors_rgb_0_1: torch.Tensor,  # [N, P, 3]
-    view_dirs_unit: torch.Tensor,  # [N, P, 3]
-    valid: torch.Tensor,  # [N, P] bool
-    degree: int = 3,
+    colors_rgb: torch.Tensor,  # [b, n, 3]
+    view_dirs: torch.Tensor,  # [b, n, 3]
+    valid: torch.Tensor,  # [b, n] (0/1 or bool)
+    max_degree: int = 2,
     lambda_reg: float = 1e-5,
 ) -> torch.Tensor:
     """
-    Batched per-point ridge fit:
-        Y[n,p,:] ~= B[n,p,:] @ coeffs[p,:,:]^T   (per channel)
     Returns:
-        coeffs: [P, 3, K], K=(degree+1)^2
+      sh_coeffs: [n, (max_degree+1)^2, 3]
     """
-    assert colors_rgb_0_1.ndim == 3 and view_dirs_unit.ndim == 3 and valid.ndim == 2
-    N, P, C = colors_rgb_0_1.shape
-    assert C == 3
-    assert view_dirs_unit.shape == (N, P, 3)
-    assert valid.shape == (N, P)
+    assert colors_rgb.ndim == 3 and colors_rgb.shape[-1] == 3
+    assert view_dirs.shape == colors_rgb.shape
+    assert valid.shape == colors_rgb.shape[:2]
 
-    device = colors_rgb_0_1.device
-    dtype = colors_rgb_0_1.dtype
-    K = (degree + 1) ** 2
+    b, n, _ = colors_rgb.shape
+    n_coeffs = (max_degree + 1) ** 2
 
-    # Build everything for all (n,p)
-    sh_targets = rgb_to_sh_values(colors_rgb_0_1.reshape(-1, 3)).reshape(
-        N, P, 3
-    )  # [N,P,3]
-    B = real_sh_basis_from_dirs(view_dirs_unit.reshape(-1, 3), degree=degree).reshape(
-        N, P, K
-    )  # [N,P,K]
+    # Design matrix
+    A = get_sh_bases_torch(view_dirs, max_degree=max_degree)  # [b, n, n_coeffs]
 
-    # Weights: 1 for valid, 0 for invalid
-    w = valid.to(dtype=dtype)  # [N,P]
-    Bw = B * w[..., None]  # [N,P,K]
-    Yw = sh_targets * w[..., None]  # [N,P,3]
+    # Targets in SH space
+    Y = RGB2SH(colors_rgb)  # [b, n, 3]
 
-    # Normal equations per point p:
-    # BtB[p] = sum_n B[n,p]^T B[n,p]
-    # BtY[p] = sum_n B[n,p]^T Y[n,p]
-    BtB = torch.einsum("npk,npl->pkl", Bw, B)  # [P,K,K]
-    BtY = torch.einsum("npk,npc->pkc", Bw, Yw)  # [P,K,3]
+    # Mask invalid observations
+    mask = valid.to(dtype=A.dtype).unsqueeze(-1)  # [b, n, 1]
+    Aw = A * mask  # [b, n, n_coeffs]
 
-    # Ridge diag, broadcast over P
-    reg_vec = sh_ridge_reg_vector(degree, device=device, dtype=dtype)  # [K]
-    ridge = lambda_reg * torch.diag(reg_vec).unsqueeze(0)  # [1,K,K]
-    lhs = BtB + ridge  # [P,K,K]
+    # Normal equations per point:
+    # AtA: [n, n_coeffs, n_coeffs], AtY: [n, n_coeffs, 3]
+    AtA = torch.einsum("bnc,bnd->ncd", Aw, A)
+    AtY = torch.einsum("bnc,bnk->nck", Aw, Y)
 
-    # Solve batched systems
-    coeffs_pk3 = torch.linalg.solve(lhs, BtY)  # [P,K,3]
+    # Regularization (degree-weighted like your numpy version: exp(l))
+    reg_vector = []
+    for l in range(max_degree + 1):
+        reg_vector.extend(
+            [torch.exp(torch.tensor(float(l), device=A.device, dtype=A.dtype))]
+            * (2 * l + 1)
+        )
+    reg_vector = torch.stack(reg_vector)  # [n_coeffs]
 
-    # If a point has no valid samples, we'd like coeffs=0 (your loop did that).
-    # With only ridge and no data, solve gives 0 anyway because BtY is 0.
-    # Still, keep it explicit in case of weird NaNs in inputs.
-    has_obs = valid.sum(dim=0) > 0  # [P]
-    coeffs_pk3 = torch.where(
-        has_obs[:, None, None], coeffs_pk3, torch.zeros_like(coeffs_pk3)
+    AtA = AtA + lambda_reg * torch.diag(reg_vector).unsqueeze(0)  # broadcast over n
+
+    # Solve
+    coeffs = torch.linalg.solve(AtA, AtY)  # [n, n_coeffs, 3]
+
+    # If a point has zero valid views, force zeros (otherwise regularizer returns ~0 but be explicit)
+    valid_counts = valid.to(dtype=A.dtype).sum(dim=0)  # [n]
+    coeffs = torch.where(
+        valid_counts.view(n, 1, 1) > 0, coeffs, torch.zeros_like(coeffs)
     )
 
-    return coeffs_pk3.permute(0, 2, 1).contiguous()  # [P,3,K]
+    return coeffs
 
 
 if __name__ == "__main__":
-    colors = torch.load("colors.pt").float()
-    view_dirs = torch.load("view_dirs.pt").float()
-    valid = torch.load("valid.pt").float()
-    view_dirs /= view_dirs.norm(dim=-1, keepdim=True)
+    points = torch.load("points.pt").float()  # unused for fitting
+    colors = torch.load("colors.pt").float()  # -> [b, n, 3]
+    view_dirs = torch.load("view_dirs.pt").float()  # -> [b, n, 3]
+    valid = torch.load("valid.pt").float()  # -> [b, n]
+
+    # Fit degree-2 SH per point, per RGB channel
     sh_coeffs = fit_sh_coeffs_per_point(
-        colors, view_dirs, valid, degree=3, lambda_reg=1e-5
+        colors_rgb=colors,
+        view_dirs=view_dirs,
+        valid=valid,
+        max_degree=2,
+        lambda_reg=1e-3,
     )
-    print(sh_coeffs.shape)
+    sh_coeffs *= 0.28209479177387814  # make it supported by the rasterization code
+    opacities = torch.ones_like(points[:, :1])
+    scales = torch.ones_like(points) * 1e-3
+
+    means = points
+    colors = sh_coeffs
+    quats = torch.stack(
+        [
+            torch.tensor([1, 0, 0, 0]).cuda(),
+        ]
+        * means.shape[0]
+    ).float()
+
+    torch.save(
+        {
+            "means": means,
+            "harmonics": colors,
+            "rotations": quats,
+            "scales": scales,
+            "opacities": opacities,
+        },
+        "gaussians.pt",
+    )

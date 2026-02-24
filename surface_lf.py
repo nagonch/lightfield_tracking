@@ -90,7 +90,6 @@ class SurfaceLF:
         cam_centers = self.cameras.get_camera_center()
         view_vec = points_rep - cam_centers[:, None, :]
         view_dirs = view_vec / (view_vec.norm(dim=-1, keepdim=True) + eps)
-
         return colors, view_dirs, valid
 
 
