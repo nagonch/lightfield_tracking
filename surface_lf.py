@@ -1,6 +1,7 @@
 import torch
 from pytorch3d.renderer.cameras import PerspectiveCameras
 import torch.nn.functional as F
+from PIL import Image
 
 
 class SurfaceLF:
@@ -36,12 +37,16 @@ class SurfaceLF:
             R = R_pose
             T = t_pose
 
+        R[:, 0, :] *= -1
+        R[:, 1, :] *= -1
+        T[:, 0] *= -1
+        T[:, 1] *= -1
+
         focal_length = torch.stack([fx.expand(N), fy.expand(N)], dim=-1)
         principal_point = torch.stack([cx.expand(N), cy.expand(N)], dim=-1)
         image_size = torch.tensor([[H, W]], device=self.device, dtype=dtype).expand(
             N, -1
         )
-
         self.cameras = PerspectiveCameras(
             focal_length=focal_length,
             principal_point=principal_point,

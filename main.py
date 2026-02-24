@@ -10,6 +10,7 @@ from src.utilities import backproject_depth_to_pointcloud, Visualizer
 import numpy as np
 from src.disparity import get_LF_disparity
 from depth_estimator import DepthEstimator
+from surface_lf import SurfaceLF
 
 
 def main():
@@ -22,6 +23,12 @@ def main():
 
     v = Visualizer()
     for i, frame in enumerate(dataset):
+        if i == 0:
+            surface_lf = SurfaceLF(
+                K=torch.clone(frame["camera_matrix"]),
+                poses_4x4=torch.clone(frame["camera_poses_rel"].reshape(-1, 4, 4)),
+                image_size_hw=frame["LF"].shape[2:4],
+            )
         img_central = frame["LF"][s_size // 2, t_size // 2]
 
         camera_matrix = frame["camera_matrix"]
@@ -37,6 +44,12 @@ def main():
                 camera_matrix=camera_matrix,
             )
             pc = pc[(mask > 0).reshape(-1)]
+            surface_lf.get_points_directions(
+                points_world=pc,
+                images=frame["LF"]
+                .reshape(-1, *frame["LF"].shape[2:])
+                .permute(0, 3, 1, 2),
+            )
 
             depth_gt = frame["depth"]
             depth_gt = depth_gt * (mask > 0)
