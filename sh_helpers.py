@@ -1,4 +1,6 @@
+import math
 import torch
+import torch.nn.functional as F
 
 C0 = 0.28209479177387814
 C1 = 0.4886025119029199
@@ -105,6 +107,71 @@ def get_sh_bases_torch(view_dirs: torch.Tensor, max_degree: int) -> torch.Tensor
     return bases
 
 
+def pad_views_with_extremes(
+    colors_rgb: torch.Tensor,  # [b, n, 3]
+    view_dirs: torch.Tensor,  # [b, n, 3]
+    valid: torch.Tensor,  # [b, n]
+):
+    b, n, _ = colors_rgb.shape
+    k = int(math.isqrt(b))
+    if k * k != b:
+        raise ValueError(f"b must be a perfect square, got b={b}")
+
+    # reshape view grid
+    colors_g = colors_rgb.view(k, k, n, 3)
+    dirs_g = view_dirs.view(k, k, n, 3)
+    valid_g = valid.view(k, k, n).float()
+
+    # pad by replicating nearest neighbour
+    colors_p = F.pad(
+        colors_g.permute(2, 3, 0, 1), (1, 1, 1, 1), mode="replicate"
+    ).permute(2, 3, 0, 1)
+    dirs_p = F.pad(dirs_g.permute(2, 3, 0, 1), (1, 1, 1, 1), mode="replicate").permute(
+        2, 3, 0, 1
+    )
+    valid_p = (
+        F.pad(valid_g.permute(2, 0, 1).unsqueeze(1), (1, 1, 1, 1), mode="replicate")
+        .squeeze(1)
+        .permute(1, 2, 0)
+    )
+
+    # extreme directions (x=left/right, y=up/down)
+    device, dtype = view_dirs.device, view_dirs.dtype
+    up = torch.tensor([0.0, 1.0, 0.0], device=device, dtype=dtype)
+    dn = torch.tensor([0.0, -1.0, 0.0], device=device, dtype=dtype)
+    lf = torch.tensor([-1.0, 0.0, 0.0], device=device, dtype=dtype)
+    rt = torch.tensor([1.0, 0.0, 0.0], device=device, dtype=dtype)
+
+    def _norm(v):
+        return v / v.norm(dim=-1, keepdim=True).clamp_min(1e-12)
+
+    # overwrite borders (broadcast over n)
+    dirs_p[0, :, :, :] = up
+    dirs_p[-1, :, :, :] = dn
+    dirs_p[:, 0, :, :] = lf
+    dirs_p[:, -1, :, :] = rt
+
+    # corners
+    dirs_p[0, 0, :, :] = _norm(up + lf)
+    dirs_p[0, -1, :, :] = _norm(up + rt)
+    dirs_p[-1, 0, :, :] = _norm(dn + lf)
+    dirs_p[-1, -1, :, :] = _norm(dn + rt)
+
+    # border all valid
+    valid_p[0, :, :] = 1.0
+    valid_p[-1, :, :] = 1.0
+    valid_p[:, 0, :] = 1.0
+    valid_p[:, -1, :] = 1.0
+
+    # flatten back to [b_new, n, *]
+    k2 = k + 2
+    colors_out = colors_p.reshape(k2 * k2, n, 3)
+    dirs_out = dirs_p.reshape(k2 * k2, n, 3)
+    valid_out = valid_p.reshape(k2 * k2, n)
+
+    return colors_out, dirs_out, valid_out.bool()
+
+
 def fit_sh_coeffs_per_point(
     colors_rgb: torch.Tensor,  # [b, n, 3]
     view_dirs: torch.Tensor,  # [b, n, 3]
@@ -119,6 +186,8 @@ def fit_sh_coeffs_per_point(
     assert colors_rgb.ndim == 3 and colors_rgb.shape[-1] == 3
     assert view_dirs.shape == colors_rgb.shape
     assert valid.shape == colors_rgb.shape[:2]
+
+    colors_rgb, view_dirs, valid = pad_views_with_extremes(colors_rgb, view_dirs, valid)
 
     b, n, _ = colors_rgb.shape
     n_coeffs = (max_degree + 1) ** 2

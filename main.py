@@ -26,10 +26,10 @@ def rebase_poses(gt_poses, est_poses):
 
 def main():
     dataset = LFDataset(
-        "/home/ngoncharov/cvpr2026/datasets/LiFT_dataset/box_motion_prod"
+        "/home/ngoncharov/cvpr2026/datasets/LiFT_dataset/teabox_translation_prod"
     )
     s_size, t_size = dataset.metadata["n_views"]
-    segmentor = Segmentor(prompt="shiny metal jug.")
+    segmentor = Segmentor(prompt="shiny box.")
     depth_estimator = DepthEstimator(infer_gs=False)
     gt_poses = []
     est_poses = []
@@ -49,22 +49,34 @@ def main():
             camera_matrix=camera_matrix,
         )
         pc = pc[(mask > 0).reshape(-1)]
+        LF = frame["LF"]
+        LF_perm = LF.reshape(-1, LF.shape[2], LF.shape[3], 3)
+        LF_perm = LF_perm.permute(0, 3, 1, 2)
         if i == 0:
             surface_lf = SurfaceLF(
                 K=torch.clone(frame["camera_matrix"]),
                 poses_4x4=torch.clone(frame["camera_poses_rel"].reshape(-1, 4, 4)),
                 image_size_hw=frame["LF"].shape[2:4],
             )
+            surface_lf_repr = surface_lf.calculate(
+                pc,
+                LF_perm,
+            )
             tracker = Tracker(pc, color)
             est_poses.append(np.eye(4))
         else:
+            surface_lf_repr = surface_lf.calculate(
+                pc,
+                LF_perm,
+            )
             pose = tracker.track(pc, color)
             est_poses.append(pose)
         gt_poses.append(frame["object_pose"].cpu().numpy())
-        torch.save(
-            {"pc": pc, "color": color, "gt_pose": frame["object_pose"]},
-            f"frame_{i:04d}.pt",
-        )
+        torch.save(surface_lf_repr, "gaussians.pt")
+        # torch.save(
+        #     {"pc": pc, "color": color, "gt_pose": frame["object_pose"]},
+        #     f"frame_{i:04d}.pt",
+        # )
         v.add_point_cloud(f"pc_{i:04d}", pc.cpu().numpy(), color.cpu().numpy())
     est_poses = np.stack(est_poses, axis=0)
     gt_poses = np.stack(gt_poses, axis=0)
