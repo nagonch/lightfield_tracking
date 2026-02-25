@@ -67,6 +67,7 @@ class LFDataset:
             os.path.join(self.object_poses_dir, self.object_poses_fnames[idx])
         )
         object_pose = torch.tensor(object_pose, dtype=torch.float32)
+        object_pose = torch.linalg.inv(self.camera_poses[s_mid, t_mid]) @ object_pose
 
         masks_dir = os.path.join(frame_path, "masks")
         if os.path.exists(masks_dir):
