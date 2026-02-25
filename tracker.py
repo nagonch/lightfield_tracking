@@ -16,8 +16,9 @@ class Open3DColoredICPTracker:
 
         self.points_cur = points_torch.cpu().numpy()
         self.colors_cur = colors_torch.cpu().numpy()
-        self.pcd_cur = self.process_pointcloud(self.points_cur, self.colors_cur)
-        raise
+        self.pcd_cur, self.fpfh_cur = self.process_pointcloud(
+            self.points_cur, self.colors_cur
+        )
 
         self.pose_prev = np.eye(4)
         self.pose_rel_prev = np.eye(4)
@@ -36,10 +37,20 @@ class Open3DColoredICPTracker:
             )
         )
         pcd.orient_normals_towards_camera_location(np.array([0.0, 0.0, 0.0]))
-        self.visualize_pc(pcd)
-        return pcd
+        fpfh = o3d.pipelines.registration.compute_fpfh_feature(
+            pcd,
+            o3d.geometry.KDTreeSearchParamHybrid(
+                radius=self.voxel_size * 5.0, max_nn=100
+            ),
+        )
+        return pcd, fpfh
 
     def track(self, points_torch: torch.Tensor, colors_torch: torch.Tensor):
+        pcd, fpfh = self.process_pointcloud(
+            points_torch.cpu().numpy(), colors_torch.cpu().numpy()
+        )
+        self.visualize_pc(pcd)
+
         initial_guess = self.pose_rel_prev
         relative_transform = np.copy(initial_guess)  # todo: change
         new_pose = relative_transform @ self.pose_prev
