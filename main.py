@@ -10,7 +10,7 @@ from src.utilities import backproject_depth_to_pointcloud, Visualizer
 import numpy as np
 from src.disparity import get_LF_disparity
 from depth_estimator import DepthEstimator
-from surface_lf import SurfaceLF
+from surface_lf import SurfaceLF, SurfaceLFRig
 from tracking import Tracker
 
 
@@ -53,30 +53,19 @@ def main():
         LF_perm = LF.reshape(-1, LF.shape[2], LF.shape[3], 3)
         LF_perm = LF_perm.permute(0, 3, 1, 2)
         if i == 0:
-            surface_lf = SurfaceLF(
+            surface_lf_rig = SurfaceLFRig.build(
                 K=torch.clone(frame["camera_matrix"]),
                 poses_4x4=torch.clone(frame["camera_poses_rel"].reshape(-1, 4, 4)),
                 image_size_hw=frame["LF"].shape[2:4],
             )
-            surface_lf_repr = surface_lf.calculate(
-                pc,
-                LF_perm,
-            )
             tracker = Tracker(pc, color)
             est_poses.append(np.eye(4))
         else:
-            surface_lf_repr = surface_lf.calculate(
-                pc,
-                LF_perm,
-            )
             pose = tracker.track(pc, color)
             est_poses.append(pose)
+        surface_lf = SurfaceLF(rig=surface_lf_rig, pc=pc, images=LF_perm)
         gt_poses.append(frame["object_pose"].cpu().numpy())
-        torch.save(surface_lf_repr, "gaussians.pt")
-        # torch.save(
-        #     {"pc": pc, "color": color, "gt_pose": frame["object_pose"]},
-        #     f"frame_{i:04d}.pt",
-        # )
+        surface_lf_prev = surface_lf
         v.add_point_cloud(f"pc_{i:04d}", pc.cpu().numpy(), color.cpu().numpy())
     est_poses = np.stack(est_poses, axis=0)
     gt_poses = np.stack(gt_poses, axis=0)
