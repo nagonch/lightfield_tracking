@@ -4,6 +4,55 @@ import open3d as o3d
 import copy
 
 
+def rotation_angle_deg(R_err):
+    trace = np.trace(R_err, axis1=-2, axis2=-1)
+    cos_theta = np.clip((trace - 1) / 2, -1.0, 1.0)
+    return np.arccos(cos_theta) * (180.0 / np.pi)
+
+
+def pose_errors(gt_poses, est_poses):
+    assert (
+        gt_poses.shape == est_poses.shape
+    ), f"GT poses shape {gt_poses.shape} does not match estimated poses shape {est_poses.shape}"
+    assert gt_poses.shape[-2:] == (4, 4)
+
+    N = gt_poses.shape[0]
+
+    R_gt = gt_poses[:, :3, :3]
+    t_gt = gt_poses[:, :3, 3]
+    R_est = est_poses[:, :3, :3]
+    t_est = est_poses[:, :3, 3]
+    R_err_abs = R_est @ np.transpose(R_gt, (0, 2, 1))  # (N, 3, 3)
+    rot_err_abs = rotation_angle_deg(R_err_abs)  # (N,)
+    trans_err_abs = np.linalg.norm(t_est - t_gt, axis=1)  # (N,)
+    ate_rmse = np.sqrt((trans_err_abs**2).mean())
+
+    rel_rot_errs = []
+    rel_trans_errs = []
+    for i in range(N - 1):
+        T_gt_rel = np.linalg.inv(gt_poses[i]) @ gt_poses[i + 1]
+        T_est_rel = np.linalg.inv(est_poses[i]) @ est_poses[i + 1]
+
+        R_gt_rel = T_gt_rel[:3, :3]
+        R_est_rel = T_est_rel[:3, :3]
+        t_gt_rel = T_gt_rel[:3, 3]
+        t_est_rel = T_est_rel[:3, 3]
+
+        R_err_rel = R_est_rel @ R_gt_rel.transpose(-1, -2)
+        rel_rot_errs.append(rotation_angle_deg(R_err_rel))
+        rel_trans_errs.append(np.linalg.norm(t_est_rel - t_gt_rel))
+
+    rel_rot_errs = np.array(rel_rot_errs)
+    rel_trans_errs = np.array(rel_trans_errs)
+    return {
+        "mean_abs_rot_deg": rot_err_abs.mean().item(),
+        "mean_abs_trans": trans_err_abs.mean().item(),
+        "mean_rel_rot_deg": rel_rot_errs.mean().item(),
+        "mean_rel_trans": rel_trans_errs.mean().item(),
+        "ate_rmse": ate_rmse.item(),
+    }
+
+
 class Open3DColoredICPTracker:
     def __init__(
         self,
@@ -39,7 +88,8 @@ class Open3DColoredICPTracker:
                 radius=self.voxel_size * 2.5, max_nn=self.normals_neighbours
             )
         )
-        pcd.orient_normals_towards_camera_location(np.array([0.0, 0.0, 0.0]))
+        # pcd.orient_normals_towards_camera_location(np.array([0.0, 0.0, 0.0]))
+        pcd.orient_normals_consistent_tangent_plane(k=20)
         fpfh = o3d.pipelines.registration.compute_fpfh_feature(
             pcd,
             o3d.geometry.KDTreeSearchParamHybrid(
@@ -56,11 +106,9 @@ class Open3DColoredICPTracker:
         target_pcd,
         source_fpfh,
         target_fpfh,
-        initial_transform_guess,
     ):
         distance_threshold = self.voxel_size * 20
         source_pretransformed = o3d.geometry.PointCloud(source_pcd)
-        source_pretransformed.transform(initial_transform_guess)
 
         result = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
             source_pretransformed,
@@ -83,7 +131,7 @@ class Open3DColoredICPTracker:
                 100000, 0.999
             ),
         )
-        refined_transformation = result.transformation @ initial_transform_guess
+        refined_transformation = result.transformation
         return refined_transformation, result
 
     def refine_pose_colored_icp(
@@ -97,7 +145,7 @@ class Open3DColoredICPTracker:
         icp_criteria = o3d.pipelines.registration.ICPConvergenceCriteria(
             relative_fitness=1e-6,
             relative_rmse=1e-6,
-            max_iteration=50,
+            max_iteration=120,
         )
 
         icp_result = o3d.pipelines.registration.registration_colored_icp(
@@ -152,14 +200,14 @@ class Open3DColoredICPTracker:
         pcd, fpfh = self.process_pointcloud(
             points_torch.cpu().numpy(), colors_torch.cpu().numpy()
         )
-        rel_transform = self.pose_rel_prev
+        # rel_transform = self.pose_rel_prev
 
         rel_transform, ransac_result = self.get_coarse_pose(
             source_pcd=self.pcd_cur,  # prev
             target_pcd=pcd,  # cur
             source_fpfh=self.fpfh_cur,
             target_fpfh=fpfh,
-            initial_transform_guess=self.pose_rel_prev,
+            # initial_transform_guess=self.pose_rel_prev,
         )
         if self.debug:
             self.visualize_ransac_correspondences(self.pcd_cur, pcd, ransac_result)
@@ -317,6 +365,7 @@ if __name__ == "__main__":
     result_poses = np.stack(result_poses)
     gt_poses = np.stack(gt_poses)
     result_poses = rebase_poses(gt_poses, result_poses)
+    print(pose_errors(gt_poses, result_poses))
     visualize_gt_vs_est(
         gt_poses_4x4=gt_poses,
         est_poses_4x4=result_poses,
