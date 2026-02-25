@@ -405,7 +405,7 @@ if __name__ == "__main__":
         points, colors = frame["pc"], frame["color"]
         gt_pose = frame["gt_pose"].cpu().numpy()
         if i == 0:
-            tracker = Open3DColoredICPTracker(
+            tracker = Tracker(
                 points,
                 colors,
                 debug=False,
