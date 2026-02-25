@@ -6,6 +6,7 @@ from sh_helpers import fit_sh_coeffs_per_point
 from gsplat import rasterization
 from PIL import Image
 import numpy as np
+from dataclasses import dataclass
 
 
 def batch_rasterize(
@@ -48,39 +49,43 @@ def batch_rasterize(
     return rendered[0], depth[0]
 
 
-class SurfaceLF:
-    def __init__(
-        self,
+@dataclass(frozen=True)
+class SurfaceLFRig:
+    K: torch.Tensor
+    poses_4x4: torch.Tensor
+    image_size_hw: tuple[int, int]
+    pose_is_cam2world: bool
+    cameras: PerspectiveCameras
+
+    @staticmethod
+    def build(
         K: torch.Tensor,
         poses_4x4: torch.Tensor,
         image_size_hw: tuple[int, int],
         pose_is_cam2world: bool = True,
-    ):
-        self.K = K
-        self.poses_4x4 = poses_4x4
-        self.image_size_hw = image_size_hw
-        self.pose_is_cam2world = pose_is_cam2world
-        self.device = poses_4x4.device
+    ) -> "SurfaceLFRig":
+        device = poses_4x4.device
         dtype = poses_4x4.dtype
         N = poses_4x4.shape[0]
-        self.H, self.W = image_size_hw
+        H, W = image_size_hw
 
-        K = K.to(device=self.device, dtype=dtype)
-        fx = K[0, 0]
-        fy = K[1, 1]
-        cx = K[0, 2]
-        cy = K[1, 2]
+        K_shared = K.to(device=device, dtype=dtype)
+        fx, fy = K_shared[0, 0], K_shared[1, 1]
+        cx, cy = K_shared[0, 2], K_shared[1, 2]
 
-        R_pose = poses_4x4[:, :3, :3]  # [N,3,3]
-        t_pose = poses_4x4[:, :3, 3]  # [N,3]
+        R_pose = poses_4x4[:, :3, :3]
+        t_pose = poses_4x4[:, :3, 3]
 
         if pose_is_cam2world:
-            R = R_pose.transpose(1, 2)  # [N,3,3]
-            T = -(R @ t_pose.unsqueeze(-1)).squeeze(-1)  # [N,3]
+            R = R_pose.transpose(1, 2)
+            T = -(R @ t_pose.unsqueeze(-1)).squeeze(-1)
         else:
             R = R_pose
             T = t_pose
 
+        # your coordinate flips
+        R = R.clone()
+        T = T.clone()
         R[:, 0, :] *= -1
         R[:, 1, :] *= -1
         T[:, 0] *= -1
@@ -88,33 +93,62 @@ class SurfaceLF:
 
         focal_length = torch.stack([fx.expand(N), fy.expand(N)], dim=-1)
         principal_point = torch.stack([cx.expand(N), cy.expand(N)], dim=-1)
-        image_size = torch.tensor(
-            [[self.H, self.W]], device=self.device, dtype=dtype
-        ).expand(N, -1)
-        self.cameras = PerspectiveCameras(
+        image_size = torch.tensor([[H, W]], device=device, dtype=dtype).expand(N, -1)
+
+        cameras = PerspectiveCameras(
             focal_length=focal_length,
             principal_point=principal_point,
             R=R,
             T=T,
             in_ndc=False,
             image_size=image_size,
-            device=self.device,
+            device=device,
         )
 
-    def calculate(
-        self,
-        points_world: torch.Tensor,
-        images: torch.Tensor,
-        eps: float = 1e-8,
-        points_scale: float = 1e-3,
-    ):
+        return SurfaceLFRig(
+            K=K_shared,
+            poses_4x4=poses_4x4,
+            image_size_hw=image_size_hw,
+            pose_is_cam2world=pose_is_cam2world,
+            cameras=cameras,
+        )
+
+
+class SurfaceLF:
+    def __init__(self, rig: SurfaceLFRig, pc, images):
+        self.rig = rig
+        self.calculate(pc, images)
+
+    @property
+    def K(self):
+        return self.rig.K
+
+    @property
+    def cameras(self):
+        return self.rig.cameras
+
+    @property
+    def H(self):
+        return self.rig.image_size_hw[0]
+
+    @property
+    def W(self):
+        return self.rig.image_size_hw[1]
+
+    @property
+    def device(self):
+        return self.rig.K.device
+
+    def calculate(self, points_world, images, eps=1e-8, points_scale=1e-3):
         device = self.device
         N, _, H, W = images.shape
+
         points_rep = points_world.unsqueeze(0).expand(N, -1, -1)
         image_size = torch.tensor([[H, W]], device=device).expand(N, -1)
         points_screen = self.cameras.transform_points_screen(
             points_rep.float(), image_size=image_size
         )
+
         uv_px = points_screen[..., :2]
         z = points_screen[..., 2]
 
@@ -122,11 +156,12 @@ class SurfaceLF:
         in_bounds = (x >= 0) & (x <= (W - 1)) & (y >= 0) & (y <= (H - 1))
         in_front = z > 0
         valid = in_bounds & in_front
+
         grid_x = (x / (W - 1)) * 2 - 1
         grid_y = (y / (H - 1)) * 2 - 1
         grid = torch.stack([grid_x, grid_y], dim=-1).unsqueeze(2)
 
-        sampled = F.grid_sample(
+        sampled = torch.nn.functional.grid_sample(
             images, grid, mode="bilinear", padding_mode="zeros", align_corners=True
         )
         colors = sampled.squeeze(-1).permute(0, 2, 1).contiguous()
@@ -143,6 +178,7 @@ class SurfaceLF:
             max_degree=2,
             lambda_reg=1e-3,
         )
+
         opacities = torch.ones_like(points_world[:, 0])
         scales = torch.ones_like(points_world) * points_scale
         quats = torch.stack(
@@ -173,11 +209,13 @@ class SurfaceLF:
             height=self.H,
             width=self.W,
         )
-        depth[image.sum(axis=-1) == 0] = 0
-        depth = (1 / (depth + 1e-8)).cpu().numpy()
-        depth = np.clip(depth, 0, np.percentile(depth, 75))
-        depth_img = (depth - depth.min()) / (depth.max() - depth.min() + 1e-8)
-        Image.fromarray((depth_img * 255).astype(np.uint8)).save("rendered.png")
+        # depth[image.sum(axis=-1) == 0] = 0
+        # depth = (1 / (depth + 1e-8)).cpu().numpy()
+        # depth = np.clip(depth, 0, np.percentile(depth, 75))
+        # depth_img = (depth - depth.min()) / (depth.max() - depth.min() + 1e-8)
+        Image.fromarray((image * 255).cpu().numpy().astype(np.uint8)).save(
+            "rendered.png"
+        )
 
 
 if __name__ == "__main__":
