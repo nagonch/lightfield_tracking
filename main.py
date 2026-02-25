@@ -26,7 +26,7 @@ def rebase_poses(gt_poses, est_poses):
 
 def main():
     dataset = LFDataset(
-        "/home/ngoncharov/cvpr2026/datasets/LiFT_dataset/jug_motion_prod"
+        "/home/ngoncharov/cvpr2026/datasets/LiFT_dataset/box_motion_prod"
     )
     s_size, t_size = dataset.metadata["n_views"]
     segmentor = Segmentor(prompt="shiny metal jug.")
