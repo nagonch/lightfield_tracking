@@ -58,13 +58,48 @@ class Open3DColoredICPTracker:
         self,
         points_torch: torch.Tensor,
         colors_torch: torch.Tensor,
-        voxel_size=1e-3,
-        normals_neighbours=30,
         debug=False,
     ):
-        self.voxel_size = voxel_size
-        self.normals_neighbours = normals_neighbours
+        self.voxel_size = 1e-3
+        self.normals_neighbours = 30
         self.debug = debug
+        # process_pointcloud
+        self.normals_radius_mult = 2.5
+        self.orient_normals_consistent_k = 20
+        self.fpfh_radius_mult = 15.0
+        self.fpfh_max_nn = 200
+
+        # get_coarse_pose (RANSAC)
+        self.ransac_distance_mult = 50
+        self.ransac_mutual_filter = True
+        self.ransac_point_to_point_with_scaling = False
+        self.ransac_n = 4
+        self.ransac_edge_length_checker = 0.8
+        self.ransac_max_iterations = 200_000
+        self.ransac_confidence = 0.999
+
+        # refine_pose_colored_icp
+        self.icp_max_corr_mult = 5.0
+        self.icp_relative_fitness = 1e-6
+        self.icp_relative_rmse = 1e-6
+        self.icp_max_iteration = 120
+
+        # visualize_ransac_correspondences
+        self.vis_corr_fraction = 1e-2
+        self.vis_rng_seed = 0
+        self.vis_src_color = [1.0, 0.2, 0.2]
+        self.vis_tgt_color = [0.2, 1.0, 0.2]
+        self.vis_tgt_offset = [0.5, 0.0, 0.0]
+        self.vis_line_color = [0.1, 0.1, 1.0]
+        self.vis_frame_size = 0.2
+        self.vis_point_size = 0.5
+
+        # centroid_correction
+        self.centroid_alpha = 0.8
+
+        # ----------------------------
+        # Original initialization logic
+        # ----------------------------
         self.pcd_cur, self.fpfh_cur = self.process_pointcloud(
             points_torch.cpu().numpy(), colors_torch.cpu().numpy()
         )
@@ -85,15 +120,16 @@ class Open3DColoredICPTracker:
         pcd = pcd.voxel_down_sample(voxel_size=self.voxel_size)
         pcd.estimate_normals(
             o3d.geometry.KDTreeSearchParamHybrid(
-                radius=self.voxel_size * 2.5, max_nn=self.normals_neighbours
+                radius=self.voxel_size * self.normals_radius_mult,
+                max_nn=self.normals_neighbours,
             )
         )
         # pcd.orient_normals_towards_camera_location(np.array([0.0, 0.0, 0.0]))
-        pcd.orient_normals_consistent_tangent_plane(k=20)
+        pcd.orient_normals_consistent_tangent_plane(k=self.orient_normals_consistent_k)
         fpfh = o3d.pipelines.registration.compute_fpfh_feature(
             pcd,
             o3d.geometry.KDTreeSearchParamHybrid(
-                radius=self.voxel_size * 5.0, max_nn=100
+                radius=self.voxel_size * self.fpfh_radius_mult, max_nn=self.fpfh_max_nn
             ),
         )
         if self.debug:
@@ -107,7 +143,7 @@ class Open3DColoredICPTracker:
         source_fpfh,
         target_fpfh,
     ):
-        distance_threshold = self.voxel_size * 20
+        distance_threshold = self.voxel_size * self.ransac_distance_mult
         source_pretransformed = o3d.geometry.PointCloud(source_pcd)
 
         result = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
@@ -115,20 +151,22 @@ class Open3DColoredICPTracker:
             target_pcd,
             source_fpfh,
             target_fpfh,
-            mutual_filter=True,
+            mutual_filter=self.ransac_mutual_filter,
             max_correspondence_distance=distance_threshold,
             estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(
-                False
+                self.ransac_point_to_point_with_scaling
             ),
-            ransac_n=4,
+            ransac_n=self.ransac_n,
             checkers=[
-                o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(0.9),
+                o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(
+                    self.ransac_edge_length_checker
+                ),
                 o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(
                     distance_threshold
                 ),
             ],
             criteria=o3d.pipelines.registration.RANSACConvergenceCriteria(
-                100000, 0.999
+                self.ransac_max_iterations, self.ransac_confidence
             ),
         )
         refined_transformation = result.transformation
@@ -140,12 +178,12 @@ class Open3DColoredICPTracker:
         target_pcd: o3d.geometry.PointCloud,
         initial_transform_guess: np.ndarray,
     ):
-        max_corr_dist = self.voxel_size * 5.0
+        max_corr_dist = self.voxel_size * self.icp_max_corr_mult
 
         icp_criteria = o3d.pipelines.registration.ICPConvergenceCriteria(
-            relative_fitness=1e-6,
-            relative_rmse=1e-6,
-            max_iteration=120,
+            relative_fitness=self.icp_relative_fitness,
+            relative_rmse=self.icp_relative_rmse,
+            max_iteration=self.icp_max_iteration,
         )
 
         icp_result = o3d.pipelines.registration.registration_colored_icp(
@@ -164,24 +202,26 @@ class Open3DColoredICPTracker:
         self, source_pcd, target_pcd, ransac_result, title="RANSAC correspondences"
     ):
         corr = np.asarray(ransac_result.correspondence_set)
-        N = int(len(corr) * 1e-2)
+        N = int(len(corr) * self.vis_corr_fraction)
         if len(corr) > N:
-            rng = np.random.default_rng(0)
+            rng = np.random.default_rng(self.vis_rng_seed)
             corr = corr[rng.choice(len(corr), size=N, replace=False)]
 
-        src = copy.deepcopy(source_pcd).paint_uniform_color([1.0, 0.2, 0.2])
-        tgt = copy.deepcopy(target_pcd).paint_uniform_color([0.2, 1.0, 0.2])
+        src = copy.deepcopy(source_pcd).paint_uniform_color(self.vis_src_color)
+        tgt = copy.deepcopy(target_pcd).paint_uniform_color(self.vis_tgt_color)
         tgt.points = o3d.utility.Vector3dVector(
-            np.asarray(tgt.points) + np.array([0.5, 0.0, 0.0])
+            np.asarray(tgt.points) + np.array(self.vis_tgt_offset)
         )
 
         line_set = o3d.geometry.LineSet.create_from_point_cloud_correspondences(
             source_pcd, tgt, corr
         )
 
-        line_set.paint_uniform_color([0.1, 0.1, 1.0])
+        line_set.paint_uniform_color(self.vis_line_color)
 
-        frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2)
+        frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
+            size=self.vis_frame_size
+        )
         vis = o3d.visualization.Visualizer()
         vis.create_window(window_name=title)
 
@@ -191,7 +231,7 @@ class Open3DColoredICPTracker:
         vis.add_geometry(frame)
 
         render_options = vis.get_render_option()
-        render_options.point_size = 0.5
+        render_options.point_size = self.vis_point_size
 
         vis.run()
         vis.destroy_window()
@@ -206,7 +246,7 @@ class Open3DColoredICPTracker:
 
         t_centroid = c_cur - R @ c_prev
 
-        alpha = 0.8
+        alpha = self.centroid_alpha
         rel_transform[:3, 3] = (1 - alpha) * t_icp + alpha * t_centroid
         return rel_transform
 
