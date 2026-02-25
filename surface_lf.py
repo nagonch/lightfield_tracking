@@ -1,3 +1,5 @@
+from time import time
+from tqdm import tqdm
 import torch
 from pytorch3d.renderer.cameras import PerspectiveCameras
 import torch.nn.functional as F
@@ -219,4 +221,19 @@ class SurfaceLF:
 
 
 if __name__ == "__main__":
-    pass
+    K = torch.load("K.pt")
+    poses = torch.load("poses_4x4.pt")
+    pc = torch.load("pc.pt")
+    images = torch.load("images.pt")
+    surface_lf_rig = SurfaceLFRig.build(
+        K=K,
+        poses_4x4=poses,
+        image_size_hw=images.shape[2:4],
+    )
+    surface_lf = SurfaceLF(rig=surface_lf_rig, pc=pc, images=images)
+    times = []
+    for i in tqdm(range(1000)):
+        start = time()
+        surface_lf.rasterize()
+        times.append(time() - start)
+    print(f"Average fps: {1.0 / (sum(times) / len(times))}")
