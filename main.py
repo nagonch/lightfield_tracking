@@ -11,7 +11,7 @@ import numpy as np
 from src.disparity import get_LF_disparity
 from depth_estimator import DepthEstimator
 from surface_lf import SurfaceLF
-from tracking import Open3DColoredICPTracker
+from tracking import Tracker
 
 
 def rebase_poses(gt_poses, est_poses):
@@ -55,7 +55,7 @@ def main():
                 poses_4x4=torch.clone(frame["camera_poses_rel"].reshape(-1, 4, 4)),
                 image_size_hw=frame["LF"].shape[2:4],
             )
-            tracker = Open3DColoredICPTracker(pc, color)
+            tracker = Tracker(pc, color)
             est_poses.append(np.eye(4))
         else:
             pose = tracker.track(pc, color)
