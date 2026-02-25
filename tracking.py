@@ -196,18 +196,30 @@ class Open3DColoredICPTracker:
         vis.run()
         vis.destroy_window()
 
+    def centroid_correction(self, rel_transform, target_pcd):
+        rel_transform = np.copy(rel_transform)
+        R = rel_transform[:3, :3]
+        t_icp = rel_transform[:3, 3]
+
+        c_prev = np.mean(np.asarray(self.pcd_cur.points), axis=0)
+        c_cur = np.mean(np.asarray(target_pcd.points), axis=0)
+
+        t_centroid = c_cur - R @ c_prev
+
+        alpha = 0.8
+        rel_transform[:3, 3] = (1 - alpha) * t_icp + alpha * t_centroid
+        return rel_transform
+
     def track(self, points_torch: torch.Tensor, colors_torch: torch.Tensor):
         pcd, fpfh = self.process_pointcloud(
             points_torch.cpu().numpy(), colors_torch.cpu().numpy()
         )
-        # rel_transform = self.pose_rel_prev
 
         rel_transform, ransac_result = self.get_coarse_pose(
             source_pcd=self.pcd_cur,  # prev
             target_pcd=pcd,  # cur
             source_fpfh=self.fpfh_cur,
             target_fpfh=fpfh,
-            # initial_transform_guess=self.pose_rel_prev,
         )
         if self.debug:
             self.visualize_ransac_correspondences(self.pcd_cur, pcd, ransac_result)
@@ -217,6 +229,8 @@ class Open3DColoredICPTracker:
             target_pcd=pcd,  # cur
             initial_transform_guess=rel_transform,
         )
+        rel_transform = self.centroid_correction(rel_transform, pcd)
+
         new_pose = rel_transform @ self.pose_prev
 
         self.pose_prev = new_pose
@@ -346,6 +360,7 @@ if __name__ == "__main__":
     result_poses = []
     gt_poses = []
     for i in range(20):
+        print(i)
         frame = torch.load(f"frame_{i:04d}.pt")
         points, colors = frame["pc"], frame["color"]
         gt_pose = frame["gt_pose"].cpu().numpy()
