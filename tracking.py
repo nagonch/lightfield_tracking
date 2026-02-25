@@ -60,7 +60,7 @@ class Tracker:
         colors_torch: torch.Tensor,
         debug=False,
     ):
-        self.voxel_size = 1e-3
+        self.voxel_size = 2e-3
         self.normals_neighbours = 30
         self.debug = debug
         # process_pointcloud
@@ -109,6 +109,24 @@ class Tracker:
 
     def get_normals(self):
         return np.array(self.pcd_cur.normals)
+
+    def _robust_centroid(self, pcd: o3d.geometry.PointCloud) -> np.ndarray:
+        points_xyz = np.asarray(pcd.points)
+        if points_xyz.size == 0:
+            return np.zeros(3, dtype=np.float64)
+
+        trim = float(getattr(self, "centroid_trim", 0.10))
+        trim = np.clip(trim, 0.0, 0.49)
+
+        if trim <= 0.0 or points_xyz.shape[0] < 20:
+            # fall back to median for tiny clouds
+            return np.median(points_xyz, axis=0)
+
+        lo = np.quantile(points_xyz, trim, axis=0)
+        hi = np.quantile(points_xyz, 1.0 - trim, axis=0)
+        mask = np.all((points_xyz >= lo) & (points_xyz <= hi), axis=1)
+        pts = points_xyz[mask] if np.any(mask) else points_xyz
+        return np.mean(pts, axis=0)
 
     def visualize_pc(self, pcd):
         o3d.visualization.draw_geometries([pcd], point_show_normal=True)
@@ -241,8 +259,8 @@ class Tracker:
         R = rel_transform[:3, :3]
         t_icp = rel_transform[:3, 3]
 
-        c_prev = np.mean(np.asarray(self.pcd_cur.points), axis=0)
-        c_cur = np.mean(np.asarray(target_pcd.points), axis=0)
+        c_prev = self._robust_centroid(self.pcd_cur)
+        c_cur = self._robust_centroid(target_pcd)
 
         t_centroid = c_cur - R @ c_prev
 
