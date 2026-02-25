@@ -23,6 +23,9 @@ class Open3DColoredICPTracker:
         self.pose_prev = np.eye(4)
         self.pose_rel_prev = np.eye(4)
 
+    def get_normals(self):
+        return np.array(self.pcd_cur.normals)
+
     def visualize_pc(self, pcd):
         o3d.visualization.draw_geometries([pcd], point_show_normal=True)
 
@@ -83,6 +86,32 @@ class Open3DColoredICPTracker:
         refined_transformation = result.transformation @ initial_transform_guess
         return refined_transformation, result
 
+    def refine_pose_colored_icp(
+        self,
+        source_pcd: o3d.geometry.PointCloud,
+        target_pcd: o3d.geometry.PointCloud,
+        initial_transform_guess: np.ndarray,
+    ):
+        max_corr_dist = self.voxel_size * 5.0
+
+        icp_criteria = o3d.pipelines.registration.ICPConvergenceCriteria(
+            relative_fitness=1e-6,
+            relative_rmse=1e-6,
+            max_iteration=50,
+        )
+
+        icp_result = o3d.pipelines.registration.registration_colored_icp(
+            source=source_pcd,
+            target=target_pcd,
+            max_correspondence_distance=max_corr_dist,
+            init=initial_transform_guess,
+            estimation_method=o3d.pipelines.registration.TransformationEstimationForColoredICP(),
+            criteria=icp_criteria,
+        )
+
+        refined_transform = icp_result.transformation
+        return refined_transform, icp_result
+
     def visualize_ransac_correspondences(
         self, source_pcd, target_pcd, ransac_result, title="RANSAC correspondences"
     ):
@@ -134,6 +163,12 @@ class Open3DColoredICPTracker:
         )
         if self.debug:
             self.visualize_ransac_correspondences(self.pcd_cur, pcd, ransac_result)
+
+        rel_transform, icp_result = self.refine_pose_colored_icp(
+            source_pcd=pcd,
+            target_pcd=self.pcd_cur,
+            initial_transform_guess=rel_transform,
+        )
         new_pose = rel_transform @ self.pose_prev
 
         self.pose_prev = new_pose
@@ -141,7 +176,7 @@ class Open3DColoredICPTracker:
         self.pcd_cur = pcd
         self.fpfh_cur = fpfh
 
-        return new_pose, None
+        return new_pose, np.array(pcd.normals)
 
 
 if __name__ == "__main__":
@@ -152,8 +187,9 @@ if __name__ == "__main__":
             tracker = Open3DColoredICPTracker(
                 points,
                 colors,
-                debug=True,
+                debug=False,
             )
+            normals = tracker.get_normals()
         else:
             pose, normals = tracker.track(points, colors)
             print(pose)
