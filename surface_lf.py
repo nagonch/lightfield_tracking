@@ -51,7 +51,7 @@ def batch_rasterize(
     render_mode="RGB",
     backgrounds=None,
 ):
-    total_sh_degrees = int((colors.shape[1] // 3) ** 0.5) - 1
+    total_sh_degrees = 2
     rendered, alphas, info = rasterization(
         means=points.unsqueeze(0),
         quats=quats.unsqueeze(0),
@@ -237,13 +237,12 @@ class SurfaceLF:
 
         values = self.values.copy()
         values["harmonics"] = transform_shs(
-            values["harmonics"].float(), pose_transform[:3, :3].float()
+            values["harmonics"].float(), rel_pose[:3, :3].float()
         )
         points_world = self.values["means"]
         points_world = (
             pose_transform[:3, :3] @ points_world.T + pose_transform[:3, 3:4]
         ).T
-        values = self.values.copy()
         values["means"] = points_world
         return values
 
@@ -286,12 +285,14 @@ if __name__ == "__main__":
     times = []
     for i in tqdm(range(1000)):
         T = torch.eye(4).cuda()
-        angle = i * 0.1
-        R = Rotation.from_euler("y", angle).as_matrix()
+        angle = (i + 1) * 20
+        R = Rotation.from_euler("y", angle, degrees=True).as_matrix()
         T[:3, :3] = torch.from_numpy(R).float().cuda()
 
         start = time()
         values = surface_lf.transform(T)
+        torch.save(values, "gaussians.pt")
+        raise
         surface_lf.rasterize(i, values=values)
         times.append(time() - start)
     print(f"Average fps: {1.0 / (sum(times) / len(times))}")
