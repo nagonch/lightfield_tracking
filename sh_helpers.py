@@ -157,7 +157,7 @@ def fit_sh_coeffs_per_point(
     coeffs = torch.where(
         valid_counts.view(n, 1, 1) > 0, coeffs, torch.zeros_like(coeffs)
     )
-
+    coeffs *= 0.28209479177387814
     return coeffs
 
 
@@ -175,7 +175,6 @@ if __name__ == "__main__":
         max_degree=2,
         lambda_reg=1e-3,
     )
-    sh_coeffs *= 0.28209479177387814  # make it supported by the rasterization code
     opacities = torch.ones_like(points[:, :1])
     scales = torch.ones_like(points) * 1e-3
 

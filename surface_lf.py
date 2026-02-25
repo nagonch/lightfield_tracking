@@ -2,6 +2,7 @@ import torch
 from pytorch3d.renderer.cameras import PerspectiveCameras
 import torch.nn.functional as F
 from PIL import Image
+from sh_helpers import fit_sh_coeffs_per_point
 
 
 class SurfaceLF:
@@ -57,11 +58,12 @@ class SurfaceLF:
             device=self.device,
         )
 
-    def get_points_directions(
+    def calculate(
         self,
         points_world: torch.Tensor,
         images: torch.Tensor,
         eps: float = 1e-8,
+        points_scale: float = 1e-3,
     ):
         device = self.device
         N, _, H, W = images.shape
@@ -90,7 +92,33 @@ class SurfaceLF:
         cam_centers = self.cameras.get_camera_center()
         view_vec = points_rep - cam_centers[:, None, :]
         view_dirs = view_vec / (view_vec.norm(dim=-1, keepdim=True) + eps)
-        return colors, view_dirs, valid
+
+        sh_coeffs = fit_sh_coeffs_per_point(
+            colors.float(),
+            view_dirs.float(),
+            valid.float(),
+            max_degree=2,
+            lambda_reg=1e-3,
+        )
+        opacities = torch.ones_like(points_world[:, :1])
+        scales = torch.ones_like(points_world) * points_scale
+        quats = torch.stack(
+            [
+                torch.tensor([1, 0, 0, 0]).cuda(),
+            ]
+            * points_world.shape[0]
+        ).float()
+
+        result = (
+            {
+                "means": points_world,
+                "harmonics": sh_coeffs,
+                "rotations": quats,
+                "scales": scales,
+                "opacities": opacities,
+            },
+        )
+        return result
 
 
 if __name__ == "__main__":
