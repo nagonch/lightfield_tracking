@@ -246,7 +246,7 @@ class SurfaceLF:
         values["means"] = points_world
         return values
 
-    def rasterize(self, i, values=None):
+    def rasterize(self, values=None):
         if values is None:
             values = self.values
         image, depth = batch_rasterize(
@@ -260,13 +260,7 @@ class SurfaceLF:
             height=self.H,
             width=self.W,
         )
-        # depth[image.sum(axis=-1) == 0] = 0
-        # depth = (1 / (depth + 1e-8)).cpu().numpy()
-        # depth = np.clip(depth, 0, np.percentile(depth, 75))
-        # depth_img = (depth - depth.min()) / (depth.max() - depth.min() + 1e-8)
-        Image.fromarray((image * 255).cpu().numpy().astype(np.uint8)).save(
-            f"surf_lfs/rendered_{i}.png"
-        )
+        return image, depth
 
 
 if __name__ == "__main__":
