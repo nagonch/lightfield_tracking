@@ -3,6 +3,49 @@ from pytorch3d.renderer.cameras import PerspectiveCameras
 import torch.nn.functional as F
 from PIL import Image
 from sh_helpers import fit_sh_coeffs_per_point
+from gsplat import rasterization
+from PIL import Image
+import numpy as np
+
+
+def batch_rasterize(
+    points,
+    quats,
+    scales,
+    opacities,
+    colors,
+    poses,
+    camera_matrix,
+    height,
+    width,
+    render_mode="RGB",
+    backgrounds=None,
+):
+    total_sh_degrees = int((colors.shape[1] // 3) ** 0.5) - 1
+    rendered, alphas, info = rasterization(
+        means=points.unsqueeze(0),
+        quats=quats.unsqueeze(0),
+        scales=scales.unsqueeze(0),
+        opacities=opacities.unsqueeze(0),
+        colors=colors.unsqueeze(0),
+        viewmats=torch.linalg.inv(poses).unsqueeze(0),
+        Ks=torch.stack(
+            [
+                camera_matrix,
+            ]
+            * poses.shape[0]
+        ).unsqueeze(0),
+        width=width,
+        height=height,
+        sh_degree=total_sh_degrees,
+        packed=False,
+        render_mode=render_mode,
+        backgrounds=backgrounds,
+    )
+    rendered = rendered[0]
+    depth = rendered[:, :, :, -1]
+    rendered = rendered[:, :, :, :3]
+    return rendered[0], depth[0]
 
 
 class SurfaceLF:
@@ -20,7 +63,7 @@ class SurfaceLF:
         self.device = poses_4x4.device
         dtype = poses_4x4.dtype
         N = poses_4x4.shape[0]
-        H, W = image_size_hw
+        self.H, self.W = image_size_hw
 
         K = K.to(device=self.device, dtype=dtype)
         fx = K[0, 0]
@@ -45,9 +88,9 @@ class SurfaceLF:
 
         focal_length = torch.stack([fx.expand(N), fy.expand(N)], dim=-1)
         principal_point = torch.stack([cx.expand(N), cy.expand(N)], dim=-1)
-        image_size = torch.tensor([[H, W]], device=self.device, dtype=dtype).expand(
-            N, -1
-        )
+        image_size = torch.tensor(
+            [[self.H, self.W]], device=self.device, dtype=dtype
+        ).expand(N, -1)
         self.cameras = PerspectiveCameras(
             focal_length=focal_length,
             principal_point=principal_point,
@@ -100,7 +143,7 @@ class SurfaceLF:
             max_degree=2,
             lambda_reg=1e-3,
         )
-        opacities = torch.ones_like(points_world[:, :1])
+        opacities = torch.ones_like(points_world[:, 0])
         scales = torch.ones_like(points_world) * points_scale
         quats = torch.stack(
             [
@@ -109,16 +152,32 @@ class SurfaceLF:
             * points_world.shape[0]
         ).float()
 
-        result = (
-            {
-                "means": points_world,
-                "harmonics": sh_coeffs,
-                "rotations": quats,
-                "scales": scales,
-                "opacities": opacities,
-            },
+        self.values = {
+            "means": points_world,
+            "harmonics": sh_coeffs,
+            "rotations": quats,
+            "scales": scales,
+            "opacities": opacities,
+        }
+        return self.values
+
+    def rasterize(self):
+        image, depth = batch_rasterize(
+            points=self.values["means"].float(),
+            quats=self.values["rotations"].float(),
+            scales=self.values["scales"].float(),
+            opacities=self.values["opacities"].float(),
+            colors=self.values["harmonics"].float(),
+            poses=torch.eye(4).unsqueeze(0).cuda(),
+            camera_matrix=self.K,
+            height=self.H,
+            width=self.W,
         )
-        return result
+        depth[image.sum(axis=-1) == 0] = 0
+        depth = (1 / (depth + 1e-8)).cpu().numpy()
+        depth = np.clip(depth, 0, np.percentile(depth, 75))
+        depth_img = (depth - depth.min()) / (depth.max() - depth.min() + 1e-8)
+        Image.fromarray((depth_img * 255).astype(np.uint8)).save("rendered.png")
 
 
 if __name__ == "__main__":
