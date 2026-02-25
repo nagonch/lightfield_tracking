@@ -11,9 +11,11 @@ class Open3DColoredICPTracker:
         colors_torch: torch.Tensor,
         voxel_size=1e-3,
         normals_neighbours=30,
+        debug=False,
     ):
         self.voxel_size = voxel_size
         self.normals_neighbours = normals_neighbours
+        self.debug = debug
         self.pcd_cur, self.fpfh_cur = self.process_pointcloud(
             points_torch.cpu().numpy(), colors_torch.cpu().numpy()
         )
@@ -41,6 +43,8 @@ class Open3DColoredICPTracker:
                 radius=self.voxel_size * 5.0, max_nn=100
             ),
         )
+        if self.debug:
+            self.visualize_pc(pcd)
         return pcd, fpfh
 
     def get_coarse_pose(
@@ -128,8 +132,8 @@ class Open3DColoredICPTracker:
             target_fpfh=self.fpfh_cur,
             initial_transform_guess=self.pose_rel_prev,
         )
-
-        self.visualize_ransac_correspondences(self.pcd_cur, pcd, ransac_result)
+        if self.debug:
+            self.visualize_ransac_correspondences(self.pcd_cur, pcd, ransac_result)
         new_pose = rel_transform @ self.pose_prev
 
         self.pose_prev = new_pose
@@ -148,6 +152,7 @@ if __name__ == "__main__":
             tracker = Open3DColoredICPTracker(
                 points,
                 colors,
+                debug=True,
             )
         else:
             pose, normals = tracker.track(points, colors)
