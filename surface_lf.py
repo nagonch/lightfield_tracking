@@ -9,6 +9,33 @@ from gsplat import rasterization
 from PIL import Image
 import numpy as np
 from dataclasses import dataclass
+from e3nn import o3
+
+
+def transform_shs(shs_feat, rotation_matrix):
+    P = torch.tensor(
+        [[0, 0, 1], [1, 0, 0], [0, 1, 0]],
+        dtype=rotation_matrix.dtype,
+        device=rotation_matrix.device,
+    )
+    permuted_rotation_matrix = torch.linalg.inv(P) @ rotation_matrix @ P
+    rot_angles = o3._rotation.matrix_to_angles(permuted_rotation_matrix.cpu())
+
+    D_1 = o3.wigner_D(1, rot_angles[0], -rot_angles[1], rot_angles[2]).to(
+        device=rotation_matrix.device
+    )
+    D_2 = o3.wigner_D(2, rot_angles[0], -rot_angles[1], rot_angles[2]).to(
+        device=rotation_matrix.device
+    )
+    D_3 = o3.wigner_D(3, rot_angles[0], -rot_angles[1], rot_angles[2]).to(
+        device=rotation_matrix.device
+    )
+
+    shs_feat_1 = D_1 @ shs_feat[:, 1:4]
+    shs_feat_2 = D_2 @ shs_feat[:, 4:9]
+    # shs_feat_3 = D_3 @ shs_feat[:, 9:]
+    shs_feat = torch.concatenate([shs_feat[:, :1], shs_feat_1, shs_feat_2], dim=1)
+    return shs_feat
 
 
 def batch_rasterize(
@@ -119,6 +146,7 @@ class SurfaceLFRig:
 class SurfaceLF:
     def __init__(self, rig: SurfaceLFRig, pc, images):
         self.rig = rig
+        self.pose = torch.eye(4).cuda()
         self.calculate(pc, images)
 
     @property
@@ -144,6 +172,7 @@ class SurfaceLF:
     def calculate(self, points_world, images, eps=1e-8, points_scale=1e-3):
         device = self.device
         N, _, H, W = images.shape
+        self.pose[:3, 3] = points_world.mean(dim=0)
 
         points_rep = points_world.unsqueeze(0).expand(N, -1, -1)
         image_size = torch.tensor([[H, W]], device=device).expand(N, -1)
@@ -199,13 +228,34 @@ class SurfaceLF:
         }
         return self.values
 
-    def rasterize(self):
+    def transform(self, rel_pose):
+        rel_pose = rel_pose.to(self.values["means"].dtype)
+        points_pose_new = self.pose.to(rel_pose.dtype) @ rel_pose
+        pose_transform = points_pose_new @ torch.linalg.inv(
+            self.pose.to(rel_pose.dtype)
+        )
+
+        values = self.values.copy()
+        values["harmonics"] = transform_shs(
+            values["harmonics"].float(), pose_transform[:3, :3].float()
+        )
+        points_world = self.values["means"]
+        points_world = (
+            pose_transform[:3, :3] @ points_world.T + pose_transform[:3, 3:4]
+        ).T
+        values = self.values.copy()
+        values["means"] = points_world
+        return values
+
+    def rasterize(self, i, values=None):
+        if values is None:
+            values = self.values
         image, depth = batch_rasterize(
-            points=self.values["means"].float(),
-            quats=self.values["rotations"].float(),
-            scales=self.values["scales"].float(),
-            opacities=self.values["opacities"].float(),
-            colors=self.values["harmonics"].float(),
+            points=values["means"].float(),
+            quats=values["rotations"].float(),
+            scales=values["scales"].float(),
+            opacities=values["opacities"].float(),
+            colors=values["harmonics"].float(),
             poses=torch.eye(4).unsqueeze(0).cuda(),
             camera_matrix=self.K,
             height=self.H,
@@ -216,11 +266,13 @@ class SurfaceLF:
         # depth = np.clip(depth, 0, np.percentile(depth, 75))
         # depth_img = (depth - depth.min()) / (depth.max() - depth.min() + 1e-8)
         Image.fromarray((image * 255).cpu().numpy().astype(np.uint8)).save(
-            "rendered.png"
+            f"surf_lfs/rendered_{i}.png"
         )
 
 
 if __name__ == "__main__":
+    from scipy.spatial.transform import Rotation
+
     K = torch.load("K.pt")
     poses = torch.load("poses_4x4.pt")
     pc = torch.load("pc.pt")
@@ -233,7 +285,13 @@ if __name__ == "__main__":
     surface_lf = SurfaceLF(rig=surface_lf_rig, pc=pc, images=images)
     times = []
     for i in tqdm(range(1000)):
+        T = torch.eye(4).cuda()
+        angle = i * 0.1
+        R = Rotation.from_euler("y", angle).as_matrix()
+        T[:3, :3] = torch.from_numpy(R).float().cuda()
+
         start = time()
-        surface_lf.rasterize()
+        values = surface_lf.transform(T)
+        surface_lf.rasterize(i, values=values)
         times.append(time() - start)
     print(f"Average fps: {1.0 / (sum(times) / len(times))}")
