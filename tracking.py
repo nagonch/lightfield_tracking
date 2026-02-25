@@ -53,7 +53,7 @@ def pose_errors(gt_poses, est_poses):
     }
 
 
-class Open3DColoredICPTracker:
+class Tracker:
     def __init__(
         self,
         points_torch: torch.Tensor,
