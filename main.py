@@ -14,6 +14,9 @@ from surface_lf import SurfaceLF, SurfaceLFRig
 from tracking import Tracker, pose_errors
 from PIL import Image
 from optimizer import refine_pose, refine_pose_nuclear_rotation_multistart
+from loss import loss
+from loss import loss
+from utils import compose_pose
 
 
 def rebase_poses(gt_poses, est_poses):
@@ -27,7 +30,9 @@ def rebase_poses(gt_poses, est_poses):
 
 
 def main():
-    dataset = LFDataset("/home/ngoncharov/cvpr2026/datasets/LiFT_dataset/jug_tilt_prod")
+    dataset = LFDataset(
+        "/home/ngoncharov/cvpr2026/datasets/LiFT_dataset/teabox_translation_prod"
+    )
     s_size, t_size = dataset.metadata["n_views"]
     segmentor = Segmentor(prompt="shiny metal jug.")
     depth_estimator = DepthEstimator(infer_gs=False)
@@ -36,7 +41,7 @@ def main():
     est_poses = []
     poses_gt = [frame["object_pose"] for frame in dataset]
     poses_gt = torch.stack(poses_gt, dim=0)
-    v = Visualizer()
+    # v = Visualizer()
     for i, frame in enumerate(dataset):
         img_central = frame["LF"][s_size // 2, t_size // 2]
 
@@ -77,7 +82,14 @@ def main():
         image, depth = surface_lf.rasterize()
         if i > 0:
             pose_refined, final_loss = refine_pose(
-                surface_lf_prev, image, depth, pose_rel, i, mask_prev, mask
+                surface_lf_prev=surface_lf_prev,
+                pose_coarse=pose_rel,
+                image=image,
+                depth=depth,
+                mask=mask,
+                mask_prev=mask_prev,
+                loss_fn=loss,
+                compose_pose_fn=compose_pose,
             )
             pose_refined, final_loss = refine_pose_nuclear_rotation_multistart(
                 surface_lf_prev,
@@ -103,7 +115,7 @@ def main():
         surface_lf_prev = surface_lf
         mask_prev = mask
 
-        v.add_point_cloud(f"pc_{i:04d}", pc.cpu().numpy(), color.cpu().numpy())
+        # v.add_point_cloud(f"pc_{i:04d}", pc.cpu().numpy(), color.cpu().numpy())
     est_poses = np.stack(est_poses, axis=0)
     est_poses_coarse = np.stack(est_poses_coarse, axis=0)
     gt_poses = np.stack(gt_poses, axis=0)
@@ -112,10 +124,10 @@ def main():
     print("Pose errors (coarse):", pose_errors(est_poses_coarse, gt_poses))
     print("Pose errors (refined):", pose_errors(est_poses, gt_poses))
 
-    for i, (pose, gt_pose) in enumerate(zip(est_poses, gt_poses)):
-        v.add_frame(f"frame_{i:04d}", pose)
-        v.add_frame(f"frame_{i:04d}_gt", gt_pose)
-    v.run()
+    # for i, (pose, gt_pose) in enumerate(zip(est_poses, gt_poses)):
+    #     v.add_frame(f"frame_{i:04d}", pose)
+    #     v.add_frame(f"frame_{i:04d}_gt", gt_pose)
+    # v.run()
 
 
 if __name__ == "__main__":
