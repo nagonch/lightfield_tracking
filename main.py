@@ -12,6 +12,7 @@ from src.disparity import get_LF_disparity
 from depth_estimator import DepthEstimator
 from surface_lf import SurfaceLF, SurfaceLFRig
 from tracking import Tracker
+from PIL import Image
 
 
 def rebase_poses(gt_poses, est_poses):
@@ -26,10 +27,10 @@ def rebase_poses(gt_poses, est_poses):
 
 def main():
     dataset = LFDataset(
-        "/home/ngoncharov/cvpr2026/datasets/LiFT_dataset/teabox_translation_prod"
+        "/home/ngoncharov/cvpr2026/datasets/LiFT_dataset/box_motion_prod"
     )
     s_size, t_size = dataset.metadata["n_views"]
-    segmentor = Segmentor(prompt="shiny box.")
+    segmentor = Segmentor(prompt="white and blue box.")
     depth_estimator = DepthEstimator(infer_gs=False)
     gt_poses = []
     est_poses = []
@@ -64,15 +65,23 @@ def main():
         else:
             pose = torch.tensor(tracker.track(pc, color), dtype=torch.float32).cuda()
             est_poses.append(pose)
-        torch.save(pose, f"coarse_pose_{i:04d}.pt")
-        torch.save(mask, f"mask_{i:04d}.pt")
-        torch.save(torch.clone(frame["camera_matrix"]), "K.pt")
-        torch.save(pose, f"coarse_pose_{i:04d}.pt")
+        torch.save(pose, f"pts/coarse_pose_{i:04d}.pt")
+        torch.save(frame["object_pose"], f"pts/pose_gt{i:04d}.pt")
+        torch.save(mask, f"pts/mask_{i:04d}.pt")
+        torch.save(torch.clone(frame["camera_matrix"]), "pts/K.pt")
         torch.save(
-            torch.clone(frame["camera_poses_rel"].reshape(-1, 4, 4)), "poses_4x4.pt"
+            torch.clone(frame["camera_poses_rel"].reshape(-1, 4, 4)), "pts/poses_4x4.pt"
         )
-        torch.save(pc, f"pc_{i:04d}.pt")
-        torch.save(LF_perm, f"images_{i:04d}.pt")
+        torch.save(pc, f"pts/pc_{i:04d}.pt")
+        torch.save(LF_perm, f"pts/images_{i:04d}.pt")
+        Image.fromarray((mask.cpu().numpy() * 255).astype(np.uint8)).save(
+            f"pts/mask_{i:04d}.png"
+        )
+        Image.fromarray(
+            (
+                LF_perm.permute(0, 2, 3, 1)[LF_perm.shape[0] // 2].cpu().numpy() * 255
+            ).astype(np.uint8)
+        ).save(f"pts/image_{i:04d}.png")
         surface_lf = SurfaceLF(rig=surface_lf_rig, pc=pc, images=LF_perm)
         gt_poses.append(frame["object_pose"].cpu().numpy())
         surface_lf_prev = surface_lf
