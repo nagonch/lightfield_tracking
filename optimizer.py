@@ -2,36 +2,25 @@ from surface_lf import SurfaceLF, SurfaceLFRig
 import torch
 from PIL import Image
 import numpy as np
+import os
+import torch.nn.functional as F
+from loss import loss
 
 
-def loss(image_from, depth_from, image_to, depth_to, pose_coarse, pose_refined, i):
-    depth_loss = (depth_from - depth_to) ** 2
-    image_loss = (image_from - image_to) ** 2
-
-    depth_loss_image = (depth_loss - depth_loss.min()) / (
-        depth_loss.max() - depth_loss.min() + 1e-8
-    )
-    image_loss_image = (image_loss - image_loss.min()) / (
-        image_loss.max() - image_loss.min() + 1e-8
-    )
-    Image.fromarray((image_loss_image.cpu().numpy() * 255).astype(np.uint8)).save(
-        f"losses/image_loss_{i:04d}.png"
-    )
-    Image.fromarray((depth_loss_image.cpu().numpy() * 255).astype(np.uint8)).save(
-        f"losses/depth_loss{i:04d}.png"
-    )
-    Image.fromarray((image_to.cpu().numpy() * 255).astype(np.uint8)).save(
-        f"losses/target_image_{i:04d}.png"
-    )
-    Image.fromarray((image_from.cpu().numpy() * 255).astype(np.uint8)).save(
-        f"losses/rendered_image_{i:04d}.png"
-    )
-
-
-def refine_pose(surface_lf_prev, image, depth, pose_coarse, i):
+def refine_pose(surface_lf_prev, image, depth, pose_coarse, i, mask_prev, mask):
     surf_values = surface_lf_prev.transform(pose_coarse)
     surf_image, surf_depth = surface_lf_prev.rasterize(surf_values)
-    loss(surf_image, surf_depth, image, depth, pose_coarse, pose_coarse, i)
+    loss(
+        surf_image,
+        surf_depth,
+        mask_prev,
+        image,
+        depth,
+        mask,
+        pose_coarse,
+        pose_coarse,
+        i=i,
+    )
 
 
 if __name__ == "__main__":
@@ -55,8 +44,12 @@ if __name__ == "__main__":
             pc=torch.load(f"pc_{i:04d}.pt"),
             images=torch.load(f"images_{i:04d}.pt"),
         )
+        mask = torch.load(f"mask_{i:04d}.pt")
         # values = surface_lf.transform(pose_coarse)
         image, depth = surface_lf.rasterize()
         if i > 0:
-            pose_coarse = refine_pose(surface_lf_prev, image, depth, poses_rel[i], i)
+            pose_coarse = refine_pose(
+                surface_lf_prev, image, depth, poses_rel[i], i, mask_prev, mask
+            )
         surface_lf_prev = surface_lf
+        mask_prev = mask
