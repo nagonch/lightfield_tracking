@@ -93,17 +93,13 @@ def refine_pose(
         mask,
         pose_coarse,
         best_pose,
-        visualize=True,
-        i=i,
+        visualize=False,
+        # i=i,
     )
 
-    print(f"[Frame {i}] final_loss = {final_loss.item():.6f}")
+    print(f"[Frame {i}] final_loss = {final_loss:.6f}")
 
-    return best_pose, final_loss.item()
-
-
-import math
-import torch
+    return best_pose, final_loss
 
 
 def refine_pose_nuclear_rotation_multistart(
