@@ -144,9 +144,9 @@ class SurfaceLFRig:
 
 
 class SurfaceLF:
-    def __init__(self, rig: SurfaceLFRig, pc, images):
+    def __init__(self, rig: SurfaceLFRig, pc, images, current_pose):
         self.rig = rig
-        self.pose = torch.eye(4).cuda()
+        self.pose = current_pose
         self.calculate(pc, images)
 
     @property
@@ -172,7 +172,6 @@ class SurfaceLF:
     def calculate(self, points_world, images, eps=1e-8, points_scale=1e-3):
         device = self.device
         N, _, H, W = images.shape
-        self.pose[:3, 3] = points_world.mean(dim=0)
 
         points_rep = points_world.unsqueeze(0).expand(N, -1, -1)
         image_size = torch.tensor([[H, W]], device=device).expand(N, -1)
