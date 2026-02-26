@@ -29,8 +29,10 @@ def refine_pose(
     t_init = pose_coarse[:3, 3]
 
     # Convert initial rotation to axis-angle (approx small-angle assumption)
-    rotation_param = matrix_to_axis_angle(R_init, eps=1e-7)
-    translation_param = t_init.clone().detach().requires_grad_(True)
+    rotation_param = torch.zeros(
+        3, device=device, requires_grad=True
+    )  # axis-angle delta
+    translation_param = torch.zeros(3, device=device, requires_grad=True)
 
     optimizer = torch.optim.Adam(
         [
@@ -121,7 +123,7 @@ if __name__ == "__main__":
             rig=surface_lf_rig,
             pc=torch.load(f"pts/pc_{i:04d}.pt"),
             images=torch.load(f"pts/images_{i:04d}.pt"),
-            current_pose=poses[i - 1],
+            current_pose=poses[i],
         )
         mask = torch.load(f"pts/mask_{i:04d}.pt")
         image, depth = surface_lf.rasterize()
@@ -146,7 +148,7 @@ if __name__ == "__main__":
         )
     ):
         v.add_frame(f"refined_{i:04d}", pose)
-        v.add_frame(f"gt_{i:04d}", gt_pose)
+        # v.add_frame(f"gt_{i:04d}", gt_pose)
         v.add_frame(f"coarse_{i:04d}", coarse_pose)
     print(pose_errors(poses_gt.cpu().numpy(), poses_coarse))
     print(pose_errors(poses_gt.cpu().numpy(), poses_refined.cpu().numpy()))

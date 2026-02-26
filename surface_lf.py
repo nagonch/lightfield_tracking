@@ -229,23 +229,27 @@ class SurfaceLF:
 
     def transform(self, rel_pose, inplace=False):
         rel_pose = rel_pose.to(self.values["means"].dtype)
-        points_pose_new = rel_pose @ self.pose.to(rel_pose.dtype)
-        pose_transform = points_pose_new @ torch.linalg.inv(
-            self.pose.to(rel_pose.dtype)
-        )
 
         values = self.values.copy()
+
+        # rotate SH with the SAME rotation you apply to points
         values["harmonics"] = transform_shs(
             values["harmonics"].float(), rel_pose[:3, :3].float()
         )
-        points_world = self.values["means"]
-        points_world = (
-            (pose_transform[:3, :3] @ points_world.T) + pose_transform[:3, 3:4]
-        ).T
-        values["means"] = points_world
+
+        points0 = self.values["means"]  # pc0 in frame0
+        R = rel_pose[:3, :3]
+        t = rel_pose[:3, 3]
+        points1 = (R @ points0.T).T + t[None, :]
+        values["means"] = points1
+
         if inplace:
             self.values = values
-            self.pose = points_pose_new
+            # define self.pose consistently; if it represents frame transform accumulation:
+            self.pose = (
+                rel_pose @ self.pose
+            )  # (or drop pose entirely if you don't use it)
+
         return values
 
     def rasterize(self, values=None):
@@ -289,25 +293,46 @@ if __name__ == "__main__":
         image_size_hw=images.shape[2:4],
     )
     integrated_poses = []
-    for i, pose_rel in enumerate(poses_rel_gt):
-        if i == 0:
-            surface_lf = SurfaceLF(
-                rig=surface_lf_rig,
-                pc=pc,
-                images=images,
-                current_pose=poses_gt[0].cuda(),
-            )
-            pc = surface_lf.values["means"]
-            integrated_poses.append(poses_gt[0].cuda())
-        else:
-            values = surface_lf.transform(
-                pose_rel,
-                inplace=True,
-            )
-            pc = values["means"]
-            integrated_poses.append(pose_rel @ integrated_poses[-1])
-        v.add_point_cloud(f"pc_{i:04d}", pc.cpu().numpy())
-        v.add_frame(f"pose_{i:04d}", surface_lf.pose.cpu().numpy())
-        v.add_frame(f"pose_gt_{i:04d}", poses_gt[i].cpu().numpy())
-        v.add_frame(f"pose_integrated{i:04d}", poses_gt[i].cpu().numpy())
-    v.run()
+    surface_lf = SurfaceLF(
+        rig=surface_lf_rig,
+        pc=pc,
+        images=images,
+        current_pose=poses_gt[0].cuda(),
+    )
+    poses_gt = torch.load("pts/poses_gt.pt")
+    poses_rel = [torch.eye(4).cuda()]
+    for i in range(1, poses_gt.shape[0]):
+        pose_rel = poses[i] @ torch.linalg.inv(poses[i - 1])
+        poses_rel.append(pose_rel)
+    for i, pose_rel in enumerate(poses_rel):
+        start = time()
+        values = surface_lf.transform(pose_rel)
+        img, depth = surface_lf.rasterize(values=values)
+        from PIL import Image
+
+        Image.fromarray((img.cpu().numpy() * 255).astype(np.uint8)).save(
+            f"test_outputs/image_{i:04d}.png"
+        )
+
+    # for i, pose_rel in enumerate(poses_rel_gt):
+    #     if i == 0:
+    #         surface_lf = SurfaceLF(
+    #             rig=surface_lf_rig,
+    #             pc=pc,
+    #             images=images,
+    #             current_pose=poses_gt[0].cuda(),
+    #         )
+    #         pc = surface_lf.values["means"]
+    #         integrated_poses.append(poses_gt[0].cuda())
+    #     else:
+    #         values = surface_lf.transform(
+    #             pose_rel,
+    #             inplace=True,
+    #         )
+    #         pc = values["means"]
+    #         integrated_poses.append(pose_rel @ integrated_poses[-1])
+    #     v.add_point_cloud(f"pc_{i:04d}", pc.cpu().numpy())
+    #     v.add_frame(f"pose_{i:04d}", surface_lf.pose.cpu().numpy())
+    #     v.add_frame(f"pose_gt_{i:04d}", poses_gt[i].cpu().numpy())
+    #     v.add_frame(f"pose_integrated{i:04d}", poses_gt[i].cpu().numpy())
+    # v.run()
