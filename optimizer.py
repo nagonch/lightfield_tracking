@@ -47,8 +47,10 @@ def refine_pose(
     for iteration in range(num_iterations):
         optimizer.zero_grad()
 
-        pose_delta = compose_pose(rotation_param, translation_param)
-        pose_current = pose_delta @ pose_coarse
+        pose_delta = compose_pose(
+            rotation_param, translation_param
+        )  # local/body increment
+        pose_current = pose_coarse @ pose_delta  # right update
 
         surf_values = surface_lf_prev.transform(pose_current)
         surf_image, surf_depth = surface_lf_prev.rasterize(surf_values)
