@@ -58,6 +58,7 @@ class Tracker:
         self,
         points_torch: torch.Tensor,
         colors_torch: torch.Tensor,
+        pose0: torch.Tensor | None = None,
         debug=False,
     ):
         self.voxel_size = 2e-3
@@ -104,7 +105,7 @@ class Tracker:
             points_torch.cpu().numpy(), colors_torch.cpu().numpy()
         )
 
-        self.pose_prev = np.eye(4)
+        self.pose_prev = pose0.cpu().numpy() if pose0 is not None else np.eye(4)
         self.pose_rel_prev = np.eye(4)
 
     def get_normals(self):

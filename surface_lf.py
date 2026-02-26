@@ -227,7 +227,7 @@ class SurfaceLF:
         }
         return self.values
 
-    def transform(self, rel_pose, inplace=True):
+    def transform(self, rel_pose, inplace=False):
         rel_pose = rel_pose.to(self.values["means"].dtype)
         points_pose_new = rel_pose @ self.pose.to(rel_pose.dtype)
         pose_transform = points_pose_new @ torch.linalg.inv(
