@@ -16,7 +16,7 @@ def refine_pose(
     i,
     mask_prev,
     mask,
-    num_iterations: int = 50,
+    num_iterations: int = 100,
     lr_translation: float = 1e-2,
     lr_rotation: float = 5e-3,
 ):
