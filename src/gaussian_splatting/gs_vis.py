@@ -105,11 +105,11 @@ def visualize_gs(means, colors, quats=None, scales=None, opacities=None):
 
 
 if __name__ == "__main__":
-    gaussians = torch.load("/home/ngoncharov/cvpr2026/LiFT-6DoF/gaussians.pt")[0]
+    gaussians = torch.load("/home/ngoncharov/cvpr2026/LiFT-6DoF/gaussians.pt")
     visualize_gs(
         gaussians["means"].float(),
         gaussians["harmonics"].float(),
         quats=gaussians["rotations"].float(),
         scales=gaussians["scales"].float(),
-        opacities=gaussians["opacities"][:, 0].float(),
+        opacities=gaussians["opacities"].float(),
     )

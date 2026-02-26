@@ -260,6 +260,7 @@ class SurfaceLF:
             height=self.H,
             width=self.W,
         )
+        image = torch.clamp(image, 0.0, 1.0)
         return image, depth
 
 

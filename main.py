@@ -59,10 +59,20 @@ def main():
                 image_size_hw=frame["LF"].shape[2:4],
             )
             tracker = Tracker(pc, color)
-            est_poses.append(np.eye(4))
-        else:
-            pose = tracker.track(pc, color)
+            pose = torch.eye(4).cuda()
             est_poses.append(pose)
+        else:
+            pose = torch.tensor(tracker.track(pc, color), dtype=torch.float32).cuda()
+            est_poses.append(pose)
+        torch.save(pose, f"coarse_pose_{i:04d}.pt")
+        torch.save(mask, f"mask_{i:04d}.pt")
+        torch.save(torch.clone(frame["camera_matrix"]), "K.pt")
+        torch.save(pose, f"coarse_pose_{i:04d}.pt")
+        torch.save(
+            torch.clone(frame["camera_poses_rel"].reshape(-1, 4, 4)), "poses_4x4.pt"
+        )
+        torch.save(pc, f"pc_{i:04d}.pt")
+        torch.save(LF_perm, f"images_{i:04d}.pt")
         surface_lf = SurfaceLF(rig=surface_lf_rig, pc=pc, images=LF_perm)
         gt_poses.append(frame["object_pose"].cpu().numpy())
         surface_lf_prev = surface_lf
