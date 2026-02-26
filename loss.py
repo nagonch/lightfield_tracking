@@ -175,11 +175,11 @@ def loss(
 
     # Return both total and the breakdown so you can print / log them.
     return total_loss, {
-        "rgb_loss": rgb_loss.detach(),
-        "depth_loss": depth_loss.detach(),
-        "mask_loss": mask_loss.detach(),
-        "pose_anchor": pose_anchor.detach(),
-        "valid_pixels": valid_den.detach(),
+        "rgb_loss": rgb_loss,
+        "depth_loss": depth_loss,
+        "mask_loss": mask_loss,
+        "pose_anchor": pose_anchor,
+        "valid_pixels": valid_den,
     }
 
 
