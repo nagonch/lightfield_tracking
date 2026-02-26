@@ -227,9 +227,9 @@ class SurfaceLF:
         }
         return self.values
 
-    def transform(self, rel_pose):
+    def transform(self, rel_pose, inplace=True):
         rel_pose = rel_pose.to(self.values["means"].dtype)
-        points_pose_new = self.pose.to(rel_pose.dtype) @ rel_pose
+        points_pose_new = rel_pose @ self.pose.to(rel_pose.dtype)
         pose_transform = points_pose_new @ torch.linalg.inv(
             self.pose.to(rel_pose.dtype)
         )
@@ -240,9 +240,12 @@ class SurfaceLF:
         )
         points_world = self.values["means"]
         points_world = (
-            pose_transform[:3, :3] @ points_world.T + pose_transform[:3, 3:4]
+            (pose_transform[:3, :3] @ points_world.T) + pose_transform[:3, 3:4]
         ).T
         values["means"] = points_world
+        if inplace:
+            self.values = values
+            self.pose = points_pose_new
         return values
 
     def rasterize(self, values=None):
@@ -265,28 +268,46 @@ class SurfaceLF:
 
 if __name__ == "__main__":
     from scipy.spatial.transform import Rotation
+    from src.utilities import Visualizer
 
-    K = torch.load("K.pt")
-    poses = torch.load("poses_4x4.pt")
-    pc = torch.load("pc.pt")
-    images = torch.load("images.pt")
+    K = torch.load("pts/K.pt")
+    poses = torch.load("pts/poses_4x4.pt")
+    poses_gt = torch.load("pts/poses_gt.pt")
+    pc = torch.load("pts/pc_0000.pt")
+    images = torch.load("pts/images_0000.pt")
+
+    v = Visualizer()
+
+    poses_rel_gt = [torch.eye(4).cuda()]
+    for i in range(1, poses_gt.shape[0]):
+        pose_rel_gt = poses_gt[i] @ torch.linalg.inv(poses_gt[i - 1])
+        poses_rel_gt.append(pose_rel_gt)
+
     surface_lf_rig = SurfaceLFRig.build(
         K=K,
         poses_4x4=poses,
         image_size_hw=images.shape[2:4],
     )
-    surface_lf = SurfaceLF(rig=surface_lf_rig, pc=pc, images=images)
-    times = []
-    for i in tqdm(range(1000)):
-        T = torch.eye(4).cuda()
-        angle = (i + 1) * 20
-        R = Rotation.from_euler("y", angle, degrees=True).as_matrix()
-        T[:3, :3] = torch.from_numpy(R).float().cuda()
-
-        start = time()
-        values = surface_lf.transform(T)
-        torch.save(values, "gaussians.pt")
-        raise
-        surface_lf.rasterize(i, values=values)
-        times.append(time() - start)
-    print(f"Average fps: {1.0 / (sum(times) / len(times))}")
+    integrated_poses = []
+    for i, pose_rel in enumerate(poses_rel_gt):
+        if i == 0:
+            surface_lf = SurfaceLF(
+                rig=surface_lf_rig,
+                pc=pc,
+                images=images,
+                current_pose=poses_gt[0].cuda(),
+            )
+            pc = surface_lf.values["means"]
+            integrated_poses.append(poses_gt[0].cuda())
+        else:
+            values = surface_lf.transform(
+                pose_rel,
+                inplace=True,
+            )
+            pc = values["means"]
+            integrated_poses.append(pose_rel @ integrated_poses[-1])
+        v.add_point_cloud(f"pc_{i:04d}", pc.cpu().numpy())
+        v.add_frame(f"pose_{i:04d}", surface_lf.pose.cpu().numpy())
+        v.add_frame(f"pose_gt_{i:04d}", poses_gt[i].cpu().numpy())
+        v.add_frame(f"pose_integrated{i:04d}", poses_gt[i].cpu().numpy())
+    v.run()
