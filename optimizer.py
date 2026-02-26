@@ -9,97 +9,88 @@ from utils import compose_pose, matrix_to_axis_angle
 from tracking import rebase_poses, pose_errors
 from src.utilities import Visualizer
 import math
+import matplotlib.pyplot as plt
 
 
 def refine_pose(
     surface_lf_prev,
-    image,
-    depth,
-    pose_coarse,
-    i,
-    mask_prev,
-    mask,
-    num_iterations: int = 50,
-    lr_translation: float = 1e-2,
-    lr_rotation: float = 5e-3,
+    pose_coarse: torch.Tensor,
+    image: torch.Tensor,
+    depth: torch.Tensor,
+    mask: torch.Tensor,
+    mask_prev: torch.Tensor,
+    loss_fn,
+    compose_pose_fn,
+    num_iterations: int = 500,
+    learning_rate_rot: float = 1e-3,
+    learning_rate_trans: float = 1e-3,
+    grad_clip_norm: float = 10.0,
+    device: str | torch.device | None = None,
 ):
-    device = image.device
+    if device is None:
+        device = pose_coarse.device
 
-    # --- Initialize parameters from coarse pose ---
-    R_init = pose_coarse[:3, :3]
-    t_init = pose_coarse[:3, 3]
+    pose_coarse = pose_coarse.to(device)
+    image = image.to(device)
+    depth = depth.to(device)
+    mask = mask.to(device)
+    mask_prev = mask_prev.to(device)
 
-    # Convert initial rotation to axis-angle (approx small-angle assumption)
-    rotation_param = torch.zeros(
-        3, device=device, requires_grad=True
-    )  # axis-angle delta
-    translation_param = torch.zeros(3, device=device, requires_grad=True)
+    rotation_param = (
+        torch.zeros(3, device=device) + torch.randn(3, device=device) * 1e-4
+    ).requires_grad_()
+
+    translation_param = (
+        torch.zeros(3, device=device) + torch.randn(3, device=device) * 1e-4
+    ).requires_grad_()
 
     optimizer = torch.optim.Adam(
         [
-            {"params": translation_param, "lr": lr_translation},
-            {"params": rotation_param, "lr": lr_rotation},
+            {"params": [rotation_param], "lr": float(learning_rate_rot)},
+            {"params": [translation_param], "lr": float(learning_rate_trans)},
         ]
     )
 
-    best_loss = float("inf")
-    best_pose = pose_coarse.clone()
+    best_loss_value = float("inf")
+    best_pose = pose_coarse.detach().clone()
 
-    for iteration in range(num_iterations):
-        optimizer.zero_grad()
+    for _ in range(int(num_iterations)):
+        optimizer.zero_grad(set_to_none=True)
 
-        pose_delta = compose_pose(
-            rotation_param, translation_param
-        )  # local/body increment
-        pose_current = pose_coarse @ pose_delta  # right update
+        pose_delta = compose_pose_fn(rotation_param, translation_param)
+        pose_current = pose_coarse @ pose_delta
 
         surf_values = surface_lf_prev.transform(pose_current)
         surf_image, surf_depth = surface_lf_prev.rasterize(surf_values)
 
-        loss_value, _ = loss(
+        loss_value, _ = loss_fn(
             surf_image,
             surf_depth,
             mask_prev,
             image,
             depth,
             mask,
-            pose_coarse,  # anchor
-            pose_current,  # refined
-            visualize=False,
-            i=0,
+            pose_coarse,
+            pose_current,
+            False,
+            0,
         )
 
         loss_value.backward()
 
-        # Optional: gradient clipping for stability
-        torch.nn.utils.clip_grad_norm_([rotation_param, translation_param], 10.0)
+        if grad_clip_norm is not None and grad_clip_norm > 0:
+            torch.nn.utils.clip_grad_norm_(
+                [rotation_param, translation_param], float(grad_clip_norm)
+            )
 
         optimizer.step()
 
-        if loss_value.item() < best_loss:
-            best_loss = loss_value.item()
+        loss_scalar = float(loss_value.detach().cpu().item())
+        if loss_scalar < best_loss_value:
+            best_loss_value = loss_scalar
             best_pose = pose_current.detach().clone()
-
-    # --- Final visualization pass ---
-    surf_values = surface_lf_prev.transform(best_pose)
-    surf_image, surf_depth = surface_lf_prev.rasterize(surf_values)
-
-    final_loss, breakdown = loss(
-        surf_image,
-        surf_depth,
-        mask_prev,
-        image,
-        depth,
-        mask,
-        pose_coarse,
-        best_pose,
-        visualize=False,
-        # i=i,
-    )
-
-    print(f"[Frame {i}] final_loss = {final_loss:.6f}")
-
-    return best_pose, final_loss
+    print(f"refine_pose final_loss = {best_loss_value:.6f}")
+    return best_pose, best_loss_value
 
 
 def refine_pose_nuclear_rotation_multistart(
@@ -257,7 +248,14 @@ if __name__ == "__main__":
         image, depth = surface_lf.rasterize()
         if i > 0:
             pose_refined, final_loss = refine_pose(
-                surface_lf_prev, image, depth, poses_rel[i], i, mask_prev, mask
+                surface_lf_prev=surface_lf_prev,
+                pose_coarse=poses_rel[i],
+                image=image,
+                depth=depth,
+                mask=mask,
+                mask_prev=mask_prev,
+                loss_fn=loss,
+                compose_pose_fn=compose_pose,
             )
             pose_refined, final_loss = refine_pose_nuclear_rotation_multistart(
                 surface_lf_prev,

@@ -238,9 +238,7 @@ class SurfaceLF:
         )
 
         points0 = self.values["means"]  # pc0 in frame0
-        R = rel_pose[:3, :3]
-        t = rel_pose[:3, 3]
-        points1 = (R @ points0.T).T + t[None, :]
+        points1 = (rel_pose[:3, :3] @ points0.T).T + rel_pose[:3, 3][None, :]
         values["means"] = points1
 
         if inplace:
