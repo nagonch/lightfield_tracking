@@ -219,7 +219,7 @@ def refine_pose_nuclear_rotation_multistart(
 
 
 if __name__ == "__main__":
-    v = Visualizer()
+    # v = Visualizer()
     K = torch.load("pts/K.pt")
     poses = torch.load("pts/poses_4x4.pt")
     poses_object = torch.load("pts/poses_gt.pt")
@@ -284,16 +284,16 @@ if __name__ == "__main__":
 
     poses_coarse = rebase_poses(poses_gt.cpu().numpy(), poses_coarse.cpu().numpy())
     # poses_refined = rebase_poses(poses_gt.cpu().numpy(), poses_refined.cpu().numpy())
-    for i, (coarse_pose, pose, gt_pose) in enumerate(
-        zip(
-            poses_coarse,
-            poses_refined.cpu().numpy(),
-            poses_gt.cpu().numpy(),
-        )
-    ):
-        v.add_frame(f"refined_{i:04d}", pose)
-        # v.add_frame(f"gt_{i:04d}", gt_pose)
-        v.add_frame(f"coarse_{i:04d}", coarse_pose)
+    # for i, (coarse_pose, pose, gt_pose) in enumerate(
+    #     zip(
+    #         poses_coarse,
+    #         poses_refined.cpu().numpy(),
+    #         poses_gt.cpu().numpy(),
+    #     )
+    # ):
+    #     v.add_frame(f"refined_{i:04d}", pose)
+    #     # v.add_frame(f"gt_{i:04d}", gt_pose)
+    #     v.add_frame(f"coarse_{i:04d}", coarse_pose)
     print(pose_errors(poses_gt.cpu().numpy(), poses_coarse))
     print(pose_errors(poses_gt.cpu().numpy(), poses_refined.cpu().numpy()))
-    v.run()
+    # v.run()

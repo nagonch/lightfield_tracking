@@ -227,18 +227,32 @@ class SurfaceLF:
         }
         return self.values
 
-    def transform(self, rel_pose, inplace=False):
+    def transform(self, rel_pose, inplace=False, pivot="origin"):
         rel_pose = rel_pose.to(self.values["means"].dtype)
 
         values = self.values.copy()
 
-        # rotate SH with the SAME rotation you apply to points
+        # Rotate SH with the same rotation you apply to object geometry.
         values["harmonics"] = transform_shs(
             values["harmonics"].float(), rel_pose[:3, :3].float()
         )
 
-        points0 = self.values["means"]  # pc0 in frame0
-        points1 = (rel_pose[:3, :3] @ points0.T).T + rel_pose[:3, 3][None, :]
+        R = rel_pose[:3, :3]
+        t = rel_pose[:3, 3]
+
+        points0 = self.values["means"]  # canonical object points
+        if pivot == "centroid":
+            pivot_point = points0.mean(dim=0, keepdim=True)
+        elif pivot == "origin":
+            pivot_point = torch.zeros(
+                (1, 3), dtype=points0.dtype, device=points0.device
+            )
+        else:
+            raise ValueError(f"Unsupported pivot mode: {pivot}")
+
+        # Object-frame rotation around pivot, then translation.
+        points_centered = points0 - pivot_point
+        points1 = (R @ points_centered.T).T + pivot_point + t[None, :]
         values["means"] = points1
 
         if inplace:

@@ -21,6 +21,7 @@ else
         -v "$HOME/.Xauthority:/root/.Xauthority:rw" \
         --network=host \
         --ipc=host \
+        --user "$(id -u):$(id -g)" \
         -e DISPLAY="$DISPLAY" \
         -w "$(pwd)" \
         lift6dof:latest bash
