@@ -38,21 +38,29 @@ def main():
         for x in os.listdir(f"/home/ngoncharov/cvpr2026/datasets/{dataset_name}/")
         if not (x.startswith("car_") or x.endswith(".sh") or x == "prod_ref")
     ]
-
+    segmentor = Segmentor(prompt=None)
+    depth_estimator = DepthEstimator(infer_gs=False)
     for sequence in sequences:
         print(f"Estimating on {sequence}")
         os.makedirs(f"{results_dir}/{dataset_name}", exist_ok=True)
+        if os.path.exists(f"{results_dir}/{dataset_name}/{sequence}.npy"):
+            print(f"Skipping {sequence}, exists")
+            continue
         dataset = LFDataset(
             f"/home/ngoncharov/cvpr2026/datasets/{dataset_name}/{sequence}"
         )
         s_size, t_size = dataset.metadata["n_views"]
-        segmentor = Segmentor(prompt="shiny metal jug.")
-        depth_estimator = DepthEstimator(infer_gs=False)
+        with open(
+            f"/home/ngoncharov/cvpr2026/datasets/{dataset_name}/{sequence}/gdino_prompt.txt",
+            "r",
+            encoding="utf-8",
+        ) as text_file:
+            prompt = text_file.read()
+        segmentor.prompt = prompt
         gt_poses = []
         est_poses_coarse = []
         est_poses = []
-        poses_gt = [frame["object_pose"] for frame in dataset]
-        poses_gt = torch.stack(poses_gt, dim=0)
+        poses_gt = []
         for i, frame in enumerate(dataset):
             print(i)
             img_central = frame["LF"][s_size // 2, t_size // 2]
@@ -72,7 +80,15 @@ def main():
             LF = frame["LF"]
             LF_perm = LF.reshape(-1, LF.shape[2], LF.shape[3], 3)
             LF_perm = LF_perm.permute(0, 3, 1, 2)
+            poses_gt.append(frame["object_pose"])
             if i == 0:
+                print(img_central.shape, mask.shape)
+                Image.fromarray(
+                    ((mask.float()[..., None] * img_central) * 255)
+                    .cpu()
+                    .numpy()
+                    .astype(np.uint8),
+                ).save("img_debug.png")
                 surface_lf_rig = SurfaceLFRig.build(
                     K=torch.clone(frame["camera_matrix"]),
                     poses_4x4=torch.clone(frame["camera_poses_rel"].reshape(-1, 4, 4)),
