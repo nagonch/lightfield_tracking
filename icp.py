@@ -1,5 +1,6 @@
 import numpy as np
 import open3d as o3d
+from src.utilities import Visualizer
 
 
 def rebase_poses(gt_poses, est_poses):
@@ -141,7 +142,7 @@ def icp_track(pc_curr, pc_prev, color_curr, color_prev, pose_prev):
     T_rel = icp_result.transformation
 
     # --- lift back to world ---
-    T_world = np.linalg.inv(pose_prev) @ T_rel @ pose_prev
+    T_world = pose_prev @ T_rel
 
     return T_world
 
@@ -151,6 +152,7 @@ import torch
 if __name__ == "__main__":
     gt_poses = []
     est_poses = []
+    v = Visualizer()
     for i in range(20):
         print(i)
         frame = torch.load(f"frame_{str(i).zfill(4)}.pt")
@@ -167,7 +169,11 @@ if __name__ == "__main__":
             est_poses.append(pose_new_world)
             pc_prev = pc
             color_prev = color
-    gt_poses = np.stack(gt_poses, axis=0)
-    est_poses = np.stack(est_poses, axis=0)
-    # est_poses = rebase_poses(gt_poses, est_poses)
+    gt_poses = np.stack(gt_poses, axis=0)[:-4]
+    est_poses = np.stack(est_poses, axis=0)[:-4]
+    est_poses = rebase_poses(gt_poses, est_poses)
     print(pose_errors(gt_poses, est_poses))
+    for i, (pose_est, pose_gt) in enumerate(zip(est_poses, gt_poses)):
+        v.add_frame(f"{i}_est", pose_est)
+        v.add_frame(f"{i}_gt", pose_gt)
+    v.run()
