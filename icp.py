@@ -62,7 +62,7 @@ def pose_errors(gt_poses, est_poses):
     }
 
 
-def icp_track(pc_curr, pc_prev, color_curr, color_prev, pose_prev):
+def icp_track(pc_curr, pc_prev, color_curr, color_prev, pose_prev, pose_rel_prev=None):
     voxel_size = 2e-3
 
     def process_pointcloud(points, colors):
@@ -95,14 +95,23 @@ def icp_track(pc_curr, pc_prev, color_curr, color_prev, pose_prev):
         points_transformed = (pose_inv @ points_h.T).T[:, :3]
         return points_transformed
 
-    # --- move both to same frame ---
+    def rotation_angle_deg_single(R):
+        trace = np.trace(R)
+        cos_theta = np.clip((trace - 1.0) / 2.0, -1.0, 1.0)
+        return float(np.degrees(np.arccos(cos_theta)))
+
+    # --- move both to same frame (pose_prev-origin) ---
     pc_prev_origin = transform_to_origin(pc_prev, pose_prev)
     pc_curr_origin = transform_to_origin(pc_curr, pose_prev)
 
     pcd_prev, fpfh_prev = process_pointcloud(pc_prev_origin, color_prev)
     pcd_curr, fpfh_curr = process_pointcloud(pc_curr_origin, color_curr)
 
-    # --- coarse alignment ---
+    # --- constant motion prior in this origin frame ---
+    has_motion_prior = pose_rel_prev is not None
+    T_motion_init = pose_rel_prev if has_motion_prior else np.eye(4)
+
+    # --- optional: keep a global init as backup (RANSAC) ---
     ransac_result = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
         pcd_prev,
         pcd_curr,
@@ -122,8 +131,10 @@ def icp_track(pc_curr, pc_prev, color_curr, color_prev, pose_prev):
         ],
         criteria=o3d.pipelines.registration.RANSACConvergenceCriteria(200000, 0.999),
     )
+    T_ransac_init = ransac_result.transformation
 
-    T_init = ransac_result.transformation
+    # --- choose init: prefer motion prior; else ransac ---
+    T_init = T_motion_init if has_motion_prior else T_ransac_init
 
     # --- refine with colored ICP ---
     icp_result = o3d.pipelines.registration.registration_colored_icp(
@@ -139,12 +150,50 @@ def icp_track(pc_curr, pc_prev, color_curr, color_prev, pose_prev):
         ),
     )
 
-    T_rel = icp_result.transformation
+    T_rel_icp = icp_result.transformation
+
+    # --- quality / sanity gating ---
+    # Tune these based on your sequence.
+    min_fitness = 0.20
+    max_inlier_rmse = voxel_size * 2.5
+    max_trans_jump = 0.05  # 5 cm per frame
+    max_rot_jump_deg = 20.0  # 20 deg per frame
+
+    t_jump = float(np.linalg.norm(T_rel_icp[:3, 3]))
+    rot_jump_deg = rotation_angle_deg_single(T_rel_icp[:3, :3])
+
+    icp_good = (
+        (icp_result.fitness >= min_fitness)
+        and (icp_result.inlier_rmse <= max_inlier_rmse)
+        and (t_jump <= max_trans_jump)
+        and (rot_jump_deg <= max_rot_jump_deg)
+    )
+
+    if icp_good:
+        T_rel = T_rel_icp
+    else:
+        # fallback 1: if we had a motion prior, trust it
+        if has_motion_prior:
+            T_rel = T_motion_init
+        else:
+            # fallback 2: try ICP from ransac init (if we started from something else)
+            icp_ransac = o3d.pipelines.registration.registration_colored_icp(
+                source=pcd_prev,
+                target=pcd_curr,
+                max_correspondence_distance=voxel_size * 5.0,
+                init=T_ransac_init,
+                estimation_method=o3d.pipelines.registration.TransformationEstimationForColoredICP(),
+                criteria=o3d.pipelines.registration.ICPConvergenceCriteria(
+                    relative_fitness=1e-6,
+                    relative_rmse=1e-6,
+                    max_iteration=120,
+                ),
+            )
+            T_rel = icp_ransac.transformation
 
     # --- lift back to world ---
     T_world = pose_prev @ T_rel
-
-    return T_world
+    return T_world, T_rel
 
 
 import torch
@@ -153,6 +202,7 @@ if __name__ == "__main__":
     gt_poses = []
     est_poses = []
     v = Visualizer()
+    pose_rel_prev = None
     for i in range(20):
         print(i)
         frame = torch.load(f"frame_{str(i).zfill(4)}.pt")
@@ -165,12 +215,19 @@ if __name__ == "__main__":
             pc = frame["pc"].cpu().numpy()
             color = frame["color"].cpu().numpy()
             pose_prev = est_poses[-1]
-            pose_new_world = icp_track(pc, pc_prev, color, color_prev, pose_prev)
+            pose_new_world, pose_rel_prev = icp_track(
+                pc,
+                pc_prev,
+                color,
+                color_prev,
+                pose_prev,
+                pose_rel_prev=pose_rel_prev,
+            )
             est_poses.append(pose_new_world)
             pc_prev = pc
             color_prev = color
-    gt_poses = np.stack(gt_poses, axis=0)[:-4]
-    est_poses = np.stack(est_poses, axis=0)[:-4]
+    gt_poses = np.stack(gt_poses, axis=0)
+    est_poses = np.stack(est_poses, axis=0)
     est_poses = rebase_poses(gt_poses, est_poses)
     print(pose_errors(gt_poses, est_poses))
     for i, (pose_est, pose_gt) in enumerate(zip(est_poses, gt_poses)):
