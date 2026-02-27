@@ -297,7 +297,7 @@ class Tracker:
         self.pcd_cur = pcd
         self.fpfh_cur = fpfh
 
-        return new_pose
+        return rel_transform
 
 
 def rebase_poses(gt_poses, est_poses):
@@ -416,7 +416,9 @@ def visualize_gt_vs_est(
 
 
 if __name__ == "__main__":
-    result_poses = []
+    result_poses = [
+        np.eye(4),
+    ]
     gt_poses = []
     for i in range(20):
         print(i)
@@ -428,26 +430,17 @@ if __name__ == "__main__":
                 points,
                 colors,
                 debug=False,
+                pose0=frame["gt_pose"],
             )
             normals = tracker.get_normals()
             first_frame_points = points.cpu().numpy()
             first_frame_colors = colors.cpu().numpy()
+            gt_poses.append(gt_pose)
         else:
-            pose = tracker.track(points, colors)
-            result_poses.append(pose)
+            pose_rel = tracker.track(points, colors)
+            result_poses.append(pose_rel @ result_poses[-1])
             gt_poses.append(gt_pose)
     result_poses = np.stack(result_poses)
     gt_poses = np.stack(gt_poses)
     result_poses = rebase_poses(gt_poses, result_poses)
     print(pose_errors(gt_poses, result_poses))
-    visualize_gt_vs_est(
-        gt_poses_4x4=gt_poses,
-        est_poses_4x4=result_poses,
-        first_frame_points=first_frame_points,
-        first_frame_colors=first_frame_colors,
-        gt_color=(0.0, 0.8, 0.0),
-        est_color=(0.9, 0.1, 0.1),
-        show_frames=True,
-        frame_size=0.05,
-        frame_stride=1,
-    )
