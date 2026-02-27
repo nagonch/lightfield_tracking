@@ -62,136 +62,226 @@ def pose_errors(gt_poses, est_poses):
     }
 
 
-def icp_track(pc_curr, pc_prev, color_curr, color_prev, pose_prev, pose_rel_prev=None):
-    voxel_size = 2e-3
+def icp_track(
+    pc_curr,
+    pc_prev,
+    color_curr,
+    color_prev,
+    pose_prev,
+    pose_rel_prev=None,
+):
+    # ---- helpers ----
+    def transform_to_origin(
+        points_xyz: np.ndarray, pose_world: np.ndarray
+    ) -> np.ndarray:
+        pose_world_inv = np.linalg.inv(pose_world)
+        points_h = np.concatenate(
+            [points_xyz, np.ones((points_xyz.shape[0], 1))], axis=1
+        )
+        return (pose_world_inv @ points_h.T).T[:, :3]
 
-    def process_pointcloud(points, colors):
+    def rotation_angle_deg_single(R: np.ndarray) -> float:
+        trace_val = float(np.trace(R))
+        cos_theta = np.clip((trace_val - 1.0) / 2.0, -1.0, 1.0)
+        return float(np.degrees(np.arccos(cos_theta)))
+
+    def preprocess(points_xyz: np.ndarray, colors_rgb: np.ndarray, voxel_size: float):
         pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(points)
-        pcd.colors = o3d.utility.Vector3dVector(colors)
+        pcd.points = o3d.utility.Vector3dVector(points_xyz)
+        pcd.colors = o3d.utility.Vector3dVector(colors_rgb)
 
         pcd = pcd.voxel_down_sample(voxel_size=voxel_size)
 
+        # stronger normals than your original (you had radius ~ 2.5*voxel)
+        normal_radius = voxel_size * 6.0
         pcd.estimate_normals(
-            o3d.geometry.KDTreeSearchParamHybrid(
-                radius=voxel_size * 2.5,
-                max_nn=30,
-            )
+            o3d.geometry.KDTreeSearchParamHybrid(radius=normal_radius, max_nn=50)
         )
-        pcd.orient_normals_consistent_tangent_plane(k=20)
+        # optional but usually helps stability
+        pcd.orient_normals_consistent_tangent_plane(k=30)
+        return pcd
 
-        fpfh = o3d.pipelines.registration.compute_fpfh_feature(
+    def compute_fpfh(pcd: o3d.geometry.PointCloud, voxel_size: float):
+        feat_radius = voxel_size * 15.0
+        return o3d.pipelines.registration.compute_fpfh_feature(
             pcd,
-            o3d.geometry.KDTreeSearchParamHybrid(
-                radius=voxel_size * 15.0,
-                max_nn=200,
-            ),
+            o3d.geometry.KDTreeSearchParamHybrid(radius=feat_radius, max_nn=200),
         )
-        return pcd, fpfh
 
-    def transform_to_origin(points, pose):
-        pose_inv = np.linalg.inv(pose)
-        points_h = np.concatenate([points, np.ones((points.shape[0], 1))], axis=1)
-        points_transformed = (pose_inv @ points_h.T).T[:, :3]
-        return points_transformed
+    def run_multiscale_icp(
+        source_base: o3d.geometry.PointCloud,
+        target_base: o3d.geometry.PointCloud,
+        initial_transform: np.ndarray,
+        voxel_scales: list[float],
+    ):
+        T = initial_transform.copy()
 
-    def rotation_angle_deg_single(R):
-        trace = np.trace(R)
-        cos_theta = np.clip((trace - 1.0) / 2.0, -1.0, 1.0)
-        return float(np.degrees(np.arccos(cos_theta)))
+        for voxel_size in voxel_scales:
+            src = source_base.voxel_down_sample(voxel_size)
+            tgt = target_base.voxel_down_sample(voxel_size)
 
-    # --- move both to same frame (pose_prev-origin) ---
+            # normals at this scale
+            normal_radius = voxel_size * 6.0
+            for pcd in (src, tgt):
+                pcd.estimate_normals(
+                    o3d.geometry.KDTreeSearchParamHybrid(
+                        radius=normal_radius, max_nn=50
+                    )
+                )
+                pcd.orient_normals_consistent_tangent_plane(k=30)
+
+            max_corr = voxel_size * 4.0
+
+            # 1) colored ICP (good for small residuals + texture)
+            colored = o3d.pipelines.registration.registration_colored_icp(
+                source=src,
+                target=tgt,
+                max_correspondence_distance=max_corr,
+                init=T,
+                estimation_method=o3d.pipelines.registration.TransformationEstimationForColoredICP(),
+                criteria=o3d.pipelines.registration.ICPConvergenceCriteria(
+                    relative_fitness=1e-6, relative_rmse=1e-6, max_iteration=60
+                ),
+            )
+            T = colored.transformation
+
+            # 2) point-to-plane ICP refinement (this is the rotation driver)
+            p2l = o3d.pipelines.registration.registration_icp(
+                source=src,
+                target=tgt,
+                max_correspondence_distance=max_corr,
+                init=T,
+                estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPlane(),
+                criteria=o3d.pipelines.registration.ICPConvergenceCriteria(
+                    max_iteration=40
+                ),
+            )
+            T = p2l.transformation
+
+        # score on finest scale using point-to-plane ICP result fields (fitness/rmse)
+        # (we re-run one quick eval ICP to get comparable metrics)
+        voxel_finest = voxel_scales[-1]
+        src_f = source_base.voxel_down_sample(voxel_finest)
+        tgt_f = target_base.voxel_down_sample(voxel_finest)
+        normal_radius = voxel_finest * 6.0
+        for pcd in (src_f, tgt_f):
+            pcd.estimate_normals(
+                o3d.geometry.KDTreeSearchParamHybrid(radius=normal_radius, max_nn=50)
+            )
+        eval_icp = o3d.pipelines.registration.registration_icp(
+            source=src_f,
+            target=tgt_f,
+            max_correspondence_distance=voxel_finest * 4.0,
+            init=T,
+            estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPlane(),
+            criteria=o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=1),
+        )
+        return T, float(eval_icp.fitness), float(eval_icp.inlier_rmse)
+
+    # ---- put both clouds into the same frame: pose_prev-origin ----
     pc_prev_origin = transform_to_origin(pc_prev, pose_prev)
     pc_curr_origin = transform_to_origin(pc_curr, pose_prev)
 
-    pcd_prev, fpfh_prev = process_pointcloud(pc_prev_origin, color_prev)
-    pcd_curr, fpfh_curr = process_pointcloud(pc_curr_origin, color_curr)
+    # ---- multi-scale schedule (coarse -> fine) ----
+    # tune these; start coarser if your motion is bigger
+    voxel_finest = 0.002  # 2mm (your original)
+    voxel_scales = [voxel_finest * 4.0, voxel_finest * 2.0, voxel_finest]
 
-    # --- constant motion prior in this origin frame ---
+    # preprocess at finest (we downsample inside the pyramid)
+    pcd_prev_base = preprocess(pc_prev_origin, color_prev, voxel_finest)
+    pcd_curr_base = preprocess(pc_curr_origin, color_curr, voxel_finest)
+
+    # ---- build candidate initializations ----
     has_motion_prior = pose_rel_prev is not None
     T_motion_init = pose_rel_prev if has_motion_prior else np.eye(4)
 
-    # --- optional: keep a global init as backup (RANSAC) ---
+    # feature init (RANSAC) at coarse scale to help rotation when texture/geometry is ambiguous
+    pcd_prev_r = pcd_prev_base.voxel_down_sample(voxel_finest * 4.0)
+    pcd_curr_r = pcd_curr_base.voxel_down_sample(voxel_finest * 4.0)
+    for pcd in (pcd_prev_r, pcd_curr_r):
+        pcd.estimate_normals(
+            o3d.geometry.KDTreeSearchParamHybrid(
+                radius=(voxel_finest * 4.0) * 6.0, max_nn=50
+            )
+        )
+
+    fpfh_prev = compute_fpfh(pcd_prev_r, voxel_finest * 4.0)
+    fpfh_curr = compute_fpfh(pcd_curr_r, voxel_finest * 4.0)
+
     ransac_result = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
-        pcd_prev,
-        pcd_curr,
+        pcd_prev_r,
+        pcd_curr_r,
         fpfh_prev,
         fpfh_curr,
         mutual_filter=True,
-        max_correspondence_distance=voxel_size * 50,
+        max_correspondence_distance=(voxel_finest * 4.0) * 5.0,
         estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(
             False
         ),
         ransac_n=4,
         checkers=[
-            o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(0.8),
+            o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(0.9),
             o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(
-                voxel_size * 50
+                (voxel_finest * 4.0) * 5.0
             ),
         ],
-        criteria=o3d.pipelines.registration.RANSACConvergenceCriteria(200000, 0.999),
+        criteria=o3d.pipelines.registration.RANSACConvergenceCriteria(100000, 0.999),
     )
     T_ransac_init = ransac_result.transformation
 
-    # --- choose init: prefer motion prior; else ransac ---
-    T_init = T_motion_init if has_motion_prior else T_ransac_init
+    # Try both: motion prior + ransac, then keep better
+    candidates = []
+    candidates.append(("motion", T_motion_init))
+    candidates.append(("ransac", T_ransac_init))
 
-    # --- refine with colored ICP ---
-    icp_result = o3d.pipelines.registration.registration_colored_icp(
-        source=pcd_prev,
-        target=pcd_curr,
-        max_correspondence_distance=voxel_size * 5.0,
-        init=T_init,
-        estimation_method=o3d.pipelines.registration.TransformationEstimationForColoredICP(),
-        criteria=o3d.pipelines.registration.ICPConvergenceCriteria(
-            relative_fitness=1e-6,
-            relative_rmse=1e-6,
-            max_iteration=120,
-        ),
-    )
+    best = None
+    for name, T_init in candidates:
+        T_refined, fitness, rmse = run_multiscale_icp(
+            source_base=pcd_prev_base,
+            target_base=pcd_curr_base,
+            initial_transform=T_init,
+            voxel_scales=voxel_scales,
+        )
+        # score: prefer high fitness, then low rmse
+        score = (fitness, -rmse)
+        if (best is None) or (score > best["score"]):
+            best = {
+                "name": name,
+                "T": T_refined,
+                "fitness": fitness,
+                "rmse": rmse,
+                "score": score,
+            }
 
-    T_rel_icp = icp_result.transformation
+    T_rel_icp = best["T"]
 
-    # --- quality / sanity gating ---
-    # Tune these based on your sequence.
+    # ---- sanity gating (loosen rotation gate) ----
     min_fitness = 0.20
-    max_inlier_rmse = voxel_size * 2.5
-    max_trans_jump = 0.05  # 5 cm per frame
-    max_rot_jump_deg = 20.0  # 20 deg per frame
+    max_inlier_rmse = voxel_finest * 3.0
+
+    max_trans_jump = 0.10  # 10 cm per frame (was 5 cm)
+    max_rot_jump_deg = 60.0  # was 20 deg
 
     t_jump = float(np.linalg.norm(T_rel_icp[:3, 3]))
     rot_jump_deg = rotation_angle_deg_single(T_rel_icp[:3, :3])
 
     icp_good = (
-        (icp_result.fitness >= min_fitness)
-        and (icp_result.inlier_rmse <= max_inlier_rmse)
+        (best["fitness"] >= min_fitness)
+        and (best["rmse"] <= max_inlier_rmse)
         and (t_jump <= max_trans_jump)
         and (rot_jump_deg <= max_rot_jump_deg)
     )
 
-    if icp_good:
-        T_rel = T_rel_icp
-    else:
-        # fallback 1: if we had a motion prior, trust it
+    if not icp_good:
+        # fallback: trust motion prior if available, else keep ICP anyway (you can choose)
         if has_motion_prior:
             T_rel = T_motion_init
         else:
-            # fallback 2: try ICP from ransac init (if we started from something else)
-            icp_ransac = o3d.pipelines.registration.registration_colored_icp(
-                source=pcd_prev,
-                target=pcd_curr,
-                max_correspondence_distance=voxel_size * 5.0,
-                init=T_ransac_init,
-                estimation_method=o3d.pipelines.registration.TransformationEstimationForColoredICP(),
-                criteria=o3d.pipelines.registration.ICPConvergenceCriteria(
-                    relative_fitness=1e-6,
-                    relative_rmse=1e-6,
-                    max_iteration=120,
-                ),
-            )
-            T_rel = icp_ransac.transformation
+            T_rel = T_rel_icp
+    else:
+        T_rel = T_rel_icp
 
-    # --- lift back to world ---
+    # ---- lift back to world ----
     T_world = pose_prev @ T_rel
     return T_world, T_rel
 
@@ -205,7 +295,7 @@ if __name__ == "__main__":
     pose_rel_prev = None
     for i in range(20):
         print(i)
-        frame = torch.load(f"frame_{str(i).zfill(4)}.pt")
+        frame = torch.load(f"box_pts/frame_{str(i).zfill(4)}.pt")
         gt_poses.append(frame["pose"].cpu().numpy())
         if i == 0:
             pc_prev = frame["pc"].cpu().numpy()
