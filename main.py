@@ -92,55 +92,33 @@ def main():
                 .reshape(-1, frame["LF"].shape[2], frame["LF"].shape[3], 3)
                 .permute(0, 3, 1, 2),
             )
-            gt_poses.append(frame["object_pose"].cpu().numpy())
-            if i > 1:
-                image, depth = surface_lf.rasterize(torch.eye(4).cuda())
-                Image.fromarray((image.cpu().numpy() * 255).astype(np.uint8)).save(
-                    f"rendered_{i}.png"
-                )
-                # pose_gt = pose_rel @ prev_pose
-                # pose_rel = pose_gt @ np.linalg.inv(prev_pose)
-                pose_rel_gt = gt_poses[i] @ np.linalg.inv(gt_poses[i - 1])
-                image, depth = surface_lf_prev.rasterize(
-                    torch.tensor(pose_rel_gt).cuda()
-                )
-                Image.fromarray((image.cpu().numpy() * 255).astype(np.uint8)).save(
-                    f"predicted_{i}.png"
-                )
-            surface_lf_prev = surface_lf
-            continue
-            print(surface_lf)
-            raise
-            torch.save(
-                {
-                    "pc": pc,
-                    "LF": frame["LF"],
-                    "camera_matrix": camera_matrix,
-                    "cam_poses": frame["camera_poses_rel"],
-                    "object_pose": frame["object_pose"],
-                    "surface_lf": surface_lf,
-                },
-                f"frame_{str(i).zfill(4)}.pt",
-            )
-            raise
+
             if i == 0:
                 pose = torch.tensor(frame["object_pose"], dtype=torch.float32).cuda()
                 est_poses.append(pose.cpu().numpy())
-                pose_rel = None
+                pose_rel_lhs = None
+                pose_rel_rhs = None
             else:
-                pose_est, pose_rel = icp_track(
+                pose_est, pose_rel_rhs = icp_track(
                     pc.cpu().numpy(),
                     pc_prev.cpu().numpy(),
                     color.cpu().numpy(),
                     color_prev.cpu().numpy(),
                     est_poses[-1],
-                    pose_rel_prev=pose_rel_prev,
+                    pose_rel_prev=pose_rel_prev_rhs,
                 )
+                # pose_est = pose_rel_lhs @ pose_prev
+                # pose_rel_lhs = pose_set @ np.linalg.inv(pose_prev)
+                # pose_rel_rhs = np.linalg.inv(pose_prev) @ pose_est
+                pose_rel_lhs = pose_est @ np.linalg.inv(est_poses[-1])
                 est_poses.append(pose_est)
+            gt_poses.append(frame["object_pose"].cpu().numpy())
 
             pc_prev = pc
             color_prev = color
-            pose_rel_prev = pose_rel
+            pose_rel_prev_rhs = pose_rel_rhs
+            pose_rel_prev_lhs = pose_rel_lhs
+            surface_lf_prev = surface_lf
 
         est_poses = np.stack(est_poses, axis=0)
         gt_poses = np.stack(gt_poses, axis=0)
