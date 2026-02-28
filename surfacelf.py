@@ -6,10 +6,10 @@ import torch.nn.functional as F
 from PIL import Image
 from sh_helpers import fit_sh_coeffs_per_point
 from gsplat import rasterization
-from PIL import Image
 import numpy as np
 from dataclasses import dataclass
 from e3nn import o3
+from src.utilities import Visualizer
 
 
 def transform_shs(shs_feat, rotation_matrix):
@@ -58,7 +58,7 @@ def batch_rasterize(
         scales=scales.unsqueeze(0),
         opacities=opacities.unsqueeze(0),
         colors=colors.unsqueeze(0),
-        viewmats=torch.linalg.inv(poses).unsqueeze(0),
+        viewmats=poses.unsqueeze(0),
         Ks=torch.stack(
             [
                 camera_matrix,
@@ -81,7 +81,7 @@ def batch_rasterize(
 class SurfaceLF:
     """
     Canonical frame = object frame:
-      - object is centered at origin (pc shifted by centroid)
+      - object origin is the canonical origin (no centroid recentering)
       - cameras are expressed relative to the object pose (translation only; rotation ignored)
       - cameras are stored inverted (so "camera pose at origin" -> inv(object_pose_no_rot))
     """
@@ -130,7 +130,7 @@ class SurfaceLF:
         object_pose_no_rot = current_object_pose.to(device=device, dtype=dtype).clone()
         object_pose_no_rot[:3, :3] = torch.eye(3, device=device, dtype=dtype)
 
-        # 2) move point cloud from world frame to object frame, then center it.
+        # 2) move point cloud from world frame to object frame.
         points_world = pc.to(device=device, dtype=dtype)
         object_world_inv = torch.linalg.inv(object_pose_no_rot)
         points_h = torch.cat(
@@ -142,10 +142,8 @@ class SurfaceLF:
         )
         points_object = (object_world_inv @ points_h.T).T[:, :3]
 
-        self.pc_centroid = points_object.mean(dim=0)
-        self.pc0 = (
-            points_object - self.pc_centroid
-        )  # canonical means used by Surface LF
+        # Canonical object points are directly in object frame.
+        self.pc0 = points_object
 
         # 3) cameras: make them relative to object (translation-only object pose),
         #    then invert as you requested.
@@ -263,7 +261,7 @@ class SurfaceLF:
             "opacities": self.opacities0,
         }
 
-    def render(self, pose):
+    def render(self, pose, view_idx=None):
         """
         pose: (4,4) relative pose you want to apply in canonical object frame
 
@@ -283,13 +281,17 @@ class SurfaceLF:
             self.pc0.dtype
         )
 
+        if view_idx is None:
+            view_idx = int(self.cam_poses.shape[0] // 2)
+        cam_pose = self.cam_poses[view_idx : view_idx + 1]
+
         image, depth = batch_rasterize(
             points=pc1.float(),
             quats=self.quats0.float(),
             scales=self.scales0.float(),
             opacities=self.opacities0.float(),
             colors=harmonics1.float(),
-            poses=self.cam_poses.float(),
+            poses=cam_pose.float(),
             camera_matrix=self.K.to(dtype=torch.float32, device=self.pc0.device),
             height=self.H,
             width=self.W,
@@ -299,6 +301,8 @@ class SurfaceLF:
 
 
 if __name__ == "__main__":
+    from scipy.spatial.transform import Rotation as R
+
     frame = torch.load("frame_0000.pt")
     LF = (
         frame["LF"]
@@ -315,5 +319,10 @@ if __name__ == "__main__":
         pc=frame["pc"],
         image_hw=(frame["LF"].shape[2], frame["LF"].shape[3]),
     )
-    image, depth = surface_lf.render(torch.eye(4))
-    print(image.shape, depth.shape)
+    pose_rel = torch.eye(4)
+    pose_rel[:3, :3] = torch.tensor(
+        R.from_euler("z", -45, degrees=True).as_matrix()
+    ).cuda()
+    image, depth = surface_lf.render(pose_rel)
+    image = (image.cpu().numpy() * 255).astype(np.uint8)
+    Image.fromarray(image).save("rendered.png")
