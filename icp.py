@@ -133,29 +133,35 @@ def icp_track(
             max_corr = voxel_size * 4.0
 
             # 1) colored ICP (good for small residuals + texture)
-            colored = o3d.pipelines.registration.registration_colored_icp(
-                source=src,
-                target=tgt,
-                max_correspondence_distance=max_corr,
-                init=T,
-                estimation_method=o3d.pipelines.registration.TransformationEstimationForColoredICP(),
-                criteria=o3d.pipelines.registration.ICPConvergenceCriteria(
-                    relative_fitness=1e-6, relative_rmse=1e-6, max_iteration=60
-                ),
-            )
+            try:
+                colored = o3d.pipelines.registration.registration_colored_icp(
+                    source=src,
+                    target=tgt,
+                    max_correspondence_distance=max_corr,
+                    init=T,
+                    estimation_method=o3d.pipelines.registration.TransformationEstimationForColoredICP(),
+                    criteria=o3d.pipelines.registration.ICPConvergenceCriteria(
+                        relative_fitness=1e-6, relative_rmse=1e-6, max_iteration=60
+                    ),
+                )
+            except RuntimeError:
+                return initial_transform.copy(), 0.0, float("inf")
             T = colored.transformation
 
             # 2) point-to-plane ICP refinement (this is the rotation driver)
-            p2l = o3d.pipelines.registration.registration_icp(
-                source=src,
-                target=tgt,
-                max_correspondence_distance=max_corr,
-                init=T,
-                estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPlane(),
-                criteria=o3d.pipelines.registration.ICPConvergenceCriteria(
-                    max_iteration=40
-                ),
-            )
+            try:
+                p2l = o3d.pipelines.registration.registration_icp(
+                    source=src,
+                    target=tgt,
+                    max_correspondence_distance=max_corr,
+                    init=T,
+                    estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPlane(),
+                    criteria=o3d.pipelines.registration.ICPConvergenceCriteria(
+                        max_iteration=40
+                    ),
+                )
+            except RuntimeError:
+                return initial_transform.copy(), 0.0, float("inf")
             T = p2l.transformation
 
         # score on finest scale using point-to-plane ICP result fields (fitness/rmse)
@@ -168,14 +174,19 @@ def icp_track(
             pcd.estimate_normals(
                 o3d.geometry.KDTreeSearchParamHybrid(radius=normal_radius, max_nn=50)
             )
-        eval_icp = o3d.pipelines.registration.registration_icp(
-            source=src_f,
-            target=tgt_f,
-            max_correspondence_distance=voxel_finest * 4.0,
-            init=T,
-            estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPlane(),
-            criteria=o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=1),
-        )
+        try:
+            eval_icp = o3d.pipelines.registration.registration_icp(
+                source=src_f,
+                target=tgt_f,
+                max_correspondence_distance=voxel_finest * 4.0,
+                init=T,
+                estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPlane(),
+                criteria=o3d.pipelines.registration.ICPConvergenceCriteria(
+                    max_iteration=1
+                ),
+            )
+        except RuntimeError:
+            return initial_transform.copy(), 0.0, float("inf")
         return T, float(eval_icp.fitness), float(eval_icp.inlier_rmse)
 
     # ---- put both clouds into the same frame: pose_prev-origin ----
