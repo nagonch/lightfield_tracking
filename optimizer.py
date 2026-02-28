@@ -121,62 +121,37 @@ def refine_pose(
 
 
 if __name__ == "__main__":
-    # v = Visualizer()
-    K = torch.load("pts/K.pt")
-    poses = torch.load("pts/poses_4x4.pt")
-    poses_object = torch.load("pts/poses_gt.pt")
-    surface_lf_rig = SurfaceLFRig.build(
-        K=K,
-        poses_4x4=poses,
-        image_size_hw=(720, 1280),
+    data = torch.load("data.pt", weights_only=False)
+    pose_rel_lhs = data["pose_rel_lhs"]
+    surface_lf_prev = data["surface_lf_prev"]
+    image = data["image"]
+    depth = data["depth"]
+    mask = data["mask"]
+    mask_prev = data["mask_prev"]
+    pivot_world = data["pivot_world"]
+    pose_rel_gt = data["pose_rel_gt"]
+    best_pose, best_loss = refine_pose(
+        surface_lf_prev=surface_lf_prev,
+        pose_coarse=torch.tensor(pose_rel_lhs, dtype=torch.float32).cuda(),
+        image=image,
+        depth=depth,
+        mask=mask,
+        mask_prev=mask_prev,
+        loss_fn=loss,
+        pivot_world=pivot_world,
+        compose_pose_fn=compose_pose,
+        num_iterations=500,
+        learning_rate_rot=1e-3,
     )
-    poses = [
-        torch.load(f"pts/coarse_pose_{i:04d}.pt", weights_only=True) for i in range(20)
-    ]
-    poses_gt = [torch.load(f"pts/pose_gt{i:04d}.pt") for i in range(20)]
-    poses_rel = [torch.eye(4).cuda()]
-    poses_refined = [poses_gt[0].cuda()]
-    for i in range(1, 20):
-        pose_rel = poses[i] @ torch.linalg.inv(poses[i - 1])
-        poses_rel.append(pose_rel)
-    for i in range(20):
-        surface_lf = SurfaceLF(
-            rig=surface_lf_rig,
-            pc=torch.load(f"pts/pc_{i:04d}.pt"),
-            images=torch.load(f"pts/images_{i:04d}.pt"),
-        )
-        mask = torch.load(f"pts/mask_{i:04d}.pt")
-        image, depth = surface_lf.rasterize()
-        if i > 0:
-            pose_refined, final_loss = refine_pose(
-                surface_lf_prev=surface_lf_prev,
-                pose_coarse=poses_rel[i],
-                image=image,
-                depth=depth,
-                mask=mask,
-                mask_prev=mask_prev,
-                loss_fn=loss,
-                compose_pose_fn=compose_pose,
-            )
-            poses_refined.append(pose_refined @ poses_refined[-1])
-        surface_lf_prev = surface_lf
-        mask_prev = mask
-    poses_refined = torch.stack(poses_refined, dim=0)
-    poses_gt = torch.stack(poses_gt, dim=0)
-    poses_coarse = torch.stack(poses, dim=0)
+    print(torch.norm(pose_rel_gt - best_pose).item())
+    print(torch.norm(pose_rel_gt - torch.tensor(pose_rel_lhs).cuda()).item())
 
-    poses_coarse = rebase_poses(poses_gt.cpu().numpy(), poses_coarse.cpu().numpy())
-    # poses_refined = rebase_poses(poses_gt.cpu().numpy(), poses_refined.cpu().numpy())
-    # for i, (coarse_pose, pose, gt_pose) in enumerate(
-    #     zip(
-    #         poses_coarse,
-    #         poses_refined.cpu().numpy(),
-    #         poses_gt.cpu().numpy(),
-    #     )
-    # ):
-    #     v.add_frame(f"refined_{i:04d}", pose)
-    #     # v.add_frame(f"gt_{i:04d}", gt_pose)
-    #     v.add_frame(f"coarse_{i:04d}", coarse_pose)
-    print(pose_errors(poses_gt.cpu().numpy(), poses_coarse))
-    print(pose_errors(poses_gt.cpu().numpy(), poses_refined.cpu().numpy()))
-    # v.run()
+    print(torch.norm(pose_rel_gt[:3, :3] - best_pose[:3, :3]).item())
+    print(
+        torch.norm(
+            pose_rel_gt[:3, :3] - torch.tensor(pose_rel_lhs[:3, :3]).cuda()
+        ).item()
+    )
+
+    print(torch.norm(pose_rel_gt[:3, 3] - best_pose[:3, 3]).item())
+    print(torch.norm(pose_rel_gt[:3, 3] - best_pose[:3, 3]).item())
