@@ -12,6 +12,10 @@ from e3nn import o3
 from src.utilities import Visualizer
 from scipy.spatial.transform import Rotation as R
 
+import torch
+import torch.nn.functional as F
+from pytorch3d.renderer import PerspectiveCameras
+
 
 def transform_shs(shs_feat, rotation_matrix):
     P = torch.tensor(
@@ -81,10 +85,21 @@ def batch_rasterize(
 
 class SurfaceLF:
     """
-    Canonical frame = object frame:
-      - object origin is the canonical origin (no centroid recentering)
-      - cameras are expressed relative to the object pose (translation only; rotation ignored)
-      - cameras are stored inverted (so "camera pose at origin" -> inv(object_pose_no_rot))
+    Canonical frame = object frame at construction time.
+
+    Inputs (kept as you requested):
+      - LF: (N,C,H,W) tensor used for SH fitting
+      - cam_poses: (N,4,4) camera poses in a common world frame (ASSUMED cam2world)
+      - K: (3,3) intrinsics
+      - current_object_pose: (4,4) object pose in that same world frame (object2world)
+      - pc: (M,3) point cloud in world frame
+
+    Internal contract (this is what removes confusion):
+      - self.pc0 is in canonical object frame O_prev
+      - self.cam2world_obj is cam2world, but "world" == O_prev
+        cam2world_obj = inv(current_object_pose) @ cam_poses
+      - PyTorch3D cameras are built from that same cam2world_obj
+      - At render time, you can pass a right-hand delta in O_prev, and we apply it directly.
     """
 
     def __init__(
@@ -99,17 +114,9 @@ class SurfaceLF:
         image_hw=None,
         points_scale=1e-3,
         eps=1e-8,
+        # NEW (minimal but necessary): tell us what batch_rasterize expects
+        raster_pose_convention: str = "world2cam",  # "world2cam" or "cam2world"
     ):
-        """
-        Args:
-          LF: whatever you want to keep (images/light-field tensor etc.)
-          cam_poses: (N,4,4) camera poses in a common world frame (assumed cam2world)
-          K: (3,3)
-          current_object_pose: (4,4) object pose in that same world frame
-          pc: (M,3) point cloud (world frame)
-          LF: (N,C,H,W) image tensor used for SH fitting
-          image_hw: (H, W), or inferred from LF
-        """
         if image_hw is None:
             if not (isinstance(LF, torch.Tensor) and LF.ndim == 4):
                 raise ValueError(
@@ -120,7 +127,13 @@ class SurfaceLF:
         self.LF = LF.to(dtype=dtype)
         self.K = K.to(dtype=dtype)
         self.H, self.W = int(image_hw[0]), int(image_hw[1])
-        self.object_pose_orig = current_object_pose.to(dtype=dtype)
+
+        if raster_pose_convention not in ("world2cam", "cam2world"):
+            raise ValueError(
+                'raster_pose_convention must be "world2cam" or "cam2world".'
+            )
+        self.raster_pose_convention = raster_pose_convention
+
         pc = pc.to(dtype=dtype)
         cam_poses = cam_poses.to(dtype=dtype)
         current_object_pose = current_object_pose.to(dtype=dtype)
@@ -128,13 +141,13 @@ class SurfaceLF:
         device = pc.device
         dtype = pc.dtype
 
-        # 1) ignore object rotation, keep only translation
-        object_pose_no_rot = current_object_pose.to(device=device, dtype=dtype).clone()
-        object_pose_no_rot[:3, :3] = torch.eye(3, device=device, dtype=dtype)
+        # --- IMPORTANT CHANGE #1: do NOT "ignore rotation" implicitly.
+        # keep the full pose. (Your old code said "ignore rotation" but did not actually do it.) :contentReference[oaicite:2]{index=2}
+        current_object_pose = current_object_pose.to(device=device, dtype=dtype).clone()
 
-        # 2) move point cloud from world frame to object frame.
+        # --- Canonicalize point cloud: world -> object (O_prev)
         points_world = pc.to(device=device, dtype=dtype)
-        object_world_inv = torch.linalg.inv(object_pose_no_rot)
+        object_world_inv = torch.linalg.inv(current_object_pose)
         points_h = torch.cat(
             [
                 points_world,
@@ -143,26 +156,30 @@ class SurfaceLF:
             dim=1,
         )
         points_object = (object_world_inv @ points_h.T).T[:, :3]
+        self.pc0 = points_object.contiguous()
 
-        # Canonical object points are directly in object frame.
-        self.pc0 = points_object
-
-        # 3) cameras: make them relative to object (translation-only object pose),
-        #    then invert as you requested.
-        #    If cam_poses are cam2world:
-        #      cam_in_object = inv(object_pose_no_rot) @ cam_pose
-        #    Then "invert cameras":
-        #      stored = inv(cam_in_object)
+        # --- IMPORTANT CHANGE #2: store ONE camera convention consistently.
+        # cam_poses assumed cam2world in the *original* world frame.
+        # Convert them into the canonical object frame O_prev:
+        # cam2world_obj = inv(T_WO_prev) @ T_WC  == inv(object_pose) @ cam_pose
         cam_poses = cam_poses.to(device=device, dtype=dtype)
-        cam_in_object = torch.linalg.inv(object_pose_no_rot) @ cam_poses
-        self.cam_poses = torch.linalg.inv(cam_in_object)
+        self.cam2world_obj = (object_world_inv @ cam_poses).contiguous()  # (N,4,4)
+
+        # Build PyTorch3D cameras from the SAME cam2world_obj (no mismatch now). :contentReference[oaicite:3]{index=3}
         self.cameras = self._build_pytorch3d_cameras(
             K=self.K.to(device=device, dtype=dtype),
-            cam2world=cam_in_object,
+            cam2world=self.cam2world_obj,
             image_hw=(self.H, self.W),
         )
 
-        # 4) always estimate appearance / gaussian params from LF + points.
+        # Keep around for backward-compat if you referenced this name elsewhere
+        # (previously self.cam_poses was inverted; now it's cam2world in O_prev)
+        self.cam_poses = self.cam2world_obj
+
+        # For local-delta handling: in canonical O_prev, the "original object axes" are identity.
+        self.object_pose_orig = torch.eye(4, device=device, dtype=dtype)
+
+        # Keep calculate() exactly as you had it.
         self.calculate(
             points_object=self.pc0, images=LF, eps=eps, points_scale=points_scale
         )
@@ -180,6 +197,7 @@ class SurfaceLF:
         R_pose = cam2world[:, :3, :3]
         t_pose = cam2world[:, :3, 3]
 
+        # Convert cam2world to world2cam for PyTorch3D's (R,T) convention, then apply your axis flips.
         R = R_pose.transpose(1, 2)
         T = -(R @ t_pose.unsqueeze(-1)).squeeze(-1)
 
@@ -203,6 +221,7 @@ class SurfaceLF:
             device=device,
         )
 
+    # ---- calculate() LEFT IN (unchanged from your paste) :contentReference[oaicite:4]{index=4}
     def calculate(self, points_object, images, eps=1e-8, points_scale=1e-3):
         if not (isinstance(images, torch.Tensor) and images.ndim == 4):
             raise ValueError("`images` must be a torch tensor of shape (N,C,H,W).")
@@ -263,25 +282,20 @@ class SurfaceLF:
             "opacities": self.opacities0,
         }
 
-    def render(self, pose, view_idx=None, pose_is_local_delta=True):
+    def render(self, pose, view_idx=None, pose_is_local_delta=False):
         """
         pose: (4,4) delta pose.
-        If pose_is_local_delta=True:
-            - rotations are around the object's CURRENT axes (from self.object_pose_orig)
-            - translation is in the object's CURRENT axes
+
+        New clear behavior:
+          - pose is assumed to be a right-hand delta in the canonical object frame O_prev.
+          - pose_is_local_delta is kept for API compatibility, but in O_prev it should not be needed.
         """
         pose = pose.to(device=self.pc0.device, dtype=self.pc0.dtype)
         R_delta = pose[:3, :3]
         t_delta = pose[:3, 3]
 
-        if pose_is_local_delta:
-            R0 = self.object_pose_orig[:3, :3].to(
-                device=self.pc0.device, dtype=self.pc0.dtype
-            )
-            R_eff = R0 @ R_delta @ R0.transpose(0, 1)
-            t_eff = R0 @ t_delta
-        else:
-            R_eff, t_eff = R_delta, t_delta
+        # In canonical object frame, just apply directly.
+        R_eff, t_eff = R_delta, t_delta
 
         pc1 = (R_eff @ self.pc0.T).T + t_eff[None, :]
 
@@ -290,8 +304,15 @@ class SurfaceLF:
         )
 
         if view_idx is None:
-            view_idx = int(self.cam_poses.shape[0] // 2)
-        cam_pose = self.cam_poses[view_idx : view_idx + 1]
+            view_idx = int(self.cam2world_obj.shape[0] // 2)
+
+        cam2world = self.cam2world_obj[view_idx : view_idx + 1]  # (1,4,4)
+
+        # batch_rasterize pose convention handling (minimal, but required to stop guessing)
+        if self.raster_pose_convention == "cam2world":
+            pose_for_raster = cam2world
+        else:
+            pose_for_raster = torch.linalg.inv(cam2world)
 
         image, depth = batch_rasterize(
             points=pc1.float(),
@@ -299,7 +320,7 @@ class SurfaceLF:
             scales=self.scales0.float(),
             opacities=self.opacities0.float(),
             colors=harmonics1.float(),
-            poses=cam_pose.float(),
+            poses=pose_for_raster.float(),
             camera_matrix=self.K.to(dtype=torch.float32, device=self.pc0.device),
             height=self.H,
             width=self.W,
