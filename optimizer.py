@@ -12,6 +12,31 @@ import math
 import matplotlib.pyplot as plt
 
 
+def pose_delta_about_pivot(
+    compose_pose_fn, rotation_param, translation_param, pivot_world: torch.Tensor
+):
+    """
+    rotation_param: (3,) axis-angle (or whatever compose_pose_fn expects)
+    translation_param: (3,) translation in world coords *in the pivoted parameterization*
+    pivot_world: (3,) world-space pivot
+    """
+    # pose that rotates about origin + translates by translation_param
+    delta_origin = compose_pose_fn(rotation_param, torch.zeros_like(translation_param))
+
+    # Extract R from delta_origin (assuming 4x4)
+    rotation_matrix = delta_origin[:3, :3]
+
+    # Convert to equivalent LHS translation that corresponds to rotating about pivot_world
+    # t_lhs = t + (I - R) c
+    identity_3 = torch.eye(
+        3, device=rotation_matrix.device, dtype=rotation_matrix.dtype
+    )
+    translation_lhs = translation_param + (identity_3 - rotation_matrix) @ pivot_world
+
+    delta_lhs = compose_pose_fn(rotation_param, translation_lhs)
+    return delta_lhs
+
+
 def refine_pose(
     surface_lf_prev,
     pose_coarse: torch.Tensor,
@@ -20,6 +45,7 @@ def refine_pose(
     mask: torch.Tensor,
     mask_prev: torch.Tensor,
     loss_fn,
+    pivot_world: torch.Tensor,
     compose_pose_fn,
     num_iterations: int = 500,
     learning_rate_rot: float = 1e-3,
@@ -50,18 +76,19 @@ def refine_pose(
             {"params": [translation_param], "lr": float(learning_rate_trans)},
         ]
     )
-
+    pivot_world = pivot_world.to(device)
     best_loss_value = float("inf")
     best_pose = pose_coarse.detach().clone()
 
     for _ in range(int(num_iterations)):
         optimizer.zero_grad(set_to_none=True)
 
-        pose_delta = compose_pose_fn(rotation_param, translation_param)
-        pose_current = pose_coarse @ pose_delta
+        pose_delta = pose_delta_about_pivot(
+            compose_pose_fn, rotation_param, translation_param, pivot_world
+        )
+        pose_current = pose_delta @ pose_coarse  # LHS update, but pivot-conditioned
 
-        surf_values = surface_lf_prev.transform(pose_current)
-        surf_image, surf_depth = surface_lf_prev.rasterize(surf_values)
+        surf_image, surf_depth = surface_lf_prev.rasterize(pose_current)
 
         loss_value, _ = loss_fn(
             surf_image,
