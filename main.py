@@ -17,6 +17,7 @@ from optimizer import refine_pose, refine_pose_nuclear_rotation_multistart
 from loss import loss
 from loss import loss
 from utils import compose_pose
+from surfacelf import SurfaceLF
 from icp import icp_track
 
 
@@ -77,6 +78,34 @@ def main():
                 camera_matrix=camera_matrix,
             )
             pc = pc[(mask > 0).reshape(-1)]
+            surface_lf = SurfaceLF(
+                LF=frame["LF"]
+                .reshape(-1, frame["LF"].shape[2], frame["LF"].shape[3], 3)
+                .permute(0, 3, 1, 2),
+                cam_poses=frame["camera_poses_rel"].reshape(-1, 4, 4),
+                K=camera_matrix,
+                current_object_pose=frame["object_pose"],
+                pc=pc,
+                image_hw=(frame["LF"].shape[2], frame["LF"].shape[3]),
+            )
+            image, depth = surface_lf.render(torch.eye(4))
+            Image.fromarray((image.cpu().numpy() * 255).astype(np.uint8)).save(
+                f"rendered_{i}.png"
+            )
+            print(surface_lf)
+            raise
+            torch.save(
+                {
+                    "pc": pc,
+                    "LF": frame["LF"],
+                    "camera_matrix": camera_matrix,
+                    "cam_poses": frame["camera_poses_rel"],
+                    "object_pose": frame["object_pose"],
+                    "surface_lf": surface_lf,
+                },
+                f"frame_{str(i).zfill(4)}.pt",
+            )
+            raise
             if i == 0:
                 pose = torch.tensor(frame["object_pose"], dtype=torch.float32).cuda()
                 est_poses.append(pose.cpu().numpy())
