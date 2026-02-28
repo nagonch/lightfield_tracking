@@ -42,12 +42,11 @@ def main():
     segmentor = Segmentor(prompt=None)
     depth_estimator = DepthEstimator(infer_gs=False)
     for sequence in sequences:
-        sequence = "box_motion_prod"
         print(f"Estimating on {sequence}")
-        # os.makedirs(f"{results_dir}/{dataset_name}", exist_ok=True)
-        # if os.path.exists(f"{results_dir}/{dataset_name}/{sequence}.npy"):
-        #     print(f"Skipping {sequence}, exists")
-        #     continue
+        os.makedirs(f"{results_dir}/{dataset_name}", exist_ok=True)
+        if os.path.exists(f"{results_dir}/{dataset_name}/{sequence}.npy"):
+            print(f"Skipping {sequence}, exists")
+            continue
         dataset = LFDataset(
             f"/home/ngoncharov/cvpr2026/datasets/{dataset_name}/{sequence}"
         )
@@ -116,6 +115,7 @@ def main():
                     pivot_world=torch.tensor(est_poses[-1][:3, 3]).float().cuda(),
                     mask=mask,
                     mask_prev=mask_prev,
+                    num_iterations=100,
                     loss_fn=loss,
                     compose_pose_fn=compose_pose,
                 )
