@@ -13,7 +13,7 @@ from depth_estimator import DepthEstimator
 from surface_lf import SurfaceLF, SurfaceLFRig
 from tracking import Tracker, pose_errors
 from PIL import Image
-from optimizer import refine_pose, refine_pose_nuclear_rotation_multistart
+from optimizer import refine_pose
 from loss import loss
 from loss import loss
 from utils import compose_pose
@@ -92,7 +92,7 @@ def main():
                 .reshape(-1, frame["LF"].shape[2], frame["LF"].shape[3], 3)
                 .permute(0, 3, 1, 2),
             )
-
+            image, depth = surface_lf.rasterize(torch.eye(4).cuda())
             if i == 0:
                 pose = torch.tensor(frame["object_pose"], dtype=torch.float32).cuda()
                 est_poses.append(pose.cpu().numpy())
@@ -107,10 +107,19 @@ def main():
                     est_poses[-1],
                     pose_rel_prev=pose_rel_prev_rhs,
                 )
-                # pose_est = pose_rel_lhs @ pose_prev
-                # pose_rel_lhs = pose_set @ np.linalg.inv(pose_prev)
-                # pose_rel_rhs = np.linalg.inv(pose_prev) @ pose_est
                 pose_rel_lhs = pose_est @ np.linalg.inv(est_poses[-1])
+                pose_rel_lhs_refined, loss_prev = refine_pose(
+                    surface_lf_prev=surface_lf_prev,
+                    pose_coarse=torch.tensor(pose_rel_lhs).cuda().float(),
+                    image=image,
+                    depth=depth,
+                    pivot_world=torch.tensor(est_poses[-1][:3, 3]).float().cuda(),
+                    mask=mask,
+                    mask_prev=mask_prev,
+                    loss_fn=loss,
+                    compose_pose_fn=compose_pose,
+                )
+                pose_est = pose_rel_lhs_refined.cpu().numpy() @ est_poses[-1]
                 est_poses.append(pose_est)
             gt_poses.append(frame["object_pose"].cpu().numpy())
 
@@ -118,6 +127,7 @@ def main():
             color_prev = color
             pose_rel_prev_rhs = pose_rel_rhs
             pose_rel_prev_lhs = pose_rel_lhs
+            mask_prev = mask
             surface_lf_prev = surface_lf
 
         est_poses = np.stack(est_poses, axis=0)
