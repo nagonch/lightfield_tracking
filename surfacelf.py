@@ -10,6 +10,7 @@ import numpy as np
 from dataclasses import dataclass
 from e3nn import o3
 from src.utilities import Visualizer
+from scipy.spatial.transform import Rotation as R
 
 
 def transform_shs(shs_feat, rotation_matrix):
@@ -328,8 +329,8 @@ if __name__ == "__main__":
     )
     pose_rel = torch.eye(4)
     pose_rel[:3, :3] = torch.tensor(
-        R.from_euler("z", -45, degrees=True).as_matrix()
+        R.from_euler("z", 45, degrees=True).as_matrix()
     ).cuda()
-    image, depth = surface_lf.render(pose_rel)
+    image, depth = surface_lf.render(pose_rel, pose_is_local_delta=True)
     image = (image.cpu().numpy() * 255).astype(np.uint8)
     Image.fromarray(image).save("rendered.png")
