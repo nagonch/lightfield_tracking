@@ -242,7 +242,6 @@ if __name__ == "__main__":
             rig=surface_lf_rig,
             pc=torch.load(f"pts/pc_{i:04d}.pt"),
             images=torch.load(f"pts/images_{i:04d}.pt"),
-            current_pose=poses[i],
         )
         mask = torch.load(f"pts/mask_{i:04d}.pt")
         image, depth = surface_lf.rasterize()

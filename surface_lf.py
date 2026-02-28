@@ -240,9 +240,8 @@ class SurfaceLF:
         values["means"] = points1
         return values
 
-    def rasterize(self, values=None):
-        if values is None:
-            values = self.values
+    def rasterize(self, rel_pose):
+        values = self.transform(rel_pose)
         image, depth = batch_rasterize(
             points=values["means"].float(),
             quats=values["rotations"].float(),
