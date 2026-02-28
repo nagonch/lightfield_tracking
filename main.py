@@ -17,7 +17,6 @@ from optimizer import refine_pose, refine_pose_nuclear_rotation_multistart
 from loss import loss
 from loss import loss
 from utils import compose_pose
-from surfacelf import SurfaceLF
 from icp import icp_track
 
 
@@ -63,7 +62,15 @@ def main():
         gt_poses = []
         est_poses = []
         for i, frame in enumerate(dataset):
-            print(i)
+            if i == 0:
+                surface_lf_rig = SurfaceLFRig.build(
+                    K=dataset[0]["camera_matrix"],
+                    poses_4x4=dataset[0]["camera_poses_rel"].reshape(-1, 4, 4),
+                    image_size_hw=(
+                        dataset[0]["LF"].shape[2],
+                        dataset[0]["LF"].shape[3],
+                    ),
+                )
             img_central = frame["LF"][s_size // 2, t_size // 2]
 
             camera_matrix = frame["camera_matrix"]
@@ -79,19 +86,29 @@ def main():
             )
             pc = pc[(mask > 0).reshape(-1)]
             surface_lf = SurfaceLF(
-                LF=frame["LF"]
+                surface_lf_rig,
+                pc,
+                frame["LF"]
                 .reshape(-1, frame["LF"].shape[2], frame["LF"].shape[3], 3)
                 .permute(0, 3, 1, 2),
-                cam_poses=frame["camera_poses_rel"].reshape(-1, 4, 4),
-                K=camera_matrix,
-                current_object_pose=frame["object_pose"],
-                pc=pc,
-                image_hw=(frame["LF"].shape[2], frame["LF"].shape[3]),
             )
-            image, depth = surface_lf.render(torch.eye(4))
-            Image.fromarray((image.cpu().numpy() * 255).astype(np.uint8)).save(
-                f"rendered_{i}.png"
-            )
+            gt_poses.append(frame["object_pose"].cpu().numpy())
+            if i > 1:
+                image, depth = surface_lf.rasterize(torch.eye(4).cuda())
+                Image.fromarray((image.cpu().numpy() * 255).astype(np.uint8)).save(
+                    f"rendered_{i}.png"
+                )
+                # pose_gt = pose_rel @ prev_pose
+                # pose_rel = pose_gt @ np.linalg.inv(prev_pose)
+                pose_rel_gt = gt_poses[i] @ np.linalg.inv(gt_poses[i - 1])
+                image, depth = surface_lf_prev.rasterize(
+                    torch.tensor(pose_rel_gt).cuda()
+                )
+                Image.fromarray((image.cpu().numpy() * 255).astype(np.uint8)).save(
+                    f"predicted_{i}.png"
+                )
+            surface_lf_prev = surface_lf
+            continue
             print(surface_lf)
             raise
             torch.save(
@@ -121,7 +138,6 @@ def main():
                 )
                 est_poses.append(pose_est)
 
-            gt_poses.append(frame["object_pose"].cpu().numpy())
             pc_prev = pc
             color_prev = color
             pose_rel_prev = pose_rel
