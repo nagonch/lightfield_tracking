@@ -119,6 +119,7 @@ class SurfaceLF:
         self.LF = LF.to(dtype=dtype)
         self.K = K.to(dtype=dtype)
         self.H, self.W = int(image_hw[0]), int(image_hw[1])
+        self.object_pose_orig = current_object_pose.to(dtype=dtype)
         pc = pc.to(dtype=dtype)
         cam_poses = cam_poses.to(dtype=dtype)
         current_object_pose = current_object_pose.to(dtype=dtype)
@@ -261,23 +262,29 @@ class SurfaceLF:
             "opacities": self.opacities0,
         }
 
-    def render(self, pose, view_idx=None):
+    def render(self, pose, view_idx=None, pose_is_local_delta=True):
         """
-        pose: (4,4) relative pose you want to apply in canonical object frame
-
-        Applies:
-          pc1 = (R @ pc0.T).T + t
-          harmonics rotated by R (same rotation as geometry)
-        Returns:
-          image, depth
+        pose: (4,4) delta pose.
+        If pose_is_local_delta=True:
+            - rotations are around the object's CURRENT axes (from self.object_pose_orig)
+            - translation is in the object's CURRENT axes
         """
         pose = pose.to(device=self.pc0.device, dtype=self.pc0.dtype)
-        R = pose[:3, :3]
-        t = pose[:3, 3]
+        R_delta = pose[:3, :3]
+        t_delta = pose[:3, 3]
 
-        pc1 = (R @ self.pc0.T).T + t[None, :]
+        if pose_is_local_delta:
+            R0 = self.object_pose_orig[:3, :3].to(
+                device=self.pc0.device, dtype=self.pc0.dtype
+            )
+            R_eff = R0 @ R_delta @ R0.transpose(0, 1)
+            t_eff = R0 @ t_delta
+        else:
+            R_eff, t_eff = R_delta, t_delta
 
-        harmonics1 = transform_shs(self.harmonics0.float(), R.float()).to(
+        pc1 = (R_eff @ self.pc0.T).T + t_eff[None, :]
+
+        harmonics1 = transform_shs(self.harmonics0.float(), R_eff.float()).to(
             self.pc0.dtype
         )
 
