@@ -179,7 +179,7 @@ def refine_pose(
         torch.zeros(3, device=device) + torch.randn(3, device=device) * 1e-4
     ).requires_grad_()
 
-    optimizer = torch.optim.Adam(
+    optimizer = torch.optim.AdamW(
         [
             {"params": [rotation_param], "lr": float(learning_rate_rot)},
             {"params": [translation_param], "lr": float(learning_rate_trans)},
