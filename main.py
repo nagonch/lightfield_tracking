@@ -42,6 +42,7 @@ def main():
     segmentor = Segmentor(prompt=None)
     depth_estimator = DepthEstimator(infer_gs=False)
     for sequence in sequences:
+        # v = Visualizer()
         print(f"Estimating on {sequence}")
         os.makedirs(f"{results_dir}/{dataset_name}", exist_ok=True)
         if os.path.exists(f"{results_dir}/{dataset_name}/{sequence}.npy"):
@@ -75,6 +76,10 @@ def main():
             camera_matrix = frame["camera_matrix"]
             depth = depth_estimator(frame)
             mask = segmentor(img_central)
+            result_img = Image.fromarray(
+                (img_central * mask[..., None] * 255).cpu().numpy().astype(np.uint8)
+            )
+            result_img.save(f"test_masks/{sequence}_{i}.png")
             depth = depth[depth.shape[0] // 2]
             color = img_central[mask > 0].reshape(-1, 3)
             depth = depth * (mask > 0)
@@ -120,6 +125,11 @@ def main():
                     compose_pose_fn=compose_pose,
                 )
                 pose_est = pose_rel_lhs_refined.cpu().numpy() @ est_poses[-1]
+                # v.add_point_cloud(
+                #     f"{i}_pc", pc.cpu().numpy(), color.cpu().numpy(), point_size=1e-3
+                # )
+                # v.add_frame(f"{i}_est", pose_est)
+                # v.add_frame(f"{i}_gt", frame["object_pose"].cpu().numpy())
                 est_poses.append(pose_est)
             gt_poses.append(frame["object_pose"].cpu().numpy())
 
@@ -135,6 +145,7 @@ def main():
         est_poses = rebase_poses(gt_poses, est_poses)
         print("Pose errors (refined):", pose_errors(est_poses, gt_poses))
         np.save(f"{results_dir}/{dataset_name}/{sequence}.npy", est_poses)
+        # v.run()
 
 
 if __name__ == "__main__":

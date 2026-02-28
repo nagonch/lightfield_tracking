@@ -206,6 +206,13 @@ def icp_track(
     has_motion_prior = pose_rel_prev is not None
     T_motion_init = pose_rel_prev if has_motion_prior else np.eye(4)
 
+    # centroid translation prior (robust: per-axis median)
+    # NOTE: we will NOT use this as an ICP initialization; we will use it to
+    # post-correct the ICP translation if ICP underestimates translation.
+    centroid_prev = np.median(pc_prev_origin, axis=0)
+    centroid_curr = np.median(pc_curr_origin, axis=0)
+    centroid_delta = centroid_curr - centroid_prev
+
     # feature init (RANSAC) at coarse scale to help rotation when texture/geometry is ambiguous
     pcd_prev_r = pcd_prev_base.voxel_down_sample(voxel_finest * 4.0)
     pcd_curr_r = pcd_curr_base.voxel_down_sample(voxel_finest * 4.0)
@@ -265,6 +272,36 @@ def icp_track(
             }
 
     T_rel_icp = best["T"]
+
+    # ---- centroid translation post-correction (simple) ----
+    # If ICP returns a tiny translation but the centroids moved a lot, pull the
+    # translation toward the centroid delta. Rotation stays as ICP found it.
+    t_icp = T_rel_icp[:3, 3].copy()
+    t_icp_norm = float(np.linalg.norm(t_icp))
+    t_cent_norm = float(np.linalg.norm(centroid_delta))
+
+    # thresholds in meters
+    centroid_min_motion = 0.01  # ignore centroid if < 1 cm (noise)
+    icp_small_motion = 0.005  # treat ICP translation as "small" if < 5 mm
+    centroid_big_ratio = 2.5  # centroid must be this many times bigger than ICP
+
+    # blend weight: 0 -> trust ICP, 1 -> fully replace by centroid
+    w = 0.0
+    if t_cent_norm >= centroid_min_motion:
+        if (t_icp_norm <= icp_small_motion) and (
+            t_cent_norm >= centroid_big_ratio * max(t_icp_norm, 1e-9)
+        ):
+            w = 1.0
+        else:
+            # smooth pull when centroid is larger than ICP
+            # w ~ 0 when ICP matches centroid, w -> 1 as ICP becomes much smaller.
+            w = float(np.clip(1.0 - (t_icp_norm / (t_cent_norm + 1e-9)), 0.0, 1.0))
+            # don't overreact for mild differences
+            w *= 0.5
+
+    if w > 0.0:
+        T_rel_icp = T_rel_icp.copy()
+        T_rel_icp[:3, 3] = (1.0 - w) * t_icp + w * centroid_delta
 
     # ---- sanity gating (loosen rotation gate) ----
     min_fitness = 0.20
