@@ -144,9 +144,8 @@ class SurfaceLFRig:
 
 
 class SurfaceLF:
-    def __init__(self, rig: SurfaceLFRig, pc, images, current_pose):
+    def __init__(self, rig: SurfaceLFRig, pc, images):
         self.rig = rig
-        self.pose = current_pose
         self.calculate(pc, images)
 
     @property
@@ -227,41 +226,18 @@ class SurfaceLF:
         }
         return self.values
 
-    def transform(self, rel_pose, inplace=False, pivot="origin"):
+    def transform(self, rel_pose):
         rel_pose = rel_pose.to(self.values["means"].dtype)
-
         values = self.values.copy()
-
-        # Rotate SH with the same rotation you apply to object geometry.
         values["harmonics"] = transform_shs(
             values["harmonics"].float(), rel_pose[:3, :3].float()
         )
-
         R = rel_pose[:3, :3]
         t = rel_pose[:3, 3]
-
-        points0 = self.values["means"]  # canonical object points
-        if pivot == "centroid":
-            pivot_point = points0.mean(dim=0, keepdim=True)
-        elif pivot == "origin":
-            pivot_point = torch.zeros(
-                (1, 3), dtype=points0.dtype, device=points0.device
-            )
-        else:
-            raise ValueError(f"Unsupported pivot mode: {pivot}")
-
-        # Object-frame rotation around pivot, then translation.
-        points_centered = points0 - pivot_point
-        points1 = (R @ points_centered.T).T + pivot_point + t[None, :]
+        points0 = self.values["means"]
+        points_centered = points0
+        points1 = (R @ points_centered.T).T + t[None, :]
         values["means"] = points1
-
-        if inplace:
-            self.values = values
-            # define self.pose consistently; if it represents frame transform accumulation:
-            self.pose = (
-                rel_pose @ self.pose
-            )  # (or drop pose entirely if you don't use it)
-
         return values
 
     def rasterize(self, values=None):
@@ -293,58 +269,13 @@ if __name__ == "__main__":
     images = torch.load("pts/images_0000.pt")
 
     v = Visualizer()
-
-    poses_rel_gt = [torch.eye(4).cuda()]
-    for i in range(1, poses_gt.shape[0]):
-        pose_rel_gt = poses_gt[i] @ torch.linalg.inv(poses_gt[i - 1])
-        poses_rel_gt.append(pose_rel_gt)
-
     surface_lf_rig = SurfaceLFRig.build(
         K=K,
         poses_4x4=poses,
         image_size_hw=images.shape[2:4],
     )
-    integrated_poses = []
-    surface_lf = SurfaceLF(
-        rig=surface_lf_rig,
-        pc=pc,
-        images=images,
-        current_pose=poses_gt[0].cuda(),
+    slf = SurfaceLF(surface_lf_rig, pc, images)
+    image, depth = slf.rasterize()
+    Image.fromarray((image.cpu().numpy() * 255).astype(np.uint8)).save(
+        "test_render.png"
     )
-    poses_gt = torch.load("pts/poses_gt.pt")
-    poses_rel = [torch.eye(4).cuda()]
-    for i in range(1, poses_gt.shape[0]):
-        pose_rel = poses[i] @ torch.linalg.inv(poses[i - 1])
-        poses_rel.append(pose_rel)
-    for i, pose_rel in enumerate(poses_rel):
-        start = time()
-        values = surface_lf.transform(pose_rel)
-        img, depth = surface_lf.rasterize(values=values)
-        from PIL import Image
-
-        Image.fromarray((img.cpu().numpy() * 255).astype(np.uint8)).save(
-            f"test_outputs/image_{i:04d}.png"
-        )
-
-    # for i, pose_rel in enumerate(poses_rel_gt):
-    #     if i == 0:
-    #         surface_lf = SurfaceLF(
-    #             rig=surface_lf_rig,
-    #             pc=pc,
-    #             images=images,
-    #             current_pose=poses_gt[0].cuda(),
-    #         )
-    #         pc = surface_lf.values["means"]
-    #         integrated_poses.append(poses_gt[0].cuda())
-    #     else:
-    #         values = surface_lf.transform(
-    #             pose_rel,
-    #             inplace=True,
-    #         )
-    #         pc = values["means"]
-    #         integrated_poses.append(pose_rel @ integrated_poses[-1])
-    #     v.add_point_cloud(f"pc_{i:04d}", pc.cpu().numpy())
-    #     v.add_frame(f"pose_{i:04d}", surface_lf.pose.cpu().numpy())
-    #     v.add_frame(f"pose_gt_{i:04d}", poses_gt[i].cpu().numpy())
-    #     v.add_frame(f"pose_integrated{i:04d}", poses_gt[i].cpu().numpy())
-    # v.run()
