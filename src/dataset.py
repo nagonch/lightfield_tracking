@@ -6,7 +6,8 @@ from PIL import Image
 
 
 class LFDataset:
-    def __init__(self, folder):
+    def __init__(self, folder, poses_to_opencv=True):
+        self.poses_to_opencv = poses_to_opencv
         self.folder = folder
         self.camera_matrix = torch.tensor(
             np.loadtxt(f"{self.folder}/camera_matrix.txt"), dtype=torch.float32
@@ -35,6 +36,10 @@ class LFDataset:
             self.metadata["n_views"][1],
             *self.camera_poses[0].shape,
         )
+        self.to_opencv = torch.tensor(
+            [[1, 0, 0, 0], [0, 0, -1, 0], [0, 1, 0, 0], [0, 0, 0, 1]],
+            dtype=torch.float32,
+        ).cuda()
 
     def __len__(self):
         return self.size
@@ -68,6 +73,8 @@ class LFDataset:
         )
         object_pose = torch.tensor(object_pose, dtype=torch.float32)
         object_pose = torch.linalg.inv(self.camera_poses[s_mid, t_mid]) @ object_pose
+        if self.poses_to_opencv:
+            object_pose = object_pose.cuda() @ self.to_opencv
 
         masks_dir = os.path.join(frame_path, "masks")
         if os.path.exists(masks_dir):
