@@ -109,11 +109,6 @@ class LFDataset:
         else:
             predicted_depth = None
         LF = torch.flip(LF, dims=[0, 1]) if self.flip else LF
-        self.camera_poses = (
-            torch.flip(self.camera_poses, dims=[0, 1])
-            if self.flip
-            else self.camera_poses
-        )
         return {
             "LF": LF.cuda(),
             "depth": depth.cuda(),
