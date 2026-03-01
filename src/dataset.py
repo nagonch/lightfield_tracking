@@ -7,6 +7,8 @@ from PIL import Image
 
 class LFDataset:
     def __init__(self, folder, poses_to_opencv=True):
+        if "ycbv" in folder:
+            self.flip = True
         self.poses_to_opencv = poses_to_opencv
         self.folder = folder
         self.camera_matrix = torch.tensor(
@@ -106,6 +108,12 @@ class LFDataset:
             ).cuda()
         else:
             predicted_depth = None
+        LF = torch.flip(LF, dims=[0, 1]) if self.flip else LF
+        self.camera_poses = (
+            torch.flip(self.camera_poses, dims=[0, 1])
+            if self.flip
+            else self.camera_poses
+        )
         return {
             "LF": LF.cuda(),
             "depth": depth.cuda(),

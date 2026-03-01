@@ -31,15 +31,15 @@ def rebase_poses(gt_poses, est_poses):
 
 
 sequence_to_prompt = {
-    "bleach_hard_00_03_chaitanya": "bottle",
-    "bleach0": "bottle",
-    "cracker_box_reorient": "box",
-    "cracker_box_yalehand0": "box",
-    "mustard_easy_00_02": "bottle",
-    "mustard0": "bottle",
-    "sugar_box_yalehand0": "box",
-    "sugar_box1": "box",
-    "tomato_soup_can_yalehand0": "can",
+    "bleach_hard_00_03_chaitanya": "bottle.",
+    "bleach0": "bottle.",
+    "cracker_box_reorient": "red box.",
+    "cracker_box_yalehand0": "red box.",
+    "mustard_easy_00_02": "bottle.",
+    "mustard0": "bottle.",
+    "sugar_box_yalehand0": "box.",
+    "sugar_box1": "box.",
+    "tomato_soup_can_yalehand0": "can.",
 }
 
 
@@ -59,7 +59,7 @@ def main():
     segmentor = Segmentor(prompt=None)
     depth_estimator = DepthEstimator(infer_gs=False)
     for sequence in sequences:
-        # v = Visualizer()
+        v = Visualizer()
         print(f"Estimating on {sequence}")
         os.makedirs(f"{results_dir}/{dataset_name}", exist_ok=True)
         if os.path.exists(f"{results_dir}/{dataset_name}/{sequence}.npy"):

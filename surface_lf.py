@@ -229,9 +229,13 @@ class SurfaceLF:
     def transform(self, rel_pose):
         rel_pose = rel_pose.to(self.values["means"].dtype)
         values = self.values.copy()
-        values["harmonics"] = transform_shs(
-            values["harmonics"].float(), rel_pose[:3, :3].float()
-        )
+        try:
+            values["harmonics"] = transform_shs(
+                values["harmonics"].float(), rel_pose[:3, :3].float()
+            )
+        except Exception as e:
+            print("Error in SH transformation:", e)
+            values["harmonics"] = values["harmonics"].float()
         R = rel_pose[:3, :3]
         t = rel_pose[:3, 3]
         points0 = self.values["means"]
