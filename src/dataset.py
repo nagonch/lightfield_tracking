@@ -9,6 +9,8 @@ class LFDataset:
     def __init__(self, folder, poses_to_opencv=True):
         if "ycbv" in folder:
             self.flip = True
+        else:
+            self.flip = False
         self.poses_to_opencv = poses_to_opencv
         self.folder = folder
         self.camera_matrix = torch.tensor(

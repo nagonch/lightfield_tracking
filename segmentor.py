@@ -13,11 +13,15 @@ import torch
 
 
 class Segmentor:
-    def __init__(self, prompt: str):
+    def __init__(self, prompt: str, sam_image_predictor=None):
         self.prompt = prompt
         self.initialized = False
 
-        self.image_predictor = get_image_predictor()
+        self.image_predictor = (
+            sam_image_predictor
+            if sam_image_predictor is not None
+            else get_image_predictor()
+        )
         self.processor, self.grounding_model = get_dino_models()
 
         hydra.core.global_hydra.GlobalHydra.instance().clear()
