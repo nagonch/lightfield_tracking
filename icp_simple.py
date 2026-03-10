@@ -3,6 +3,7 @@ import open3d as o3d
 from src.utilities import Visualizer
 import torch
 from icp import rebase_poses, pose_errors, icp_track
+from scipy.spatial.transform import Rotation as R
 
 
 def get_coarsest_pose(pc, pose_prev):
@@ -37,6 +38,7 @@ if __name__ == "__main__":
             coarse_pose, pose_rel_prev = icp_track(
                 pc, pc_prev_trans, color, color_prev, coarsest_pose, pose_rel_prev
             )
+            print(R.from_matrix(pose_rel_prev[:3, :3]).as_euler("xyz", degrees=True))
             est_poses.append(coarse_pose)
 
             pc_prev = pc
