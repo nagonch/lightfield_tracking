@@ -11,12 +11,17 @@ def get_coarsest_pose(pc, pose_prev):
     return pose_next
 
 
+def pc_coarsest_init(pc_prev, pc):
+    pc_prev += np.median(pc, axis=0) - np.median(pc_prev, axis=0)
+    return pc_prev
+
+
 if __name__ == "__main__":
     gt_poses = []
     est_poses = []
     v = Visualizer()
     pose_rel_prev = None
-    for i in range(40):
+    for i in range(20):
         print(i)
         frame = torch.load(f"pcs_bottle/frame_{str(i).zfill(4)}.pt")
         gt_poses.append(frame["pose"].cpu().numpy())
@@ -36,10 +41,17 @@ if __name__ == "__main__":
             #     pose_prev,
             #     pose_rel_prev=pose_rel_prev,
             # )
-            est_poses.append(get_coarsest_pose(pc, est_poses[-1]))
+            coarsest_pose = get_coarsest_pose(pc, est_poses[-1])
+            pc_prev_trans = pc_coarsest_init(pc_prev, pc)
+            est_poses.append(coarsest_pose)
+
+            v.add_point_cloud(
+                f"pc_prev_{i}", pc_prev_trans, color_prev, point_size=1e-3
+            )
+            v.add_point_cloud(f"pc_{i}", pc, color, point_size=1e-3)
+
             pc_prev = pc
             color_prev = color
-            v.add_point_cloud(f"pc_{i}", pc, color, point_size=1e-3)
     gt_poses = np.stack(gt_poses, axis=0)
     est_poses = np.stack(est_poses, axis=0)
     est_poses = rebase_poses(gt_poses, est_poses)
