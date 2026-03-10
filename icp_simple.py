@@ -2,7 +2,7 @@ import numpy as np
 import open3d as o3d
 from src.utilities import Visualizer
 import torch
-from icp import rebase_poses, pose_errors
+from icp import rebase_poses, pose_errors, icp_track
 
 
 def get_coarsest_pose(pc, pose_prev):
@@ -21,7 +21,7 @@ if __name__ == "__main__":
     est_poses = []
     v = Visualizer()
     pose_rel_prev = None
-    for i in range(20):
+    for i in range(40):
         print(i)
         frame = torch.load(f"pcs_bottle/frame_{str(i).zfill(4)}.pt")
         gt_poses.append(frame["pose"].cpu().numpy())
@@ -32,23 +32,12 @@ if __name__ == "__main__":
         else:
             pc = frame["pc"].cpu().numpy()
             color = frame["color"].cpu().numpy()
-            # pose_prev = est_poses[-1]
-            # pose_new_world, pose_rel_prev = rel_pose_coarse(
-            #     pc,
-            #     pc_prev,
-            #     color,
-            #     color_prev,
-            #     pose_prev,
-            #     pose_rel_prev=pose_rel_prev,
-            # )
             coarsest_pose = get_coarsest_pose(pc, est_poses[-1])
             pc_prev_trans = pc_coarsest_init(pc_prev, pc)
-            est_poses.append(coarsest_pose)
-
-            v.add_point_cloud(
-                f"pc_prev_{i}", pc_prev_trans, color_prev, point_size=1e-3
+            coarse_pose, pose_rel_prev = icp_track(
+                pc, pc_prev_trans, color, color_prev, coarsest_pose, pose_rel_prev
             )
-            v.add_point_cloud(f"pc_{i}", pc, color, point_size=1e-3)
+            est_poses.append(coarse_pose)
 
             pc_prev = pc
             color_prev = color
