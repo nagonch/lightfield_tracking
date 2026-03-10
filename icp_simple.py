@@ -5,20 +5,10 @@ import torch
 from icp import rebase_poses, pose_errors
 
 
-def rel_pose_coarse(pc, pc_prev, color, color_prev, pose_prev, pose_rel_prev=None):
-    translation_guess = np.mean(pc, axis=0) - np.mean(pc_prev, axis=0)
-    pc_prev += translation_guess
-    pose_rel = np.eye(4)
-    pose_rel[:3, 3] = translation_guess
-    pose = pose_rel @ pose_prev
-    pose[:3, 3] = np.mean(pc, axis=0)
-    return pose, pose_rel
-
-
-def get_pose(pc):
-    pose = np.eye(4)
-    pose[:3, 3] = np.mean(pc, axis=0)
-    return pose
+def get_coarsest_pose(pc, pose_prev):
+    pose_next = np.copy(pose_prev)
+    pose_next[:3, 3] = np.median(pc, axis=0)
+    return pose_next
 
 
 if __name__ == "__main__":
@@ -46,7 +36,7 @@ if __name__ == "__main__":
             #     pose_prev,
             #     pose_rel_prev=pose_rel_prev,
             # )
-            est_poses.append(get_pose(pc))
+            est_poses.append(get_coarsest_pose(pc, est_poses[-1]))
             pc_prev = pc
             color_prev = color
             v.add_point_cloud(f"pc_{i}", pc, color, point_size=1e-3)
