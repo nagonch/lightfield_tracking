@@ -86,7 +86,7 @@ class Visualizer:
             colors = np.array([255, 0, 0])
         self.scene.add_point_cloud(name, points, colors=colors, point_size=point_size)
 
-    def add_frame(self, name, frame_T, frames_scale=0.05):
+    def add_frame(self, name, frame_T, frames_scale=0.05, origin_color=(236, 236, 0)):
         if not isinstance(frame_T, np.ndarray):
             frame_T = np.array(frame_T)
         position = frame_T[:3, 3]
@@ -97,8 +97,9 @@ class Visualizer:
             position=position,
             wxyz=wxyz,
             axes_length=frames_scale * 2,
-            origin_radius=frames_scale / 5,
+            origin_radius=frames_scale / 2,
             axes_radius=frames_scale / 10,
+            origin_color=origin_color,
         )
 
     def add_camera_frustum(self, name, camera_T, camera_matrix, image, scale=0.1):

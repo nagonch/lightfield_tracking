@@ -351,12 +351,12 @@ if __name__ == "__main__":
 
             est_poses.append(coarse_pose)
             v.add_point_cloud(
-                f"pc_coarse_{i}", pc_prev_trans, color_prev, point_size=1e-4
+                f"pc_coarse_{i}", pc_prev_trans, color_prev, point_size=1e-3
             )
             v.add_point_cloud(
-                f"pc_aligned_{i}", pc_refined, color_prev, point_size=1e-4
+                f"pc_aligned_{i}", pc_refined, color_prev, point_size=1e-3
             )
-            v.add_point_cloud(f"pc_{i}", pc, color, point_size=1e-4)
+            v.add_point_cloud(f"pc_{i}", pc, color, point_size=1e-3)
 
             pc_prev = pc
             color_prev = color

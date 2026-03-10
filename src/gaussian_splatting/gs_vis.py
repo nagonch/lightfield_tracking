@@ -105,11 +105,40 @@ def visualize_gs(means, colors, quats=None, scales=None, opacities=None):
 
 
 if __name__ == "__main__":
-    gaussians = torch.load("/home/ngoncharov/cvpr2026/LiFT-6DoF/gaussians.pt")
+    fnames = [
+        "box_motion_prod",
+        "jug_tilt_prod",
+        "teabox_translation_prod",
+        "jug_motion_prod",
+        "shiny_box_tilt_prod",
+        "teabox_tilt_prod",
+    ]
+    means = []
+    harmonics = []
+    quats = []
+    scales = []
+    opacities = []
+    for i in range(6):
+        gaussians = torch.load(
+            f"/home/ngoncharov/cvpr2026/LiFT-6DoF/surface_lf_values/{fnames[i]}_0.pt"
+        )
+        means.append(
+            gaussians["means"].float() + torch.tensor([i * 0.2, 0, 0]).float().cuda()
+        )  # shift the means for better visualization
+        harmonics.append(gaussians["harmonics"].float())
+        quats.append(gaussians["rotations"].float())
+        scales.append(gaussians["scales"].float())
+        opacities.append(gaussians["opacities"].float())
+
+    means = torch.cat(means, dim=0)
+    harmonics = torch.cat(harmonics, dim=0)
+    quats = torch.cat(quats, dim=0)
+    scales = torch.cat(scales, dim=0)
+    opacities = torch.cat(opacities, dim=0)
     visualize_gs(
-        gaussians["means"].float(),
-        gaussians["harmonics"].float(),
-        quats=gaussians["rotations"].float(),
-        scales=gaussians["scales"].float(),
-        opacities=gaussians["opacities"].float(),
+        means,
+        harmonics,
+        quats=quats,
+        scales=scales,
+        opacities=opacities,
     )
