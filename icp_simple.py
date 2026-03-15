@@ -1,11 +1,12 @@
 import numpy as np
 import open3d as o3d
 from src.utilities import Visualizer
-from test_icp import apply_transform_to_points
 import torch
 from icp import rebase_poses, pose_errors, icp_track
 from scipy.spatial.transform import Rotation as R
 import itertools
+from src.dataset import LFDataset
+from src.utilities import backproject_depth_to_pointcloud
 
 
 def get_coarsest_pose(pc, pose_prev):
@@ -318,21 +319,32 @@ def apply_transform_to_points(
 
 
 if __name__ == "__main__":
+    paths = "/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_0.0/bleach0"
+    dataset = LFDataset(paths)
+    s_size, t_size = dataset.metadata["n_views"]
+
     gt_poses = []
     est_poses = []
     v = Visualizer()
     pose_rel_prev = None
-    for i in range(40):
-        print(i)
-        frame = torch.load(f"pcs_bottle/frame_{str(i).zfill(4)}.pt")
-        gt_poses.append(frame["pose"].cpu().numpy())
+    for i, frame in enumerate(dataset):
+        frame["pose"] = frame["object_pose"]
+        mask = frame["masks"][s_size // 2, t_size // 2]
+        img_central = frame["LF"][s_size // 2, t_size // 2]
+        camera_matrix = frame["camera_matrix"]
+        depth = frame["depth"]
+        pc = backproject_depth_to_pointcloud(
+            pixel_indices=None,
+            depths=depth,
+            camera_matrix=camera_matrix,
+        )
+        pc = pc[(mask > 0).reshape(-1)].cpu().numpy()
+        color = img_central[mask > 0].reshape(-1, 3).cpu().numpy()
         if i == 0:
-            pc_prev = frame["pc_gt"].cpu().numpy()
-            color_prev = frame["color"].cpu().numpy()
+            pc_prev = pc
+            color_prev = color
             est_poses.append(frame["pose"].cpu().numpy())
         else:
-            pc = frame["pc_gt"].cpu().numpy()
-            color = frame["color"].cpu().numpy()
             coarsest_pose = get_coarsest_pose(pc, est_poses[-1])
             pc_prev_trans = pc_coarsest_init(pc_prev, pc)
 
