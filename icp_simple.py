@@ -6,6 +6,7 @@ from icp import rebase_poses, pose_errors, icp_track
 from scipy.spatial.transform import Rotation as R
 import itertools
 from src.dataset import LFDataset
+from tqdm import tqdm
 from src.utilities import backproject_depth_to_pointcloud
 
 
@@ -327,7 +328,7 @@ if __name__ == "__main__":
     est_poses = []
     v = Visualizer()
     pose_rel_prev = None
-    for i, frame in enumerate(dataset):
+    for i, frame in tqdm(enumerate(dataset)):
         frame["pose"] = frame["object_pose"]
         mask = frame["masks"][s_size // 2, t_size // 2]
         img_central = frame["LF"][s_size // 2, t_size // 2]
@@ -340,6 +341,7 @@ if __name__ == "__main__":
         )
         pc = pc[(mask > 0).reshape(-1)].cpu().numpy()
         color = img_central[mask > 0].reshape(-1, 3).cpu().numpy()
+        gt_poses.append(frame["pose"].cpu().numpy())
         if i == 0:
             pc_prev = pc
             color_prev = color
@@ -358,17 +360,16 @@ if __name__ == "__main__":
 
             coarse_pose = registration_result["transform_source_to_target"]
             pc_refined = apply_transform_to_points(pc_prev_trans, coarse_pose)
-            print(pc_refined.shape, color_prev.shape)
             coarse_pose = coarse_pose @ coarsest_pose
 
             est_poses.append(coarse_pose)
-            v.add_point_cloud(
-                f"pc_coarse_{i}", pc_prev_trans, color_prev, point_size=1e-3
-            )
-            v.add_point_cloud(
-                f"pc_aligned_{i}", pc_refined, color_prev, point_size=1e-3
-            )
-            v.add_point_cloud(f"pc_{i}", pc, color, point_size=1e-3)
+            # v.add_point_cloud(
+            #     f"pc_coarse_{i}", pc_prev_trans, color_prev, point_size=1e-3
+            # )
+            # v.add_point_cloud(
+            #     f"pc_aligned_{i}", pc_refined, color_prev, point_size=1e-3
+            # )
+            # v.add_point_cloud(f"pc_{i}", pc, color, point_size=1e-3)
 
             pc_prev = pc
             color_prev = color
