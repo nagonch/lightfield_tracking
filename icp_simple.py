@@ -328,10 +328,10 @@ if __name__ == "__main__":
     #         f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_{REFLECTIVITY}"
     #     ):
     REFLECTIVITY = "0.0"
-    sequence_name = "bleach0"
-    print(f"running {sequence_name}")
-    RESULTS_FOLDER = f"ours_icp_colorless_{REFLECTIVITY}"
-    path = f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_{REFLECTIVITY}/{sequence_name}"
+    # sequence_name = "bleach0"
+    # print(f"running {sequence_name}")
+    RESULTS_FOLDER = f"test"
+    path = f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_reflective_0/mustard_easy_00_02"
     dataset = LFDataset(path)
     s_size, t_size = dataset.metadata["n_views"]
 
@@ -359,6 +359,7 @@ if __name__ == "__main__":
             est_poses.append(frame["pose"].cpu().numpy())
         else:
             coarsest_pose = get_coarsest_pose(pc, est_poses[-1])
+            # coarsest_pose = np.eye(4)
             pc_prev_trans = pc_coarsest_init(pc_prev, pc)
 
             registration_result = run_explorative_icp_with_centering(
@@ -387,7 +388,7 @@ if __name__ == "__main__":
     gt_poses = np.stack(gt_poses, axis=0)
     est_poses = np.stack(est_poses, axis=0)
     est_poses = rebase_poses(gt_poses, est_poses)
-    np.save(os.path.join(RESULTS_FOLDER, f"{sequence_name}.npy"), est_poses)
+    # np.save(os.path.join(RESULTS_FOLDER, f"{sequence_name}.npy"), est_poses)
     print(pose_errors(gt_poses, est_poses))
     for i, (pose_est, pose_gt) in enumerate(zip(est_poses, gt_poses)):
         v.add_frame(f"{i}_est", pose_est, frames_scale=0.01)
