@@ -4,12 +4,71 @@ import numpy as np
 import open3d as o3d
 from src.utilities import Visualizer
 import torch
-from icp import rebase_poses, pose_errors, icp_track
+from icp import rebase_poses, pose_errors
 from scipy.spatial.transform import Rotation as R
 import itertools
 from src.dataset import LFDataset
 from tqdm import tqdm
 from src.utilities import backproject_depth_to_pointcloud
+
+
+def rebase_poses(gt_poses, est_poses):
+    pose_est_0 = est_poses[0]
+    pose_gt_0 = gt_poses[0]
+    est_to_gt = np.linalg.inv(pose_est_0) @ pose_gt_0
+    est_poses = [p @ est_to_gt for p in est_poses]
+    est_poses = np.stack(est_poses, axis=0)
+
+    return est_poses
+
+
+def rotation_angle_deg(R_err):
+    trace = np.trace(R_err, axis1=-2, axis2=-1)
+    cos_theta = np.clip((trace - 1) / 2, -1.0, 1.0)
+    return np.arccos(cos_theta) * (180.0 / np.pi)
+
+
+def pose_errors(gt_poses, est_poses):
+    assert (
+        gt_poses.shape == est_poses.shape
+    ), f"GT poses shape {gt_poses.shape} does not match estimated poses shape {est_poses.shape}"
+    assert gt_poses.shape[-2:] == (4, 4)
+
+    N = gt_poses.shape[0]
+
+    R_gt = gt_poses[:, :3, :3]
+    t_gt = gt_poses[:, :3, 3]
+    R_est = est_poses[:, :3, :3]
+    t_est = est_poses[:, :3, 3]
+    R_err_abs = R_est @ np.transpose(R_gt, (0, 2, 1))  # (N, 3, 3)
+    rot_err_abs = rotation_angle_deg(R_err_abs)  # (N,)
+    trans_err_abs = np.linalg.norm(t_est - t_gt, axis=1)  # (N,)
+    ate_rmse = np.sqrt((trans_err_abs**2).mean())
+
+    rel_rot_errs = []
+    rel_trans_errs = []
+    for i in range(N - 1):
+        T_gt_rel = np.linalg.inv(gt_poses[i]) @ gt_poses[i + 1]
+        T_est_rel = np.linalg.inv(est_poses[i]) @ est_poses[i + 1]
+
+        R_gt_rel = T_gt_rel[:3, :3]
+        R_est_rel = T_est_rel[:3, :3]
+        t_gt_rel = T_gt_rel[:3, 3]
+        t_est_rel = T_est_rel[:3, 3]
+
+        R_err_rel = R_est_rel @ R_gt_rel.transpose(-1, -2)
+        rel_rot_errs.append(rotation_angle_deg(R_err_rel))
+        rel_trans_errs.append(np.linalg.norm(t_est_rel - t_gt_rel))
+
+    rel_rot_errs = np.array(rel_rot_errs)
+    rel_trans_errs = np.array(rel_trans_errs)
+    return {
+        "mean_abs_rot_deg": rot_err_abs.mean().item(),
+        "mean_abs_trans": trans_err_abs.mean().item(),
+        "mean_rel_rot_deg": rel_rot_errs.mean().item(),
+        "mean_rel_trans": rel_trans_errs.mean().item(),
+        "ate_rmse": ate_rmse.item(),
+    }
 
 
 def get_coarsest_pose(point_cloud_previous, point_cloud_current, pose_previous):
@@ -323,73 +382,4 @@ def apply_transform_to_points(
 
 
 if __name__ == "__main__":
-    # for REFLECTIVITY in ["0.0", "0.5", "0.7", "1.0"]:
-    #     RESULTS_FOLDER = f"ours_icp_colorless_{REFLECTIVITY}"
-    #     os.makedirs(RESULTS_FOLDER, exist_ok=True)
-    #     for sequence_name in os.listdir(
-    #         f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_{REFLECTIVITY}"
-    #     ):
-    REFLECTIVITY = "0.0"
-    sequence_name = "bleach0"
-    print(f"running {sequence_name}")
-    RESULTS_FOLDER = f"test"
-    path = f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_{REFLECTIVITY}/{sequence_name}"
-    dataset = LFDataset(path)
-    s_size, t_size = dataset.metadata["n_views"]
-
-    gt_poses = []
-    est_poses = []
-    v = Visualizer()
-    pose_rel_prev = None
-    for i, frame in tqdm(enumerate(dataset)):
-        frame["pose"] = frame["object_pose"]
-        mask = frame["masks"][s_size // 2, t_size // 2]
-        img_central = frame["LF"][s_size // 2, t_size // 2]
-        camera_matrix = frame["camera_matrix"]
-        depth = frame["depth"]
-        pc = backproject_depth_to_pointcloud(
-            pixel_indices=None,
-            depths=depth,
-            camera_matrix=camera_matrix,
-        )
-        pc = pc[(mask > 0).reshape(-1)].cpu().numpy()
-        color = img_central[mask > 0].reshape(-1, 3).cpu().numpy()
-        gt_poses.append(frame["pose"].cpu().numpy())
-        if i == 0:
-            pc_prev = pc
-            color_prev = color
-            est_poses.append(frame["pose"].cpu().numpy())
-        else:
-            coarsest_pose, pc_prev_trans = get_coarsest_pose(pc_prev, pc, est_poses[-1])
-            registration_result = run_explorative_icp_with_centering(
-                source_points_xyz=pc_prev_trans,
-                target_points_xyz=pc,
-                source_colors_rgb=color_prev,
-                target_colors_rgb=color,
-                max_correspondence_distance=0.01,
-            )
-
-            coarse_pose = registration_result["transform_source_to_target"]
-            pc_refined = apply_transform_to_points(pc_prev_trans, coarse_pose)
-            coarse_pose = coarse_pose @ coarsest_pose
-
-            est_poses.append(coarse_pose)
-            # v.add_point_cloud(
-            #     f"pc_coarse_{i}", pc_prev_trans, color_prev, point_size=1e-3
-            # )
-            # v.add_point_cloud(
-            #     f"pc_aligned_{i}", pc_refined, color_prev, point_size=1e-3
-            # )
-            # v.add_point_cloud(f"pc_{i}", pc, color, point_size=1e-3)
-
-            pc_prev = pc
-            color_prev = color
-    gt_poses = np.stack(gt_poses, axis=0)
-    est_poses = np.stack(est_poses, axis=0)
-    est_poses = rebase_poses(gt_poses, est_poses)
-    # np.save(os.path.join(RESULTS_FOLDER, f"{sequence_name}.npy"), est_poses)
-    print(pose_errors(gt_poses, est_poses))
-    for i, (pose_est, pose_gt) in enumerate(zip(est_poses, gt_poses)):
-        v.add_frame(f"{i}_est", pose_est, frames_scale=0.01)
-        v.add_frame(f"{i}_gt", pose_gt, frames_scale=0.01, origin_color=(255, 255, 255))
-    v.run()
+    pass
