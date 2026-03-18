@@ -28,7 +28,7 @@ if __name__ == "__main__":
 
             gt_poses = []
             est_poses = []
-            v = Visualizer()
+            # v = Visualizer()
             pose_rel_prev = None
             for i, frame in tqdm(enumerate(dataset)):
                 frame["pose"] = frame["object_pose"]
