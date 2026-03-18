@@ -15,13 +15,12 @@ import os
 
 if __name__ == "__main__":
     for REFLECTIVITY in ["0.0", "0.5", "0.7", "1.0"]:
-        RESULTS_FOLDER = f"ours_icp_colorless_{REFLECTIVITY}"
+        RESULTS_FOLDER = f"ours_icp_box_{REFLECTIVITY}/ycbv_lf"
         os.makedirs(RESULTS_FOLDER, exist_ok=True)
         for sequence_name in os.listdir(
             f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_{REFLECTIVITY}"
         ):
             print(f"running {sequence_name}")
-            RESULTS_FOLDER = f"test"
             path = f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_{REFLECTIVITY}/{sequence_name}"
             dataset = LFDataset(path)
             s_size, t_size = dataset.metadata["n_views"]

@@ -1,5 +1,4 @@
 import os
-import kiss_matcher
 import numpy as np
 import open3d as o3d
 from src.utilities import Visualizer
