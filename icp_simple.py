@@ -12,15 +12,17 @@ from tqdm import tqdm
 from src.utilities import backproject_depth_to_pointcloud
 
 
-def get_coarsest_pose(pc, pose_prev):
-    pose_next = np.copy(pose_prev)
-    pose_next[:3, 3] = np.median(pc, axis=0)
-    return pose_next
+def get_coarsest_pose(point_cloud_previous, point_cloud_current, pose_previous):
+    previous_median = np.median(point_cloud_previous, axis=0)
+    current_median = np.median(point_cloud_current, axis=0)
+    translation_coarse = current_median - previous_median
 
+    pose_coarse = pose_previous.copy()
+    pose_coarse[:3, 3] += translation_coarse
 
-def pc_coarsest_init(pc_prev, pc):
-    pc_prev += np.median(pc, axis=0) - np.median(pc_prev, axis=0)
-    return pc_prev
+    point_cloud_previous_aligned = point_cloud_previous + translation_coarse
+
+    return pose_coarse, point_cloud_previous_aligned
 
 
 def get_aligned_pc(pc, pose_rel):
@@ -328,10 +330,10 @@ if __name__ == "__main__":
     #         f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_{REFLECTIVITY}"
     #     ):
     REFLECTIVITY = "0.0"
-    # sequence_name = "bleach0"
-    # print(f"running {sequence_name}")
+    sequence_name = "bleach0"
+    print(f"running {sequence_name}")
     RESULTS_FOLDER = f"test"
-    path = f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_reflective_0/mustard_easy_00_02"
+    path = f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_{REFLECTIVITY}/{sequence_name}"
     dataset = LFDataset(path)
     s_size, t_size = dataset.metadata["n_views"]
 
@@ -358,10 +360,7 @@ if __name__ == "__main__":
             color_prev = color
             est_poses.append(frame["pose"].cpu().numpy())
         else:
-            coarsest_pose = get_coarsest_pose(pc, est_poses[-1])
-            # coarsest_pose = np.eye(4)
-            pc_prev_trans = pc_coarsest_init(pc_prev, pc)
-
+            coarsest_pose, pc_prev_trans = get_coarsest_pose(pc_prev, pc, est_poses[-1])
             registration_result = run_explorative_icp_with_centering(
                 source_points_xyz=pc_prev_trans,
                 target_points_xyz=pc,
