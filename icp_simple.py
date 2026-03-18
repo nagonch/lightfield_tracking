@@ -1,3 +1,5 @@
+import os
+import kiss_matcher
 import numpy as np
 import open3d as o3d
 from src.utilities import Visualizer
@@ -157,25 +159,15 @@ def run_explorative_icp_with_centering(
     source_colors_rgb: np.ndarray | None = None,
     target_colors_rgb: np.ndarray | None = None,
     max_correspondence_distance: float = 0.05,
-    coarse_iterations: int = 20,
-    final_iterations: int = 80,
-    angle_step_degrees: float = 3.0,
+    coarse_iterations: int = 10,
+    final_iterations: int = 50,
+    angle_step_degrees: float = 4.5,
     max_angle_degrees: float = 9.0,
-    include_full_axis_combinations: bool = True,
-    voxel_size: float | None = None,
-    top_k_finalists: int = 5,
+    include_full_axis_combinations: bool = False,
+    coarse_voxel_size: float | None = None,
+    final_voxel_size: float | None = None,
+    top_k_finalists: int = 3,
 ) -> dict:
-    """
-    Multi-start ICP with centered point clouds and rotation hypothesis search.
-
-    Strategy:
-        1. Center source and target separately.
-        2. Try many initial rotation hypotheses around identity.
-        3. Run short ICP from each hypothesis.
-        4. Keep the best few hypotheses.
-        5. Re-run longer ICP from those finalists.
-        6. Return the best transform in the original coordinate system.
-    """
     source_points_xyz = np.asarray(source_points_xyz, dtype=np.float64)
     target_points_xyz = np.asarray(target_points_xyz, dtype=np.float64)
 
@@ -188,35 +180,44 @@ def run_explorative_icp_with_centering(
             f"target_points_xyz must have shape [N, 3], got {target_points_xyz.shape}"
         )
 
-    source_point_cloud = numpy_point_cloud_from_arrays(
-        source_points_xyz, source_colors_rgb
+    # Center with NumPy once.
+    source_centroid = source_points_xyz.mean(axis=0)
+    target_centroid = target_points_xyz.mean(axis=0)
+
+    centered_source_points_xyz = source_points_xyz - source_centroid
+    centered_target_points_xyz = target_points_xyz - target_centroid
+
+    # Build coarse clouds.
+    coarse_source_point_cloud = numpy_point_cloud_from_arrays(
+        centered_source_points_xyz, source_colors_rgb
     )
-    target_point_cloud = numpy_point_cloud_from_arrays(
-        target_points_xyz, target_colors_rgb
+    coarse_target_point_cloud = numpy_point_cloud_from_arrays(
+        centered_target_points_xyz, target_colors_rgb
     )
 
-    if voxel_size is not None and voxel_size > 0.0:
-        source_point_cloud = source_point_cloud.voxel_down_sample(voxel_size)
-        target_point_cloud = target_point_cloud.voxel_down_sample(voxel_size)
+    if coarse_voxel_size is not None and coarse_voxel_size > 0.0:
+        coarse_source_point_cloud = coarse_source_point_cloud.voxel_down_sample(
+            coarse_voxel_size
+        )
+        coarse_target_point_cloud = coarse_target_point_cloud.voxel_down_sample(
+            coarse_voxel_size
+        )
 
-    source_centroid = np.asarray(source_point_cloud.points).mean(axis=0)
-    target_centroid = np.asarray(target_point_cloud.points).mean(axis=0)
-
-    source_to_center_transform = make_transform(
-        rotation_matrix=np.eye(3, dtype=np.float64),
-        translation_vector=-source_centroid,
+    # Build final clouds separately so coarse downsampling does not affect final ICP.
+    final_source_point_cloud = numpy_point_cloud_from_arrays(
+        centered_source_points_xyz, source_colors_rgb
     )
-    target_to_center_transform = make_transform(
-        rotation_matrix=np.eye(3, dtype=np.float64),
-        translation_vector=-target_centroid,
+    final_target_point_cloud = numpy_point_cloud_from_arrays(
+        centered_target_points_xyz, target_colors_rgb
     )
 
-    centered_source_point_cloud = source_point_cloud.transform(
-        source_to_center_transform.copy()
-    )
-    centered_target_point_cloud = target_point_cloud.transform(
-        target_to_center_transform.copy()
-    )
+    if final_voxel_size is not None and final_voxel_size > 0.0:
+        final_source_point_cloud = final_source_point_cloud.voxel_down_sample(
+            final_voxel_size
+        )
+        final_target_point_cloud = final_target_point_cloud.voxel_down_sample(
+            final_voxel_size
+        )
 
     rotation_hypotheses = build_rotation_hypotheses(
         angle_step_degrees=angle_step_degrees,
@@ -224,27 +225,29 @@ def run_explorative_icp_with_centering(
         include_full_axis_combinations=include_full_axis_combinations,
     )
 
-    coarse_candidates = []
-
     coarse_criteria = o3d.pipelines.registration.ICPConvergenceCriteria(
-        max_iteration=coarse_iterations
+        relative_fitness=1e-3,
+        relative_rmse=1e-3,
+        max_iteration=coarse_iterations,
     )
     final_criteria = o3d.pipelines.registration.ICPConvergenceCriteria(
-        max_iteration=final_iterations
+        relative_fitness=1e-6,
+        relative_rmse=1e-6,
+        max_iteration=final_iterations,
     )
     estimation_method = (
         o3d.pipelines.registration.TransformationEstimationPointToPoint()
     )
 
+    coarse_candidates = []
+
     for initial_rotation_matrix in rotation_hypotheses:
-        initial_transform = make_transform(
-            rotation_matrix=initial_rotation_matrix,
-            translation_vector=np.zeros(3, dtype=np.float64),
-        )
+        initial_transform = np.eye(4, dtype=np.float64)
+        initial_transform[:3, :3] = initial_rotation_matrix
 
         coarse_icp_result = o3d.pipelines.registration.registration_icp(
-            centered_source_point_cloud,
-            centered_target_point_cloud,
+            coarse_source_point_cloud,
+            coarse_target_point_cloud,
             max_correspondence_distance,
             initial_transform,
             estimation_method,
@@ -252,26 +255,24 @@ def run_explorative_icp_with_centering(
         )
 
         coarse_candidates.append(
-            {
-                "initial_transform": initial_transform,
-                "coarse_result": coarse_icp_result,
-                "score": rank_icp_result(coarse_icp_result),
-            }
+            (
+                rank_icp_result(coarse_icp_result),
+                initial_transform,
+                coarse_icp_result.transformation,
+            )
         )
 
-    coarse_candidates.sort(key=lambda candidate: candidate["score"], reverse=True)
+    coarse_candidates.sort(key=lambda item: item[0], reverse=True)
     finalist_candidates = coarse_candidates[:top_k_finalists]
 
     best_final_result = None
-    best_final_score = None
+    best_final_score = -np.inf
     best_initial_transform = None
 
-    for finalist_candidate in finalist_candidates:
-        finalist_seed_transform = finalist_candidate["coarse_result"].transformation
-
+    for _, initial_transform, finalist_seed_transform in finalist_candidates:
         final_icp_result = o3d.pipelines.registration.registration_icp(
-            centered_source_point_cloud,
-            centered_target_point_cloud,
+            final_source_point_cloud,
+            final_target_point_cloud,
             max_correspondence_distance,
             finalist_seed_transform,
             estimation_method,
@@ -279,19 +280,19 @@ def run_explorative_icp_with_centering(
         )
 
         final_score = rank_icp_result(final_icp_result)
-
-        if best_final_result is None or final_score > best_final_score:
+        if final_score[0] > best_final_score:
             best_final_result = final_icp_result
-            best_final_score = final_score
-            best_initial_transform = finalist_candidate["initial_transform"]
+            best_final_score = final_score[0]
+            best_initial_transform = initial_transform
 
     centered_source_to_centered_target = best_final_result.transformation
-    center_to_target_original_transform = invert_transform(target_to_center_transform)
 
-    transform_source_to_target = (
-        center_to_target_original_transform
-        @ centered_source_to_centered_target
-        @ source_to_center_transform
+    transform_source_to_target = np.eye(4, dtype=np.float64)
+    transform_source_to_target[:3, :3] = centered_source_to_centered_target[:3, :3]
+    transform_source_to_target[:3, 3] = (
+        target_centroid
+        + centered_source_to_centered_target[:3, 3]
+        - centered_source_to_centered_target[:3, :3] @ source_centroid
     )
 
     return {
@@ -320,8 +321,18 @@ def apply_transform_to_points(
 
 
 if __name__ == "__main__":
-    paths = "/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_0.0/bleach0"
-    dataset = LFDataset(paths)
+    # for REFLECTIVITY in ["0.0", "0.5", "0.7", "1.0"]:
+    #     RESULTS_FOLDER = f"ours_icp_colorless_{REFLECTIVITY}"
+    #     os.makedirs(RESULTS_FOLDER, exist_ok=True)
+    #     for sequence_name in os.listdir(
+    #         f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_{REFLECTIVITY}"
+    #     ):
+    REFLECTIVITY = "0.0"
+    sequence_name = "bleach0"
+    print(f"running {sequence_name}")
+    RESULTS_FOLDER = f"ours_icp_colorless_{REFLECTIVITY}"
+    path = f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_{REFLECTIVITY}/{sequence_name}"
+    dataset = LFDataset(path)
     s_size, t_size = dataset.metadata["n_views"]
 
     gt_poses = []
@@ -376,6 +387,7 @@ if __name__ == "__main__":
     gt_poses = np.stack(gt_poses, axis=0)
     est_poses = np.stack(est_poses, axis=0)
     est_poses = rebase_poses(gt_poses, est_poses)
+    np.save(os.path.join(RESULTS_FOLDER, f"{sequence_name}.npy"), est_poses)
     print(pose_errors(gt_poses, est_poses))
     for i, (pose_est, pose_gt) in enumerate(zip(est_poses, gt_poses)):
         v.add_frame(f"{i}_est", pose_est, frames_scale=0.01)
