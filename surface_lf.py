@@ -48,7 +48,7 @@ def batch_rasterize(
     camera_matrix,
     height,
     width,
-    render_mode="RGB",
+    render_mode="RGB+D",
     backgrounds=None,
 ):
     total_sh_degrees = 2
@@ -144,9 +144,9 @@ class SurfaceLFRig:
 
 
 class SurfaceLF:
-    def __init__(self, rig: SurfaceLFRig, pc, images):
+    def __init__(self, rig: SurfaceLFRig, pc, images, pc_scales):
         self.rig = rig
-        self.calculate(pc, images)
+        self.calculate(pc, images, pc_scales)
 
     @property
     def K(self):
@@ -168,7 +168,7 @@ class SurfaceLF:
     def device(self):
         return self.rig.K.device
 
-    def calculate(self, points_world, images, eps=1e-8, points_scale=1e-3):
+    def calculate(self, points_world, images, pc_scales, eps=1e-8):
         device = self.device
         N, _, H, W = images.shape
 
@@ -209,7 +209,6 @@ class SurfaceLF:
         )
 
         opacities = torch.ones_like(points_world[:, 0])
-        scales = torch.ones_like(points_world) * points_scale
         quats = torch.stack(
             [
                 torch.tensor([1, 0, 0, 0]).cuda(),
@@ -221,7 +220,7 @@ class SurfaceLF:
             "means": points_world,
             "harmonics": sh_coeffs,
             "rotations": quats,
-            "scales": scales,
+            "scales": pc_scales / 10,
             "opacities": opacities,
         }
         return self.values
