@@ -1,7 +1,10 @@
+import itertools
+
 import torch
 from PIL import Image
 import numpy as np
 import os
+from utils import matrix_to_axis_angle
 
 
 def _to_hw(tensor_hw_or_hw1: torch.Tensor) -> torch.Tensor:
@@ -181,6 +184,50 @@ def loss(
         "pose_anchor": pose_anchor,
         "valid_pixels": valid_den,
     }
+
+
+def simple_loss(rendered_rgb, gt_rgb, aggregate=False):
+    result = (rendered_rgb - gt_rgb) ** 2
+    if aggregate:
+        result = torch.mean(result)
+    return result
+
+
+def get_neighborhood(
+    gt_rel_pose,
+    translation_step=0.01,
+    rotation_step=0.05,
+    translation_radius=2,
+    rotation_radius=2,
+):
+
+    gt_trans = gt_rel_pose[:3, 3]
+    gt_rot = matrix_to_axis_angle(gt_rel_pose[:3, :3])
+    gt_params = torch.cat((gt_trans, gt_rot), dim=0)  # [6]
+
+    translation_offsets = (
+        torch.arange(-translation_radius, translation_radius + 1) * translation_step
+    )
+    rotation_offsets = (
+        torch.arange(-rotation_radius, rotation_radius + 1) * rotation_step
+    )
+
+    grid_values = [
+        translation_offsets,
+        translation_offsets,
+        translation_offsets,
+        rotation_offsets,
+        rotation_offsets,
+        rotation_offsets,
+    ]
+
+    offset_combinations = torch.tensor(
+        list(itertools.product(*grid_values)), dtype=gt_params.dtype
+    ).cuda()
+
+    neighborhood = gt_params[None, :] + offset_combinations
+
+    return neighborhood
 
 
 if __name__ == "__main__":
