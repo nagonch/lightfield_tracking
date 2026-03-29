@@ -17,10 +17,11 @@ import torch
 from optimizer import refine_pose
 from loss import loss
 from utils import compose_pose
+from PIL import Image
 
 if __name__ == "__main__":
     for REFLECTIVITY in ["0.0", "0.5", "0.7", "1.0"]:
-        RESULTS_FOLDER = f"ours_icp_box_{REFLECTIVITY}/ycbv_lf"
+        RESULTS_FOLDER = f"ours_icp_box_refined_{REFLECTIVITY}/ycbv_lf"
         os.makedirs(RESULTS_FOLDER, exist_ok=True)
         for sequence_name in os.listdir(
             f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_{REFLECTIVITY}"
@@ -41,12 +42,14 @@ if __name__ == "__main__":
                 img_central = frame["LF"][s_size // 2, t_size // 2]
                 camera_matrix = frame["camera_matrix"]
                 depth = frame["depth"]
-                pc = backproject_depth_to_pointcloud(
+                pc, pc_scales = backproject_depth_to_pointcloud(
                     pixel_indices=None,
                     depths=depth,
                     camera_matrix=camera_matrix,
+                    return_scales=True,
                 )
                 pc = pc[(mask > 0).reshape(-1)].cpu().numpy()
+                pc_scales = pc_scales[(mask > 0).reshape(-1)].cpu().numpy()
                 color = img_central[mask > 0].reshape(-1, 3).cpu().numpy()
                 gt_poses.append(frame["pose"].cpu().numpy())
                 if i == 0:
@@ -68,7 +71,9 @@ if __name__ == "__main__":
                         frame["LF"]
                         .reshape(-1, frame["LF"].shape[2], frame["LF"].shape[3], 3)
                         .permute(0, 3, 1, 2),
+                        torch.tensor(pc_scales).cuda(),
                     )
+                    image, depth = surface_lf.rasterize(torch.eye(4).cuda())
                 else:
                     surface_lf = SurfaceLF(
                         surface_lf_rig,
@@ -76,6 +81,7 @@ if __name__ == "__main__":
                         frame["LF"]
                         .reshape(-1, frame["LF"].shape[2], frame["LF"].shape[3], 3)
                         .permute(0, 3, 1, 2),
+                        torch.tensor(pc_scales).cuda(),
                     )
                     image, depth = surface_lf.rasterize(torch.eye(4).cuda())
                     coarsest_pose, pc_prev_trans = get_coarsest_pose(
@@ -98,38 +104,27 @@ if __name__ == "__main__":
                     pose_rel_lhs_refined, loss_prev = refine_pose(
                         surface_lf_prev=surface_lf_prev,
                         pose_coarse=torch.tensor(pose_rel_lhs).cuda().float(),
-                        image=image,
-                        depth=depth,
+                        image=image.cuda(),
+                        depth=depth.cuda(),
                         pivot_world=torch.tensor(est_poses[-1][:3, 3]).float().cuda(),
-                        mask=mask,
-                        mask_prev=mask_prev,
+                        mask=mask.cuda(),
+                        mask_prev=mask_prev.cuda(),
                         num_iterations=100,
                         loss_fn=loss,
                         compose_pose_fn=compose_pose,
                     )
                     pose_refined = pose_rel_lhs_refined.cpu().numpy() @ est_poses[-1]
-
                     est_poses.append(pose_refined)
-                    # v.add_point_cloud(
-                    #     f"pc_coarse_{i}", pc_prev_trans, color_prev, point_size=1e-3
-                    # )
-                    # v.add_point_cloud(
-                    #     f"pc_aligned_{i}", pc_refined, color_prev, point_size=1e-3
-                    # )
-                    # v.add_point_cloud(f"pc_{i}", pc, color, point_size=1e-3)
 
                     pc_prev = pc
                     color_prev = color
                 surface_lf_prev = surface_lf
                 mask_prev = mask
-            gt_poses = np.stack(gt_poses, axis=0)
-            est_poses = np.stack(est_poses, axis=0)
-            est_poses_coarse = np.stack(est_poses_coarse, axis=0)
-            est_poses = rebase_poses(gt_poses, est_poses)
-            np.save(os.path.join(RESULTS_FOLDER, f"{sequence_name}.npy"), est_poses)
-            print(pose_errors(gt_poses, est_poses))
-            print(pose_errors(gt_poses, est_poses_coarse))
-            # for i, (pose_est, pose_gt) in enumerate(zip(est_poses, gt_poses)):
-            #     v.add_frame(f"{i}_est", pose_est, frames_scale=0.01)
-            #     v.add_frame(f"{i}_gt", pose_gt, frames_scale=0.01, origin_color=(255, 255, 255))
-            # v.run()
+                gt_poses_np = np.stack(gt_poses, axis=0)
+                est_poses_np = np.stack(est_poses, axis=0)
+                est_poses_coarse_np = np.stack(est_poses_coarse, axis=0)
+                est_poses_coarse_np = rebase_poses(gt_poses_np, est_poses_coarse_np)
+                est_poses_np = rebase_poses(gt_poses_np, est_poses_np)
+                np.save(os.path.join(RESULTS_FOLDER, f"{sequence_name}.npy"), est_poses)
+                print(pose_errors(gt_poses_np, est_poses_coarse_np))
+                print(pose_errors(gt_poses_np, est_poses_np))
