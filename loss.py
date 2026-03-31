@@ -207,18 +207,18 @@ def simple_loss(
 
 
 def get_neighborhood(
-    gt_rel_pose,
-    gt_pose,
+    rel_pose,
+    current_abs_pose,
     translation_step=1e-3 * 20,
     rotation_step=5e-3 * 20,
     translation_radius=20,
     rotation_radius=20,
 ):
-    gt_rel_pose_rhs = lhs_to_rhs_rel(gt_rel_pose, gt_pose)
+    rel_pose_rhs = lhs_to_rhs_rel(rel_pose, current_abs_pose)
 
-    gt_trans = gt_rel_pose[:3, 3]
-    gt_rot = matrix_to_axis_angle(gt_rel_pose[:3, :3])
-    gt_params = torch.cat((gt_trans, gt_rot), dim=0)  # [6]
+    trans = rel_pose_rhs[:3, 3]
+    rot = matrix_to_axis_angle(rel_pose_rhs[:3, :3])
+    orig_params = torch.cat((trans, rot), dim=0)  # [6]
 
     translation_offsets = (
         torch.arange(-translation_radius, translation_radius + 1) * translation_step
@@ -250,7 +250,7 @@ def get_neighborhood(
 
         num_points = grid_a.numel()
 
-        params = gt_params.repeat(num_points, 1)
+        params = orig_params.repeat(num_points, 1)
 
         params[:, dim_a] += grid_a.reshape(-1).cuda()
         params[:, dim_b] += grid_b.reshape(-1).cuda()
@@ -259,7 +259,7 @@ def get_neighborhood(
 
     neighborhood = torch.stack(neighborhoods).cuda()  # [15, N, M, 6]
 
-    return neighborhood, gt_params
+    return neighborhood, orig_params
 
 
 from itertools import combinations
