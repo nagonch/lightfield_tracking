@@ -341,17 +341,41 @@ def probe_neighbourhood(
         # 2D plot
         # -------------------------
 
+        # -------------------------
+        # 2D plot
+        # -------------------------
+
         ax = axes2d[pair_index]
         loss_np = losses.cpu().numpy()
+
+        # get axis values from the parameter grid
+        x_vals = params_grid[0, :, dim_b].detach().cpu().numpy()
+        y_vals = params_grid[:, 0, dim_a].detach().cpu().numpy()
+
+        extent = [x_vals.min(), x_vals.max(), y_vals.min(), y_vals.max()]
 
         im = ax.imshow(
             loss_np,
             origin="lower",
             aspect="auto",
+            extent=extent,
         )
 
-        ax.axvline(loss_np.shape[1] // 2, linestyle="--", linewidth=1.5, color="black")
-        ax.axhline(loss_np.shape[0] // 2, linestyle="--", linewidth=1.5, color="black")
+        # mark ground truth location
+        gt_x = (
+            gt_params_rhs[dim_b].item()
+            if torch.is_tensor(gt_params_rhs)
+            else gt_params_rhs[dim_b]
+        )
+
+        gt_y = (
+            gt_params_rhs[dim_a].item()
+            if torch.is_tensor(gt_params_rhs)
+            else gt_params_rhs[dim_a]
+        )
+
+        ax.axvline(gt_x, linestyle="--", linewidth=1.5, color="black")
+        ax.axhline(gt_y, linestyle="--", linewidth=1.5, color="black")
 
         ax.set_xlabel(param_names[dim_b])
         ax.set_ylabel(param_names[dim_a])
