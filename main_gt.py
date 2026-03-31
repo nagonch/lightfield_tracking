@@ -15,12 +15,17 @@ import os
 from surface_lf import SurfaceLF, SurfaceLFRig
 import torch
 from optimizer import refine_pose
-from loss import loss
-from utils import compose_pose
+from loss import get_neighborhood, loss, probe_neighbourhood, simple_loss
+from utils import compose_pose, rhs_to_lhs_rel, lhs_to_rhs_rel
 from PIL import Image
 
 if __name__ == "__main__":
-    for REFLECTIVITY in ["0.0", "0.5", "0.7", "1.0"]:
+    for REFLECTIVITY in [
+        "0.0",
+        # "0.5",
+        # "0.7",
+        # "1.0",
+    ]:
         RESULTS_FOLDER = f"ours_icp_box_refined_{REFLECTIVITY}/ycbv_lf"
         os.makedirs(RESULTS_FOLDER, exist_ok=True)
         for sequence_name in os.listdir(
@@ -75,6 +80,9 @@ if __name__ == "__main__":
                     )
                     image, depth = surface_lf.rasterize(torch.eye(4).cuda())
                 else:
+                    gt_pose_rel_lhs = (
+                        np.linalg.inv(est_poses[-1]) @ frame["pose"].cpu().numpy()
+                    )
                     surface_lf = SurfaceLF(
                         surface_lf_rig,
                         torch.tensor(pc).cuda(),
@@ -82,6 +90,9 @@ if __name__ == "__main__":
                         .reshape(-1, frame["LF"].shape[2], frame["LF"].shape[3], 3)
                         .permute(0, 3, 1, 2),
                         torch.tensor(pc_scales).cuda(),
+                    )
+                    image_prev, depth_prev = surface_lf_prev.rasterize(
+                        torch.eye(4).cuda()
                     )
                     image, depth = surface_lf.rasterize(torch.eye(4).cuda())
                     coarsest_pose, pc_prev_trans = get_coarsest_pose(
@@ -101,6 +112,21 @@ if __name__ == "__main__":
                     est_poses_coarse.append(coarse_pose)
 
                     pose_rel_lhs = coarse_pose @ np.linalg.inv(est_poses[-1])
+                    neighbourhood, initial_guess = get_neighborhood(
+                        torch.tensor(gt_pose_rel_lhs).cuda().float(),
+                        frame["pose"],
+                    )
+                    results = probe_neighbourhood(
+                        surface_lf_prev,
+                        image,
+                        depth,
+                        neighbourhood,
+                        initial_guess,
+                        # torch.tensor(gt_pose_rel_lhs).cuda().float(),
+                        frame["pose"],
+                    )
+                    print(results)
+                    raise
                     pose_rel_lhs_refined, loss_prev = refine_pose(
                         surface_lf_prev=surface_lf_prev,
                         pose_coarse=torch.tensor(pose_rel_lhs).cuda().float(),
@@ -120,11 +146,11 @@ if __name__ == "__main__":
                     color_prev = color
                 surface_lf_prev = surface_lf
                 mask_prev = mask
-                gt_poses_np = np.stack(gt_poses, axis=0)
-                est_poses_np = np.stack(est_poses, axis=0)
-                est_poses_coarse_np = np.stack(est_poses_coarse, axis=0)
-                est_poses_coarse_np = rebase_poses(gt_poses_np, est_poses_coarse_np)
-                est_poses_np = rebase_poses(gt_poses_np, est_poses_np)
-                np.save(os.path.join(RESULTS_FOLDER, f"{sequence_name}.npy"), est_poses)
-                print(pose_errors(gt_poses_np, est_poses_coarse_np))
-                print(pose_errors(gt_poses_np, est_poses_np))
+            gt_poses_np = np.stack(gt_poses, axis=0)
+            est_poses_np = np.stack(est_poses, axis=0)
+            est_poses_coarse_np = np.stack(est_poses_coarse, axis=0)
+            est_poses_coarse_np = rebase_poses(gt_poses_np, est_poses_coarse_np)
+            est_poses_np = rebase_poses(gt_poses_np, est_poses_np)
+            np.save(os.path.join(RESULTS_FOLDER, f"{sequence_name}.npy"), est_poses)
+            print(pose_errors(gt_poses_np, est_poses_coarse_np))
+            print(pose_errors(gt_poses_np, est_poses_np))
