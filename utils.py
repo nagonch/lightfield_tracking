@@ -1,5 +1,48 @@
 import torch
 import torch.nn.functional as F
+import torch
+
+
+def rigid_inverse(P: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the inverse of a 4x4 rigid transform matrix using the transpose property.
+    Supports batching: (..., 4, 4)
+    """
+    # Extract rotation (R) and translation (t)
+    R = P[..., :3, :3]
+    t = P[..., :3, 3:4]
+
+    # Compute R transpose
+    R_t = R.transpose(-1, -2)
+
+    # Compute new translation: -R^T * t
+    t_inv = -torch.matmul(R_t, t)
+
+    # Construct the inverse matrix
+    inv_P = torch.zeros_like(P)
+    inv_P[..., :3, :3] = R_t
+    inv_P[..., :3, 3:4] = t_inv
+    inv_P[..., 3, 3] = 1.0
+
+    return inv_P
+
+
+def rhs_to_lhs_rel(rhs_rel: torch.Tensor, pose_abs: torch.Tensor) -> torch.Tensor:
+    """
+    Converts P1 = pose_abs @ rhs_rel  =>  P1 = lhs_rel @ pose_abs
+    Formula: L = P @ R @ P^-1
+    """
+    inv_pose = rigid_inverse(pose_abs)
+    return pose_abs @ rhs_rel @ inv_pose
+
+
+def lhs_to_rhs_rel(lhs_rel: torch.Tensor, pose_abs: torch.Tensor) -> torch.Tensor:
+    """
+    Converts P1 = lhs_rel @ pose_abs  =>  P1 = pose_abs @ rhs_rel
+    Formula: R = P^-1 @ L @ P
+    """
+    inv_pose = rigid_inverse(pose_abs)
+    return inv_pose @ lhs_rel @ pose_abs
 
 
 def matrix_to_axis_angle(R: torch.Tensor, eps: float = 1e-7) -> torch.Tensor:

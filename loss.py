@@ -1,10 +1,14 @@
 import itertools
-
 import torch
 from PIL import Image
 import numpy as np
 import os
-from utils import matrix_to_axis_angle
+from tqdm import tqdm
+from utils import compose_pose, matrix_to_axis_angle, rhs_to_lhs_rel, lhs_to_rhs_rel
+from matplotlib import pyplot as plt
+from scipy.interpolate import griddata
+
+from itertools import combinations
 
 
 def _to_hw(tensor_hw_or_hw1: torch.Tensor) -> torch.Tensor:
@@ -186,8 +190,17 @@ def loss(
     }
 
 
-def simple_loss(rendered_rgb, gt_rgb, aggregate=False):
-    result = (rendered_rgb - gt_rgb) ** 2
+def simple_loss(
+    rendered_rgb,
+    target_rgb,
+    rendered_depth,
+    target_depth,
+    depth_lambda=1.0,
+    aggregate=True,
+):
+    rgb_loss = (rendered_rgb - target_rgb) ** 2
+    depth_loss = (rendered_depth - target_depth) ** 2
+    result = rgb_loss.mean(axis=-1) + depth_lambda * depth_loss
     if aggregate:
         result = torch.mean(result)
     return result
@@ -195,11 +208,13 @@ def simple_loss(rendered_rgb, gt_rgb, aggregate=False):
 
 def get_neighborhood(
     gt_rel_pose,
-    translation_step=0.01,
-    rotation_step=0.05,
-    translation_radius=2,
-    rotation_radius=2,
+    gt_pose,
+    translation_step=1e-3 * 20,
+    rotation_step=5e-3 * 20,
+    translation_radius=20,
+    rotation_radius=20,
 ):
+    gt_rel_pose_rhs = lhs_to_rhs_rel(gt_rel_pose, gt_pose)
 
     gt_trans = gt_rel_pose[:3, 3]
     gt_rot = matrix_to_axis_angle(gt_rel_pose[:3, :3])
@@ -208,11 +223,12 @@ def get_neighborhood(
     translation_offsets = (
         torch.arange(-translation_radius, translation_radius + 1) * translation_step
     )
+
     rotation_offsets = (
         torch.arange(-rotation_radius, rotation_radius + 1) * rotation_step
     )
 
-    grid_values = [
+    offsets_per_dim = [
         translation_offsets,
         translation_offsets,
         translation_offsets,
@@ -221,13 +237,182 @@ def get_neighborhood(
         rotation_offsets,
     ]
 
-    offset_combinations = torch.tensor(
-        list(itertools.product(*grid_values)), dtype=gt_params.dtype
-    ).cuda()
+    dim_pairs = list(combinations(range(6), 2))
 
-    neighborhood = gt_params[None, :] + offset_combinations
+    neighborhoods = []
 
-    return neighborhood
+    for dim_a, dim_b in dim_pairs:
+
+        offsets_a = offsets_per_dim[dim_a]
+        offsets_b = offsets_per_dim[dim_b]
+
+        grid_a, grid_b = torch.meshgrid(offsets_a, offsets_b, indexing="ij")
+
+        num_points = grid_a.numel()
+
+        params = gt_params.repeat(num_points, 1)
+
+        params[:, dim_a] += grid_a.reshape(-1).cuda()
+        params[:, dim_b] += grid_b.reshape(-1).cuda()
+
+        neighborhoods.append(params.reshape(grid_a.shape[0], grid_a.shape[1], 6))
+
+    neighborhood = torch.stack(neighborhoods).cuda()  # [15, N, M, 6]
+
+    return neighborhood, gt_params
+
+
+from itertools import combinations
+
+
+def probe_neighbourhood(
+    surface_lv_prev,
+    gt_rgb,
+    gt_depth,
+    neighborhood,
+    gt_params_rhs,
+    gt_pose_current,
+    stride=1,
+    plot_filename="plot.png",
+):
+
+    param_names = ["x", "y", "z", "θ", "φ", "γ"]
+    dim_pairs = list(combinations(range(6), 2))
+
+    gamma_value = 0.5
+    loss_values_all = []
+
+    fig2d, axes2d = plt.subplots(3, 5, figsize=(18, 10))
+    axes2d = axes2d.flatten()
+
+    # storage for 1D slices
+    one_d_losses = [[] for _ in range(6)]
+    one_d_params = [[] for _ in range(6)]
+
+    total_evals = 0
+    for pair_index in range(len(dim_pairs)):
+        grid = neighborhood[pair_index][::stride, ::stride]
+        total_evals += grid.shape[0] * grid.shape[1]
+
+    pbar = tqdm(total=total_evals, desc="Evaluating loss landscape")
+
+    for pair_index, (dim_a, dim_b) in enumerate(dim_pairs):
+
+        params_grid = neighborhood[pair_index][::stride, ::stride]
+        losses = []
+
+        for i in range(params_grid.shape[0]):
+
+            row_losses = []
+
+            for j in range(params_grid.shape[1]):
+
+                params = params_grid[i, j]
+
+                pose_rel = compose_pose(params[3:], params[:3])
+                pose_rel_lhs = rhs_to_lhs_rel(pose_rel, gt_pose_current)
+
+                image, depth = surface_lv_prev.rasterize(pose_rel_lhs)
+
+                loss_val = simple_loss(image, gt_rgb, depth, gt_depth, aggregate=False)
+
+                row_losses.append(loss_val.mean())
+                pbar.update(1)
+
+            losses.append(torch.stack(row_losses))
+
+        losses = torch.stack(losses)
+        loss_values_all.append(losses)
+
+        # -------------------------
+        # extract 1D slices
+        # -------------------------
+
+        center_i = losses.shape[0] // 2
+        center_j = losses.shape[1] // 2
+
+        one_d_losses[dim_a].append(losses[:, center_j])
+        one_d_params[dim_a].append(params_grid[:, center_j, dim_a])
+
+        one_d_losses[dim_b].append(losses[center_i, :])
+        one_d_params[dim_b].append(params_grid[center_i, :, dim_b])
+
+        # -------------------------
+        # 2D plot
+        # -------------------------
+
+        ax = axes2d[pair_index]
+        loss_np = losses.cpu().numpy()
+
+        im = ax.imshow(
+            loss_np,
+            origin="lower",
+            aspect="auto",
+        )
+
+        ax.axvline(loss_np.shape[1] // 2, linestyle="--", linewidth=1.5, color="black")
+        ax.axhline(loss_np.shape[0] // 2, linestyle="--", linewidth=1.5, color="black")
+
+        ax.set_xlabel(param_names[dim_b])
+        ax.set_ylabel(param_names[dim_a])
+        ax.set_title(f"{param_names[dim_a]} vs {param_names[dim_b]}")
+
+        fig2d.colorbar(im, ax=ax)
+
+    pbar.close()
+
+    plt.tight_layout()
+
+    if plot_filename is not None:
+        plt.savefig(plot_filename.replace(".png", "_2d.png"))
+
+    plt.close()
+
+    # -------------------------
+    # 1D plots
+    # -------------------------
+
+    fig1d, axes1d = plt.subplots(2, 3, figsize=(12, 6))
+    axes1d = axes1d.flatten()
+
+    for dim in range(6):
+        if len(one_d_losses[dim]) == 0:
+            continue
+
+        losses = torch.cat(one_d_losses[dim])
+        params = torch.cat(one_d_params[dim])
+
+        # --- fix: sort by parameter value ---
+        sorted_indices = torch.argsort(params)
+        params = params[sorted_indices]
+        losses = losses[sorted_indices]
+
+        params_np = params.detach().cpu().numpy()
+        loss_np = losses.detach().cpu().numpy()
+
+        ax = axes1d[dim]
+        ax.plot(params_np, loss_np)
+
+        gt_x = (
+            gt_params_rhs[dim].item()
+            if torch.is_tensor(gt_params_rhs)
+            else gt_params_rhs[dim]
+        )
+
+        ax.axvline(gt_x, linestyle="--", linewidth=1.5, color="black")
+
+        ax.set_xlabel(param_names[dim])
+        ax.set_ylabel("loss")
+        ax.set_title(param_names[dim])
+
+    plt.tight_layout()
+
+    if plot_filename is not None:
+        plt.savefig(plot_filename.replace(".png", "_1d.png"))
+
+    plt.close()
+
+    return torch.stack(loss_values_all)
 
 
 if __name__ == "__main__":

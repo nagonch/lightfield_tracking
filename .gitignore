@@ -8,3 +8,4 @@ experiments/
 *.png
 *.npy
 *.npz
+*.gif
