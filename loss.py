@@ -209,15 +209,15 @@ def simple_loss(
 def get_neighborhood(
     rel_pose,
     current_abs_pose,
-    translation_step=1e-3 * 20,
-    rotation_step=5e-3 * 20,
-    translation_radius=20,
-    rotation_radius=20,
+    translation_step=1e-3 * 40,
+    rotation_step=5e-3 * 40,
+    translation_radius=10,
+    rotation_radius=10,
 ):
     rel_pose_rhs = lhs_to_rhs_rel(rel_pose, current_abs_pose)
 
-    trans = rel_pose_rhs[:3, 3]
-    rot = matrix_to_axis_angle(rel_pose_rhs[:3, :3])
+    trans = rel_pose[:3, 3]
+    rot = matrix_to_axis_angle(rel_pose[:3, :3])
     orig_params = torch.cat((trans, rot), dim=0)  # [6]
 
     translation_offsets = (
@@ -267,11 +267,11 @@ from itertools import combinations
 
 def probe_neighbourhood(
     surface_lv_prev,
-    gt_rgb,
-    gt_depth,
+    target_rgb,
+    target_depth,
     neighborhood,
-    gt_params_rhs,
-    gt_pose_current,
+    orig_params,
+    current_abs_pose,
     stride=1,
     plot_filename="plot.png",
 ):
@@ -310,11 +310,13 @@ def probe_neighbourhood(
                 params = params_grid[i, j]
 
                 pose_rel = compose_pose(params[3:], params[:3])
-                pose_rel_lhs = rhs_to_lhs_rel(pose_rel, gt_pose_current)
+                pose_rel_lhs = rhs_to_lhs_rel(pose_rel, current_abs_pose)
 
                 image, depth = surface_lv_prev.rasterize(pose_rel_lhs)
 
-                loss_val = simple_loss(image, gt_rgb, depth, gt_depth, aggregate=False)
+                loss_val = simple_loss(
+                    image, target_rgb, depth, target_depth, aggregate=False
+                )
 
                 row_losses.append(loss_val.mean())
                 pbar.update(1)
@@ -363,15 +365,15 @@ def probe_neighbourhood(
 
         # mark ground truth location
         gt_x = (
-            gt_params_rhs[dim_b].item()
-            if torch.is_tensor(gt_params_rhs)
-            else gt_params_rhs[dim_b]
+            orig_params[dim_b].item()
+            if torch.is_tensor(orig_params)
+            else orig_params[dim_b]
         )
 
         gt_y = (
-            gt_params_rhs[dim_a].item()
-            if torch.is_tensor(gt_params_rhs)
-            else gt_params_rhs[dim_a]
+            orig_params[dim_a].item()
+            if torch.is_tensor(orig_params)
+            else orig_params[dim_a]
         )
 
         ax.axvline(gt_x, linestyle="--", linewidth=1.5, color="black")
@@ -418,9 +420,9 @@ def probe_neighbourhood(
         ax.plot(params_np, loss_np)
 
         gt_x = (
-            gt_params_rhs[dim].item()
-            if torch.is_tensor(gt_params_rhs)
-            else gt_params_rhs[dim]
+            orig_params[dim].item()
+            if torch.is_tensor(orig_params)
+            else orig_params[dim]
         )
 
         ax.axvline(gt_x, linestyle="--", linewidth=1.5, color="black")
