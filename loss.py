@@ -4,10 +4,8 @@ from PIL import Image
 import numpy as np
 import os
 from tqdm import tqdm
-from utils import compose_pose, matrix_to_axis_angle, rhs_to_lhs_rel, lhs_to_rhs_rel
+from utils import compose_pose, matrix_to_axis_angle, rhs_to_lhs_rel
 from matplotlib import pyplot as plt
-from scipy.interpolate import griddata
-
 from itertools import combinations
 
 
@@ -259,9 +257,6 @@ def get_neighborhood(
     return neighborhood, orig_params
 
 
-from itertools import combinations
-
-
 def probe_neighbourhood(
     surface_lv_prev,
     target_rgb,
@@ -272,6 +267,7 @@ def probe_neighbourhood(
     gt_pose_rhs,
     stride=1,
     plot_filename="plot.png",
+    plot_1d_only=False,
 ):
 
     param_names = ["x", "y", "z", "θ", "φ", "γ"]
@@ -283,8 +279,12 @@ def probe_neighbourhood(
     gamma_value = 0.5
     loss_values_all = []
 
-    fig2d, axes2d = plt.subplots(3, 5, figsize=(18, 10))
-    axes2d = axes2d.flatten()
+    # -------------------------
+    # 2D plots
+    # -------------------------
+    if not plot_1d_only:
+        fig2d, axes2d = plt.subplots(3, 5, figsize=(18, 10))
+        axes2d = axes2d.flatten()
 
     # storage for 1D slices
     one_d_losses = [[] for _ in range(6)]
@@ -303,13 +303,9 @@ def probe_neighbourhood(
         losses = []
 
         for i in range(params_grid.shape[0]):
-
             row_losses = []
-
             for j in range(params_grid.shape[1]):
-
                 params = params_grid[i, j]
-
                 pose_rel = compose_pose(params[3:], params[:3])
                 pose_rel_lhs = rhs_to_lhs_rel(pose_rel, current_abs_pose)
 
@@ -330,7 +326,6 @@ def probe_neighbourhood(
         # -------------------------
         # extract 1D slices
         # -------------------------
-
         center_i = losses.shape[0] // 2
         center_j = losses.shape[1] // 2
 
@@ -343,64 +338,53 @@ def probe_neighbourhood(
         # -------------------------
         # 2D plot
         # -------------------------
+        if not plot_1d_only:
+            ax = axes2d[pair_index]
+            loss_np = losses.cpu().numpy()
 
-        ax = axes2d[pair_index]
-        loss_np = losses.cpu().numpy()
+            x_vals = params_grid[0, :, dim_b].detach().cpu().numpy()
+            y_vals = params_grid[:, 0, dim_a].detach().cpu().numpy()
+            extent = [x_vals.min(), x_vals.max(), y_vals.min(), y_vals.max()]
 
-        # get axis values from the parameter grid
-        x_vals = params_grid[0, :, dim_b].detach().cpu().numpy()
-        y_vals = params_grid[:, 0, dim_a].detach().cpu().numpy()
+            im = ax.imshow(loss_np, origin="lower", aspect="auto", extent=extent)
 
-        extent = [x_vals.min(), x_vals.max(), y_vals.min(), y_vals.max()]
+            gt_x = (
+                orig_params[dim_b].item()
+                if torch.is_tensor(orig_params)
+                else orig_params[dim_b]
+            )
+            gt_y = (
+                orig_params[dim_a].item()
+                if torch.is_tensor(orig_params)
+                else orig_params[dim_a]
+            )
 
-        im = ax.imshow(
-            loss_np,
-            origin="lower",
-            aspect="auto",
-            extent=extent,
-        )
+            ax.axvline(gt_x, linestyle="--", linewidth=1.5, color="black")
+            ax.axhline(gt_y, linestyle="--", linewidth=1.5, color="black")
 
-        # mark original ground truth location
-        gt_x = (
-            orig_params[dim_b].item()
-            if torch.is_tensor(orig_params)
-            else orig_params[dim_b]
-        )
+            gt_x_val = gt_params[dim_b].item()
+            gt_y_val = gt_params[dim_a].item()
+            ax.scatter(
+                gt_x_val, gt_y_val, marker="x", color="red", s=80, label="gt_params"
+            )
 
-        gt_y = (
-            orig_params[dim_a].item()
-            if torch.is_tensor(orig_params)
-            else orig_params[dim_a]
-        )
-
-        ax.axvline(gt_x, linestyle="--", linewidth=1.5, color="black")
-        ax.axhline(gt_y, linestyle="--", linewidth=1.5, color="black")
-
-        # mark gt_params location as separate X
-        gt_x_val = gt_params[dim_b].item()
-        gt_y_val = gt_params[dim_a].item()
-        ax.scatter(gt_x_val, gt_y_val, marker="x", color="red", s=80, label="gt_params")
-
-        ax.set_xlabel(param_names[dim_b])
-        ax.set_ylabel(param_names[dim_a])
-        ax.set_title(f"{param_names[dim_a]} vs {param_names[dim_b]}")
-        ax.legend()
-
-        fig2d.colorbar(im, ax=ax)
+            ax.set_xlabel(param_names[dim_b])
+            ax.set_ylabel(param_names[dim_a])
+            ax.set_title(f"{param_names[dim_a]} vs {param_names[dim_b]}")
+            ax.legend()
+            fig2d.colorbar(im, ax=ax)
 
     pbar.close()
 
-    plt.tight_layout()
-
-    if plot_filename is not None:
-        plt.savefig(plot_filename.replace(".png", "_2d.png"))
-
-    plt.close()
+    if not plot_1d_only:
+        plt.tight_layout()
+        if plot_filename is not None:
+            plt.savefig(plot_filename.replace(".png", "_2d.png"))
+        plt.close()
 
     # -------------------------
     # 1D plots
     # -------------------------
-
     fig1d, axes1d = plt.subplots(2, 3, figsize=(12, 6))
     axes1d = axes1d.flatten()
 
@@ -411,7 +395,6 @@ def probe_neighbourhood(
         losses = torch.cat(one_d_losses[dim])
         params = torch.cat(one_d_params[dim])
 
-        # --- fix: sort by parameter value ---
         sorted_indices = torch.argsort(params)
         params = params[sorted_indices]
         losses = losses[sorted_indices]
@@ -422,7 +405,6 @@ def probe_neighbourhood(
         ax = axes1d[dim]
         ax.plot(params_np, loss_np, label="loss slice")
 
-        # plot original ground truth line
         gt_x = (
             orig_params[dim].item()
             if torch.is_tensor(orig_params)
@@ -432,7 +414,6 @@ def probe_neighbourhood(
             gt_x, linestyle="--", linewidth=1.5, color="black", label="orig_params"
         )
 
-        # plot gt_params line
         gt_param_val = gt_params[dim].item()
         ax.axvline(
             gt_param_val, linestyle=":", linewidth=1.5, color="red", label="gt_params"
@@ -444,10 +425,8 @@ def probe_neighbourhood(
         ax.legend()
 
     plt.tight_layout()
-
     if plot_filename is not None:
         plt.savefig(plot_filename.replace(".png", "_1d.png"))
-
     plt.close()
 
     return torch.stack(loss_values_all)
