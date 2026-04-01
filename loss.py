@@ -233,7 +233,7 @@ def simple_loss(
     target_rgb,
     rendered_depth,
     target_depth,
-    depth_lambda=1.0,
+    depth_lambda=0.0,
     aggregate=True,
 ):
     rgb_loss = (rendered_rgb - target_rgb) ** 2
@@ -450,16 +450,19 @@ def refine_pose(
     pose_gt_rhs=None,
     num_iterations=100,
     learning_rate_rot: float = 1e-3,
-    learning_rate_trans: float = 2e-3,
+    learning_rate_trans: float = 8e-3,
     convergence_plot_filename: str = "convergence.png",
 ):
     device = pose_coarse_rhs.device
-    trans = torch.clone(pose_coarse_rhs[:3, 3])
 
-    # 1. Convert initial rotation matrix to 6D representation
+    # 1. Initialize parameters
+    # Convert initial rotation matrix to 6D representation
     rot_6d = matrix_to_rotation_6d(pose_coarse_rhs[:3, :3])
+    trans = pose_coarse_rhs[:3, 3].clone()
+
     rotation_param = rot_6d.clone().detach().requires_grad_(True)
     translation_param = trans.clone().detach().requires_grad_(True)
+
     optimizer = torch.optim.AdamW(
         [
             {"params": [rotation_param], "lr": float(learning_rate_rot)},
@@ -467,9 +470,15 @@ def refine_pose(
         ]
     )
 
+    # Variables to track the best state
+    best_loss = float("inf")
+    best_pose_rhs = pose_coarse_rhs.clone().detach()
+
     pose_history_rhs = []
-    for iter in range(num_iterations):
+
+    for i in range(num_iterations):
         optimizer.zero_grad()
+
         # 2. Map 6D parameters back to a valid SO(3) rotation matrix
         rot_matrix = rotation_6d_to_matrix(rotation_param)
 
@@ -478,23 +487,37 @@ def refine_pose(
         pose_rel_rhs[:3, :3] = rot_matrix
         pose_rel_rhs[:3, 3] = translation_param
 
+        # Append to history for visualization
         pose_history_rhs.append(pose_rel_rhs.detach().cpu().numpy())
 
-        # Transformation and Rendering
+        # 4. Transformation and Rendering
         pose_rel_lhs = rhs_to_lhs_rel(pose_rel_rhs, pivot_world)
         image_rendered, depth_rendered = surface_lf_prev.rasterize(pose_rel_lhs)
 
+        # 5. Loss calculation
         loss = simple_loss(
             image_rendered,
             image,
             depth_rendered,
             depth,
         )
+
+        # Track the minimum loss state
+        current_loss_val = loss.item()
+        if current_loss_val < best_loss:
+            best_loss = current_loss_val
+            best_pose_rhs = pose_rel_rhs.detach().clone()
+
+        # 6. Optimization step
         loss.backward()
         optimizer.step()
 
-        # Note: The 'if angle > np.pi' wrapping logic is no longer needed
-        # as the 6D representation is globally continuous.
+    # Final conversion for the return values using the BEST observed pose
+    final_pose_rhs_np = best_pose_rhs.cpu().numpy()
+    # We must re-calculate the LHS version for the best RHS pose
+    final_pose_lhs_best = rhs_to_lhs_rel(best_pose_rhs, pivot_world)
+    final_pose_lhs_np = final_pose_lhs_best.detach().cpu().numpy()
+
     if convergence_plot_filename is not None:
         _save_convergence_projections(
             surface_lf_prev=surface_lf_prev,
@@ -508,8 +531,8 @@ def refine_pose(
         )
 
     return (
-        pose_rel_rhs.detach().cpu().numpy(),
-        pose_rel_lhs.detach().cpu().numpy(),
+        final_pose_rhs_np,
+        final_pose_lhs_np,
         pose_history_rhs,
     )
 
