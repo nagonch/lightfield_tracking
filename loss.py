@@ -250,6 +250,8 @@ def _save_convergence_projections(
     target_depth,
     pivot_world,
     pose_history_rhs,
+    loss_history,
+    final_pose_rhs,
     pose_coarse_rhs,
     pose_gt_rhs=None,
     plot_filename="convergence.png",
@@ -281,6 +283,10 @@ def _save_convergence_projections(
     coarse_rot = matrix_to_axis_angle(pose_coarse_rhs[:3, :3])
     coarse_params = torch.cat((coarse_trans, coarse_rot), dim=0).float()
 
+    final_trans = final_pose_rhs[:3, 3]
+    final_rot = matrix_to_axis_angle(final_pose_rhs[:3, :3])
+    final_params = torch.cat((final_trans, final_rot), dim=0).float()
+
     gt_params = None
     if pose_gt_rhs is not None:
         gt_trans = pose_gt_rhs[:3, 3]
@@ -289,6 +295,7 @@ def _save_convergence_projections(
 
     params_history_np = params_history.detach().cpu().numpy()
     coarse_params_np = coarse_params.detach().cpu().numpy()
+    final_params_np = final_params.detach().cpu().numpy()
     gt_params_np = None if gt_params is None else gt_params.detach().cpu().numpy()
 
     fig2d, axes2d = plt.subplots(3, 5, figsize=(18, 10))
@@ -300,8 +307,18 @@ def _save_convergence_projections(
         x_vals = params_history_np[:, dim_b]
         y_vals = params_history_np[:, dim_a]
 
-        anchor_x = [x_vals[0], x_vals[-1], coarse_params_np[dim_b]]
-        anchor_y = [y_vals[0], y_vals[-1], coarse_params_np[dim_a]]
+        anchor_x = [
+            x_vals[0],
+            x_vals[-1],
+            coarse_params_np[dim_b],
+            final_params_np[dim_b],
+        ]
+        anchor_y = [
+            y_vals[0],
+            y_vals[-1],
+            coarse_params_np[dim_a],
+            final_params_np[dim_a],
+        ]
         if gt_params_np is not None:
             anchor_x.append(gt_params_np[dim_b])
             anchor_y.append(gt_params_np[dim_a])
@@ -397,12 +414,12 @@ def _save_convergence_projections(
             zorder=3,
         )
         ax.scatter(
-            x_vals[-1],
-            y_vals[-1],
+            final_params_np[dim_b],
+            final_params_np[dim_a],
             marker="*",
             color="red",
             s=80,
-            label="end",
+            label="final",
             zorder=3,
         )
 
@@ -439,6 +456,22 @@ def _save_convergence_projections(
         plt.savefig(plot_filename)
     plt.close(fig2d)
 
+    if loss_history is not None and len(loss_history) > 0 and plot_filename is not None:
+        loss_fig, loss_ax = plt.subplots(1, 1, figsize=(8, 4))
+        steps = np.arange(len(loss_history))
+        loss_ax.plot(steps, loss_history, color="tab:blue", linewidth=1.8)
+        loss_ax.scatter(steps, loss_history, color="tab:blue", s=10, alpha=0.7)
+        loss_ax.set_xlabel("step")
+        loss_ax.set_ylabel("loss")
+        loss_ax.set_title("Loss vs Step")
+        loss_ax.grid(True, alpha=0.3)
+        loss_fig.tight_layout()
+
+        base, ext = os.path.splitext(plot_filename)
+        loss_plot_filename = f"{base}_loss_vs_step{ext if ext else '.png'}"
+        loss_fig.savefig(loss_plot_filename)
+        plt.close(loss_fig)
+
 
 def refine_pose(
     surface_lf_prev,
@@ -450,7 +483,7 @@ def refine_pose(
     pose_gt_rhs=None,
     num_iterations=100,
     learning_rate_rot: float = 1e-3,
-    learning_rate_trans: float = 8e-3,
+    learning_rate_trans: float = 1e-3,
     convergence_plot_filename: str = "convergence.png",
 ):
     device = pose_coarse_rhs.device
@@ -475,6 +508,7 @@ def refine_pose(
     best_pose_rhs = pose_coarse_rhs.clone().detach()
 
     pose_history_rhs = []
+    loss_history = []
 
     for i in range(num_iterations):
         optimizer.zero_grad()
@@ -504,6 +538,7 @@ def refine_pose(
 
         # Track the minimum loss state
         current_loss_val = loss.item()
+        loss_history.append(current_loss_val)
         if current_loss_val < best_loss:
             best_loss = current_loss_val
             best_pose_rhs = pose_rel_rhs.detach().clone()
@@ -525,6 +560,8 @@ def refine_pose(
             target_depth=depth,
             pivot_world=pivot_world,
             pose_history_rhs=pose_history_rhs,
+            loss_history=loss_history,
+            final_pose_rhs=best_pose_rhs,
             pose_coarse_rhs=pose_coarse_rhs,
             pose_gt_rhs=pose_gt_rhs,
             plot_filename=convergence_plot_filename,
