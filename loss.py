@@ -204,6 +204,56 @@ def simple_loss(
     return result
 
 
+def refine_pose(
+    surface_lf_prev,
+    surface_lf,
+    pose_coarse_rhs,
+    image,
+    depth,
+    pivot_world,
+    num_iterations=100,
+    learning_rate_rot: float = 1e-3,
+    learning_rate_trans: float = 1e-3,
+):
+    trans = pose_coarse_rhs[:3, 3]
+    rot = matrix_to_axis_angle(pose_coarse_rhs[:3, :3])
+
+    rotation_param = (rot + torch.randn(3, device="cuda:0") * 1e-4).requires_grad_()
+
+    translation_param = (
+        trans + torch.randn(3, device="cuda:0") * 1e-4
+    ).requires_grad_()
+
+    optimizer = torch.optim.AdamW(
+        [
+            {"params": [rotation_param], "lr": float(learning_rate_rot)},
+            {"params": [translation_param], "lr": float(learning_rate_trans)},
+        ]
+    )
+    pose_history_rhs = []
+    for iter in range(num_iterations):
+        optimizer.zero_grad()
+        pose_rel_rhs = compose_pose(translation_param, rotation_param)
+        pose_history_rhs.append(pose_rel_rhs.detach().cpu().numpy())
+        pose_rel_lhs = rhs_to_lhs_rel(pose_rel_rhs, pivot_world)
+        image_rendered, depth_rendered = surface_lf_prev.rasterize(pose_rel_lhs)
+
+        loss = simple_loss(
+            image_rendered,
+            image,
+            depth_rendered,
+            depth,
+        )
+        loss.backward()
+        optimizer.step()
+
+    return (
+        pose_rel_rhs.detach().cpu().numpy(),
+        pose_rel_lhs.detach().cpu().numpy(),
+        pose_history_rhs,
+    )
+
+
 def get_neighborhood(
     rel_pose_rhs,
     translation_step=5e-4 * 10,

@@ -233,7 +233,6 @@ class SurfaceLF:
                 values["harmonics"].float(), rel_pose[:3, :3].float()
             )
         except Exception as e:
-            print("Error in SH transformation:", e)
             values["harmonics"] = values["harmonics"].float()
         R = rel_pose[:3, :3]
         t = rel_pose[:3, 3]
