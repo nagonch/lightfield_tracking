@@ -86,14 +86,17 @@ def _pose_anchor_loss(pose_pred: torch.Tensor, pose_est: torch.Tensor) -> torch.
 
 
 def _save_grayscale_image(
-    tensor_hw: torch.Tensor, path: str, gamma: float = 0.5
+    tensor_hw: torch.Tensor, path: str, gamma: float = 0.5, normalize_by=None
 ) -> None:
     """
     Save [H,W] tensor as 8-bit grayscale. Normalizes to [0,1] using min/max, then applies gamma.
     """
     tensor_hw = tensor_hw.detach()
     tensor_hw = tensor_hw - tensor_hw.min()
-    tensor_hw = tensor_hw / (tensor_hw.max() + 1e-8)
+    if normalize_by is not None:
+        tensor_hw = tensor_hw / (normalize_by + 1e-8)
+    else:
+        tensor_hw = tensor_hw / (tensor_hw.max() + 1e-8)
     tensor_hw = torch.clamp(tensor_hw, 0.0, 1.0)
 
     # Gamma for visualization: values <1 brighten small errors; >1 darken them.
@@ -483,8 +486,13 @@ def refine_pose(
     pose_gt_rhs=None,
     num_iterations=100,
     learning_rate_rot: float = 1e-3,
-    learning_rate_trans: float = 1e-3,
+    learning_rate_trans: float = 1e-4,
     convergence_plot_filename: str = "convergence.png",
+    loss_images_dir: str = "refine_pose_loss_images",
+    loss_image_gamma: float = 0.5,
+    rendered_images_dir: str = "refine_pose_rendered_images",
+    rendered_depth_images_dir: str = "refine_pose_rendered_depth_images",
+    rendered_depth_gamma: float = 0.5,
 ):
     device = pose_coarse_rhs.device
 
@@ -493,8 +501,12 @@ def refine_pose(
     rot_6d = matrix_to_rotation_6d(pose_coarse_rhs[:3, :3])
     trans = pose_coarse_rhs[:3, 3].clone()
 
-    rotation_param = rot_6d.clone().detach().requires_grad_(True)
-    translation_param = trans.clone().detach().requires_grad_(True)
+    rotation_param = (
+        (rot_6d + torch.randn_like(rot_6d) * 1e-4).clone().detach().requires_grad_(True)
+    )
+    translation_param = (
+        (trans + torch.randn_like(trans) * 1e-4).clone().detach().requires_grad_(True)
+    )
 
     optimizer = torch.optim.AdamW(
         [
@@ -502,7 +514,14 @@ def refine_pose(
             {"params": [translation_param], "lr": float(learning_rate_trans)},
         ]
     )
-
+    _save_rgb_image(
+        surface_lf_prev.rasterize(torch.eye(4).cuda())[0],
+        os.path.join(f"image_source.png"),
+    )
+    _save_rgb_image(
+        image,
+        os.path.join(f"image_target.png"),
+    )
     # Variables to track the best state
     best_loss = float("inf")
     best_pose_rhs = pose_coarse_rhs.clone().detach()
@@ -510,11 +529,20 @@ def refine_pose(
     pose_history_rhs = []
     loss_history = []
 
+    if loss_images_dir is not None:
+        os.makedirs(loss_images_dir, exist_ok=True)
+    if rendered_images_dir is not None:
+        os.makedirs(rendered_images_dir, exist_ok=True)
+    if rendered_depth_images_dir is not None:
+        os.makedirs(rendered_depth_images_dir, exist_ok=True)
+    normalize_by = None
+    depth_normalize_by = None
     for i in range(num_iterations):
         optimizer.zero_grad()
 
         # 2. Map 6D parameters back to a valid SO(3) rotation matrix
         rot_matrix = rotation_6d_to_matrix(rotation_param)
+        print(rotation_param)
 
         # 3. Construct the 4x4 pose matrix
         pose_rel_rhs = torch.eye(4, device=device)
@@ -528,13 +556,40 @@ def refine_pose(
         pose_rel_lhs = rhs_to_lhs_rel(pose_rel_rhs, pivot_world)
         image_rendered, depth_rendered = surface_lf_prev.rasterize(pose_rel_lhs)
 
+        if rendered_images_dir is not None:
+            _save_rgb_image(
+                image_rendered,
+                os.path.join(rendered_images_dir, f"image_{i:04d}.png"),
+            )
+
+        if rendered_depth_images_dir is not None:
+            if depth_normalize_by is None:
+                depth_normalize_by = depth_rendered.max().item()
+            _save_grayscale_image(
+                depth_rendered,
+                os.path.join(rendered_depth_images_dir, f"depth_{i:04d}.png"),
+                gamma=rendered_depth_gamma,
+                normalize_by=depth_normalize_by,
+            )
+
         # 5. Loss calculation
-        loss = simple_loss(
+        per_pixel_loss = simple_loss(
             image_rendered,
             image,
             depth_rendered,
             depth,
+            aggregate=False,
         )
+        loss = per_pixel_loss.mean()
+        if normalize_by is None:
+            normalize_by = per_pixel_loss.max().item()
+        if loss_images_dir is not None:
+            _save_grayscale_image(
+                per_pixel_loss,
+                os.path.join(loss_images_dir, f"loss_{i:04d}.png"),
+                gamma=loss_image_gamma,
+                normalize_by=normalize_by,
+            )
 
         # Track the minimum loss state
         current_loss_val = loss.item()
@@ -566,7 +621,6 @@ def refine_pose(
             pose_gt_rhs=pose_gt_rhs,
             plot_filename=convergence_plot_filename,
         )
-
     return (
         final_pose_rhs_np,
         final_pose_lhs_np,
