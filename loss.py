@@ -204,6 +204,202 @@ def simple_loss(
     return result
 
 
+def _save_convergence_projections(
+    surface_lf_prev,
+    target_rgb,
+    target_depth,
+    pivot_world,
+    pose_history_rhs,
+    pose_coarse_rhs,
+    pose_gt_rhs=None,
+    plot_filename="convergence.png",
+    grid_resolution: int = 21,
+):
+    """
+    Save 15 pairwise 2D projections of optimizer trajectory in 6D pose parameter space.
+    Each subplot includes a color-coded loss landscape and the optimizer path.
+    """
+    if pose_history_rhs is None or len(pose_history_rhs) == 0:
+        return
+
+    param_names = ["x", "y", "z", "θ", "φ", "γ"]
+    dim_pairs = list(combinations(range(6), 2))
+
+    params_history = []
+    for pose_rhs in pose_history_rhs:
+        if not torch.is_tensor(pose_rhs):
+            pose_rhs = torch.from_numpy(pose_rhs)
+        pose_rhs = pose_rhs.float()
+
+        trans = pose_rhs[:3, 3]
+        rot = matrix_to_axis_angle(pose_rhs[:3, :3])
+        params_history.append(torch.cat((trans, rot), dim=0))
+
+    params_history = torch.stack(params_history)  # [T, 6]
+
+    coarse_trans = pose_coarse_rhs[:3, 3]
+    coarse_rot = matrix_to_axis_angle(pose_coarse_rhs[:3, :3])
+    coarse_params = torch.cat((coarse_trans, coarse_rot), dim=0).float()
+
+    gt_params = None
+    if pose_gt_rhs is not None:
+        gt_trans = pose_gt_rhs[:3, 3]
+        gt_rot = matrix_to_axis_angle(pose_gt_rhs[:3, :3])
+        gt_params = torch.cat((gt_trans, gt_rot), dim=0).float()
+
+    params_history_np = params_history.detach().cpu().numpy()
+    coarse_params_np = coarse_params.detach().cpu().numpy()
+    gt_params_np = None if gt_params is None else gt_params.detach().cpu().numpy()
+
+    fig2d, axes2d = plt.subplots(3, 5, figsize=(18, 10))
+    axes2d = axes2d.flatten()
+
+    for pair_index, (dim_a, dim_b) in enumerate(dim_pairs):
+        ax = axes2d[pair_index]
+
+        x_vals = params_history_np[:, dim_b]
+        y_vals = params_history_np[:, dim_a]
+
+        anchor_x = [x_vals[0], x_vals[-1], coarse_params_np[dim_b]]
+        anchor_y = [y_vals[0], y_vals[-1], coarse_params_np[dim_a]]
+        if gt_params_np is not None:
+            anchor_x.append(gt_params_np[dim_b])
+            anchor_y.append(gt_params_np[dim_a])
+
+        x_min = min(anchor_x)
+        x_max = max(anchor_x)
+        y_min = min(anchor_y)
+        y_max = max(anchor_y)
+
+        x_range = x_max - x_min
+        y_range = y_max - y_min
+
+        x_margin = max(0.15 * x_range, 1e-4)
+        y_margin = max(0.15 * y_range, 1e-4)
+
+        x_grid = torch.linspace(
+            x_min - x_margin,
+            x_max + x_margin,
+            grid_resolution,
+            device=coarse_params.device,
+            dtype=coarse_params.dtype,
+        )
+        y_grid = torch.linspace(
+            y_min - y_margin,
+            y_max + y_margin,
+            grid_resolution,
+            device=coarse_params.device,
+            dtype=coarse_params.dtype,
+        )
+
+        loss_map = torch.zeros(
+            (grid_resolution, grid_resolution),
+            device=coarse_params.device,
+            dtype=coarse_params.dtype,
+        )
+
+        with torch.no_grad():
+            for yi, yv in enumerate(y_grid):
+                for xi, xv in enumerate(x_grid):
+                    params = coarse_params.clone()
+                    params[dim_a] = yv
+                    params[dim_b] = xv
+
+                    pose_rel_rhs = compose_pose(params[3:], params[:3])
+                    pose_rel_lhs = rhs_to_lhs_rel(pose_rel_rhs, pivot_world)
+                    image_rendered, depth_rendered = surface_lf_prev.rasterize(
+                        pose_rel_lhs
+                    )
+                    loss_val = simple_loss(
+                        image_rendered,
+                        target_rgb,
+                        depth_rendered,
+                        target_depth,
+                        aggregate=False,
+                    )
+                    loss_map[yi, xi] = loss_val.mean()
+
+        loss_np = loss_map.detach().cpu().numpy()
+        extent = [
+            x_grid[0].item(),
+            x_grid[-1].item(),
+            y_grid[0].item(),
+            y_grid[-1].item(),
+        ]
+        im = ax.imshow(loss_np, origin="lower", aspect="auto", extent=extent)
+
+        ax.plot(
+            x_vals,
+            y_vals,
+            color="white",
+            linewidth=1.2,
+            alpha=0.45,
+            antialiased=False,
+            solid_joinstyle="miter",
+            solid_capstyle="butt",
+        )
+        ax.scatter(
+            x_vals,
+            y_vals,
+            color="white",
+            s=8,
+            alpha=0.5,
+            label="steps",
+            zorder=2,
+        )
+        ax.scatter(
+            x_vals[0],
+            y_vals[0],
+            marker="o",
+            color="black",
+            s=40,
+            label="start",
+            zorder=3,
+        )
+        ax.scatter(
+            x_vals[-1],
+            y_vals[-1],
+            marker="*",
+            color="red",
+            s=80,
+            label="end",
+            zorder=3,
+        )
+
+        ax.scatter(
+            coarse_params_np[dim_b],
+            coarse_params_np[dim_a],
+            marker="+",
+            color="cyan",
+            s=90,
+            linewidths=2.0,
+            label="coarse",
+            zorder=3,
+        )
+
+        if gt_params_np is not None:
+            ax.scatter(
+                gt_params_np[dim_b],
+                gt_params_np[dim_a],
+                marker="x",
+                color="red",
+                s=90,
+                linewidths=2.0,
+                label="gt",
+                zorder=3,
+            )
+
+        ax.set_xlabel(param_names[dim_b])
+        ax.set_ylabel(param_names[dim_a])
+        ax.set_title(f"{param_names[dim_a]} vs {param_names[dim_b]}")
+        fig2d.colorbar(im, ax=ax)
+
+    plt.tight_layout()
+    if plot_filename is not None:
+        plt.savefig(plot_filename)
+    plt.close(fig2d)
+
+
 def refine_pose(
     surface_lf_prev,
     surface_lf,
@@ -211,18 +407,18 @@ def refine_pose(
     image,
     depth,
     pivot_world,
+    pose_gt_rhs=None,
     num_iterations=100,
     learning_rate_rot: float = 1e-3,
-    learning_rate_trans: float = 1e-3,
+    learning_rate_trans: float = 2e-3,
+    convergence_plot_filename: str = "convergence.png",
 ):
-    trans = pose_coarse_rhs[:3, 3]
-    rot = matrix_to_axis_angle(pose_coarse_rhs[:3, :3])
+    trans = torch.clone(pose_coarse_rhs[:3, 3])
+    rot = torch.clone(matrix_to_axis_angle(pose_coarse_rhs[:3, :3]))
 
-    rotation_param = (rot + torch.randn(3, device="cuda:0") * 1e-4).requires_grad_()
+    rotation_param = (rot).requires_grad_()
 
-    translation_param = (
-        trans + torch.randn(3, device="cuda:0") * 1e-4
-    ).requires_grad_()
+    translation_param = (trans).requires_grad_()
 
     optimizer = torch.optim.AdamW(
         [
@@ -233,7 +429,7 @@ def refine_pose(
     pose_history_rhs = []
     for iter in range(num_iterations):
         optimizer.zero_grad()
-        pose_rel_rhs = compose_pose(translation_param, rotation_param)
+        pose_rel_rhs = compose_pose(rotation_param, translation_param)
         pose_history_rhs.append(pose_rel_rhs.detach().cpu().numpy())
         pose_rel_lhs = rhs_to_lhs_rel(pose_rel_rhs, pivot_world)
         image_rendered, depth_rendered = surface_lf_prev.rasterize(pose_rel_lhs)
@@ -246,6 +442,23 @@ def refine_pose(
         )
         loss.backward()
         optimizer.step()
+        with torch.no_grad():
+            angle = torch.norm(rotation_param)
+            if angle > np.pi:
+                # Wrap the angle to be within [-pi, pi]
+                new_angle = (angle + np.pi) % (2 * np.pi) - np.pi
+                rotation_param.copy_(rotation_param * (new_angle / angle))
+    if convergence_plot_filename is not None:
+        _save_convergence_projections(
+            surface_lf_prev=surface_lf_prev,
+            target_rgb=image,
+            target_depth=depth,
+            pivot_world=pivot_world,
+            pose_history_rhs=pose_history_rhs,
+            pose_coarse_rhs=pose_coarse_rhs,
+            pose_gt_rhs=pose_gt_rhs,
+            plot_filename=convergence_plot_filename,
+        )
 
     return (
         pose_rel_rhs.detach().cpu().numpy(),
