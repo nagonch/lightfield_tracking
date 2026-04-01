@@ -7,6 +7,46 @@ from tqdm import tqdm
 from utils import compose_pose, matrix_to_axis_angle, rhs_to_lhs_rel
 from matplotlib import pyplot as plt
 from itertools import combinations
+import torch
+import torch.nn.functional as F
+
+
+def matrix_to_rotation_6d(matrix: torch.Tensor) -> torch.Tensor:
+    """
+    Extracts the first two columns of a rotation matrix to form the 6D representation.
+    Input: (3, 3) matrix. Output: (6,) vector.
+    """
+    return matrix[:3, :2].transpose(0, 1).reshape(-1)
+
+
+def rotation_6d_to_matrix(d6: torch.Tensor) -> torch.Tensor:
+    """
+    Converts a 6D rotation representation to a 3x3 rotation matrix.
+    Args:
+        d6: (6,) or (B, 6) tensor
+    Returns:
+        3x3 or (B, 3, 3) rotation matrix
+    """
+    # Reshape to (..., 2, 3) to get the two input vectors
+    inputs = d6.view(-1, 2, 3)
+    a1 = inputs[:, 0, :]
+    a2 = inputs[:, 1, :]
+
+    # 1. Normalize the first vector
+    b1 = F.normalize(a1, dim=-1)
+
+    # 2. Orthogonalize the second vector relative to the first
+    # dot_product = (b1 * a2).sum(-1, keepdim=True)
+    b2 = a2 - (torch.sum(b1 * a2, dim=-1, keepdim=True) * b1)
+
+    # 3. Normalize the second vector
+    b2 = F.normalize(b2, dim=-1)
+
+    # 4. Get the third vector via cross product
+    b3 = torch.cross(b1, b2, dim=-1)
+
+    # Stack them as columns to form the rotation matrix
+    return torch.stack((b1, b2, b3), dim=-1).squeeze()
 
 
 def _to_hw(tensor_hw_or_hw1: torch.Tensor) -> torch.Tensor:
@@ -413,24 +453,34 @@ def refine_pose(
     learning_rate_trans: float = 2e-3,
     convergence_plot_filename: str = "convergence.png",
 ):
+    device = pose_coarse_rhs.device
     trans = torch.clone(pose_coarse_rhs[:3, 3])
-    rot = torch.clone(matrix_to_axis_angle(pose_coarse_rhs[:3, :3]))
 
-    rotation_param = (rot).requires_grad_()
-
-    translation_param = (trans).requires_grad_()
-
+    # 1. Convert initial rotation matrix to 6D representation
+    rot_6d = matrix_to_rotation_6d(pose_coarse_rhs[:3, :3])
+    rotation_param = rot_6d.clone().detach().requires_grad_(True)
+    translation_param = trans.clone().detach().requires_grad_(True)
     optimizer = torch.optim.AdamW(
         [
             {"params": [rotation_param], "lr": float(learning_rate_rot)},
             {"params": [translation_param], "lr": float(learning_rate_trans)},
         ]
     )
+
     pose_history_rhs = []
     for iter in range(num_iterations):
         optimizer.zero_grad()
-        pose_rel_rhs = compose_pose(rotation_param, translation_param)
+        # 2. Map 6D parameters back to a valid SO(3) rotation matrix
+        rot_matrix = rotation_6d_to_matrix(rotation_param)
+
+        # 3. Construct the 4x4 pose matrix
+        pose_rel_rhs = torch.eye(4, device=device)
+        pose_rel_rhs[:3, :3] = rot_matrix
+        pose_rel_rhs[:3, 3] = translation_param
+
         pose_history_rhs.append(pose_rel_rhs.detach().cpu().numpy())
+
+        # Transformation and Rendering
         pose_rel_lhs = rhs_to_lhs_rel(pose_rel_rhs, pivot_world)
         image_rendered, depth_rendered = surface_lf_prev.rasterize(pose_rel_lhs)
 
@@ -442,12 +492,9 @@ def refine_pose(
         )
         loss.backward()
         optimizer.step()
-        with torch.no_grad():
-            angle = torch.norm(rotation_param)
-            if angle > np.pi:
-                # Wrap the angle to be within [-pi, pi]
-                new_angle = (angle + np.pi) % (2 * np.pi) - np.pi
-                rotation_param.copy_(rotation_param * (new_angle / angle))
+
+        # Note: The 'if angle > np.pi' wrapping logic is no longer needed
+        # as the 6D representation is globally continuous.
     if convergence_plot_filename is not None:
         _save_convergence_projections(
             surface_lf_prev=surface_lf_prev,
