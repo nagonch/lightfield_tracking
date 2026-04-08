@@ -220,7 +220,7 @@ class SurfaceLF:
             "means": points_world,
             "harmonics": sh_coeffs,
             "rotations": quats,
-            "scales": pc_scales / 10,
+            "scales": pc_scales,
             "opacities": opacities,
         }
         return self.values
