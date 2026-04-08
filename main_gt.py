@@ -14,17 +14,15 @@ import numpy as np
 import os
 from surface_lf import SurfaceLF, SurfaceLFRig
 import torch
-from optimizer import refine_pose
-from loss import get_neighborhood, loss, probe_neighbourhood, simple_loss
-from utils import compose_pose, rhs_to_lhs_rel, lhs_to_rhs_rel
-from PIL import Image
+from loss import refine_pose
+
 
 if __name__ == "__main__":
     for REFLECTIVITY in [
-        "0.0",
+        # "0.0",
         # "0.5",
         # "0.7",
-        # "1.0",
+        "1.0",
     ]:
         RESULTS_FOLDER = f"ours_icp_box_refined_{REFLECTIVITY}/ycbv_lf"
         os.makedirs(RESULTS_FOLDER, exist_ok=True)
@@ -80,8 +78,8 @@ if __name__ == "__main__":
                     )
                     image, depth = surface_lf.rasterize(torch.eye(4).cuda())
                 else:
-                    gt_pose_rel_lhs = (
-                        np.linalg.inv(est_poses[-1]) @ frame["pose"].cpu().numpy()
+                    gt_pose_rel_rhs = (
+                        np.linalg.inv(gt_poses[-2]) @ frame["pose"].cpu().numpy()
                     )
                     surface_lf = SurfaceLF(
                         surface_lf_rig,
@@ -112,45 +110,33 @@ if __name__ == "__main__":
                     est_poses_coarse.append(coarse_pose)
 
                     pose_rel_lhs = coarse_pose @ np.linalg.inv(est_poses[-1])
-                    neighbourhood, initial_guess = get_neighborhood(
-                        torch.tensor(gt_pose_rel_lhs).cuda().float(),
-                        frame["pose"],
-                    )
-                    results = probe_neighbourhood(
-                        surface_lf_prev,
-                        image,
-                        depth,
-                        neighbourhood,
-                        initial_guess,
-                        # torch.tensor(gt_pose_rel_lhs).cuda().float(),
-                        frame["pose"],
-                    )
-                    print(results)
-                    raise
-                    pose_rel_lhs_refined, loss_prev = refine_pose(
-                        surface_lf_prev=surface_lf_prev,
-                        pose_coarse=torch.tensor(pose_rel_lhs).cuda().float(),
-                        image=image.cuda(),
-                        depth=depth.cuda(),
-                        pivot_world=torch.tensor(est_poses[-1][:3, 3]).float().cuda(),
-                        mask=mask.cuda(),
-                        mask_prev=mask_prev.cuda(),
-                        num_iterations=100,
-                        loss_fn=loss,
-                        compose_pose_fn=compose_pose,
-                    )
-                    pose_refined = pose_rel_lhs_refined.cpu().numpy() @ est_poses[-1]
-                    est_poses.append(pose_refined)
+                    pose_rel_rhs = np.linalg.inv(est_poses[-1]) @ coarse_pose
 
+                    pose_rel_rhs_refined, pose_rel_lhs_refined, pose_history_rhs = (
+                        refine_pose(
+                            surface_lf_prev=surface_lf_prev,
+                            surface_lf=surface_lf,
+                            pose_coarse_rhs=torch.tensor(pose_rel_rhs).cuda().float(),
+                            image=image.cuda(),
+                            depth=depth.cuda(),
+                            pivot_world=torch.tensor(est_poses[-1]).float().cuda(),
+                            pose_gt_rhs=torch.tensor(gt_pose_rel_rhs).float().cuda(),
+                            convergence_plot_filename=None,
+                        )
+                    )
+                    pose_refined = pose_rel_lhs_refined @ est_poses[-1]
+                    est_poses.append(pose_refined)
                     pc_prev = pc
                     color_prev = color
                 surface_lf_prev = surface_lf
                 mask_prev = mask
-            gt_poses_np = np.stack(gt_poses, axis=0)
-            est_poses_np = np.stack(est_poses, axis=0)
-            est_poses_coarse_np = np.stack(est_poses_coarse, axis=0)
-            est_poses_coarse_np = rebase_poses(gt_poses_np, est_poses_coarse_np)
-            est_poses_np = rebase_poses(gt_poses_np, est_poses_np)
-            np.save(os.path.join(RESULTS_FOLDER, f"{sequence_name}.npy"), est_poses)
-            print(pose_errors(gt_poses_np, est_poses_coarse_np))
-            print(pose_errors(gt_poses_np, est_poses_np))
+                gt_poses_np = np.stack(gt_poses, axis=0)
+                est_poses_np = np.stack(est_poses, axis=0)
+                est_poses_coarse_np = np.stack(est_poses_coarse, axis=0)
+                est_poses_coarse_np = rebase_poses(gt_poses_np, est_poses_coarse_np)
+                est_poses_np = rebase_poses(gt_poses_np, est_poses_np)
+                np.save(os.path.join(RESULTS_FOLDER, f"{sequence_name}.npy"), est_poses)
+                print(pose_errors(gt_poses_np, est_poses_coarse_np))
+                print(pose_errors(gt_poses_np, est_poses_np))
+                if i == 1:
+                    raise

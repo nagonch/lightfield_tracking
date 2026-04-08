@@ -478,10 +478,10 @@ def refine_pose(
     learning_rate_rot: float = 1e-3,
     learning_rate_trans: float = 1e-3,
     convergence_plot_filename: str = "convergence.png",
-    loss_images_dir: str = "refine_pose_loss_images",
+    loss_images_dir: str = None,
     loss_image_gamma: float = 0.5,
-    rendered_images_dir: str = "refine_pose_rendered_images",
-    rendered_depth_images_dir: str = "refine_pose_rendered_depth_images",
+    rendered_images_dir: str = None,
+    rendered_depth_images_dir: str = None,
     rendered_depth_gamma: float = 0.5,
 ):
     device = pose_coarse_rhs.device
