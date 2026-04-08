@@ -11,42 +11,32 @@ import torch
 import torch.nn.functional as F
 
 
+def safe_normalize(x, eps=1e-6):
+    return x / (x.norm(dim=-1, keepdim=True) + eps)
+
+
+def rotation_6d_to_matrix(d6: torch.Tensor) -> torch.Tensor:
+
+    inputs = d6.view(-1, 2, 3)
+    a1 = inputs[:, 0]
+    a2 = inputs[:, 1]
+
+    b1 = safe_normalize(a1)
+
+    proj = (b1 * a2).sum(dim=-1, keepdim=True) * b1
+    b2 = safe_normalize(a2 - proj)
+
+    b3 = torch.cross(b1, b2, dim=-1)
+
+    return torch.stack((b1, b2, b3), dim=-1).squeeze()
+
+
 def matrix_to_rotation_6d(matrix: torch.Tensor) -> torch.Tensor:
     """
     Extracts the first two columns of a rotation matrix to form the 6D representation.
     Input: (3, 3) matrix. Output: (6,) vector.
     """
     return matrix[:3, :2].transpose(0, 1).reshape(-1)
-
-
-def rotation_6d_to_matrix(d6: torch.Tensor) -> torch.Tensor:
-    """
-    Converts a 6D rotation representation to a 3x3 rotation matrix.
-    Args:
-        d6: (6,) or (B, 6) tensor
-    Returns:
-        3x3 or (B, 3, 3) rotation matrix
-    """
-    # Reshape to (..., 2, 3) to get the two input vectors
-    inputs = d6.view(-1, 2, 3)
-    a1 = inputs[:, 0, :]
-    a2 = inputs[:, 1, :]
-
-    # 1. Normalize the first vector
-    b1 = F.normalize(a1, dim=-1)
-
-    # 2. Orthogonalize the second vector relative to the first
-    # dot_product = (b1 * a2).sum(-1, keepdim=True)
-    b2 = a2 - (torch.sum(b1 * a2, dim=-1, keepdim=True) * b1)
-
-    # 3. Normalize the second vector
-    b2 = F.normalize(b2, dim=-1)
-
-    # 4. Get the third vector via cross product
-    b3 = torch.cross(b1, b2, dim=-1)
-
-    # Stack them as columns to form the rotation matrix
-    return torch.stack((b1, b2, b3), dim=-1).squeeze()
 
 
 def _to_hw(tensor_hw_or_hw1: torch.Tensor) -> torch.Tensor:
@@ -484,9 +474,9 @@ def refine_pose(
     depth,
     pivot_world,
     pose_gt_rhs=None,
-    num_iterations=100,
+    num_iterations=500,
     learning_rate_rot: float = 1e-3,
-    learning_rate_trans: float = 1e-4,
+    learning_rate_trans: float = 1e-3,
     convergence_plot_filename: str = "convergence.png",
     loss_images_dir: str = "refine_pose_loss_images",
     loss_image_gamma: float = 0.5,
@@ -502,17 +492,17 @@ def refine_pose(
     trans = pose_coarse_rhs[:3, 3].clone()
 
     rotation_param = (
-        (rot_6d + torch.randn_like(rot_6d) * 1e-4).clone().detach().requires_grad_(True)
+        (rot_6d + torch.randn_like(rot_6d) * 1e-3).clone().detach().requires_grad_(True)
     )
     translation_param = (
-        (trans + torch.randn_like(trans) * 1e-4).clone().detach().requires_grad_(True)
+        (trans + torch.randn_like(trans) * 1e-3).clone().detach().requires_grad_(True)
     )
 
     optimizer = torch.optim.AdamW(
         [
             {"params": [rotation_param], "lr": float(learning_rate_rot)},
             {"params": [translation_param], "lr": float(learning_rate_trans)},
-        ]
+        ],
     )
     _save_rgb_image(
         surface_lf_prev.rasterize(torch.eye(4).cuda())[0],
@@ -542,7 +532,6 @@ def refine_pose(
 
         # 2. Map 6D parameters back to a valid SO(3) rotation matrix
         rot_matrix = rotation_6d_to_matrix(rotation_param)
-        print(rotation_param)
 
         # 3. Construct the 4x4 pose matrix
         pose_rel_rhs = torch.eye(4, device=device)
@@ -555,7 +544,6 @@ def refine_pose(
         # 4. Transformation and Rendering
         pose_rel_lhs = rhs_to_lhs_rel(pose_rel_rhs, pivot_world)
         image_rendered, depth_rendered = surface_lf_prev.rasterize(pose_rel_lhs)
-
         if rendered_images_dir is not None:
             _save_rgb_image(
                 image_rendered,
@@ -597,7 +585,6 @@ def refine_pose(
         if current_loss_val < best_loss:
             best_loss = current_loss_val
             best_pose_rhs = pose_rel_rhs.detach().clone()
-
         # 6. Optimization step
         loss.backward()
         optimizer.step()
