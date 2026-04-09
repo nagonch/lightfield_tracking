@@ -139,9 +139,7 @@ if __name__ == "__main__":
                             refine_pose(
                                 surface_lf_prev=surface_lf_prev,
                                 surface_lf=surface_lf,
-                                pose_coarse_rhs=torch.tensor(pose_rel_rhs)
-                                .cuda()
-                                .float(),
+                                pose_coarse_rhs=torch.tensor(np.eye(4)).cuda().float(),
                                 image=image.cuda(),
                                 depth=depth.cuda(),
                                 pivot_world=torch.tensor(est_poses[-1]).float().cuda(),

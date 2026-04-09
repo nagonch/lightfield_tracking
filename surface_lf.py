@@ -330,6 +330,36 @@ class SurfaceLF:
         env = env.reshape(env_h, env_w, 3).permute(2, 0, 1).contiguous()
         return env
 
+    def _sample_environment_map(
+        self,
+        reflected_dirs: torch.Tensor,
+        env_map_hwc: torch.Tensor,
+        eps: float = 1e-8,
+    ):
+        """
+        Nearest-neighbor sample from an equirect environment map.
+
+        Returns sampled RGB and a validity mask where missing/invalid env bins are False.
+        """
+        env_h, env_w = env_map_hwc.shape[:2]
+        dirs_flat = reflected_dirs.reshape(-1, 3)
+        u_idx, v_idx = self._dirs_to_equirect_uv(
+            dirs_flat,
+            env_h=env_h,
+            env_w=env_w,
+            flip_u=self.flip_env_u,
+            flip_v=self.flip_env_v,
+        )
+
+        sampled = env_map_hwc[v_idx, u_idx]
+        sampled = sampled.view(*reflected_dirs.shape[:2], 3)
+
+        finite = torch.isfinite(sampled).all(dim=-1)
+        has_energy = sampled.sum(dim=-1) > eps
+        valid = finite & has_energy
+        sampled = torch.nan_to_num(sampled, nan=0.0, posinf=0.0, neginf=0.0)
+        return sampled, valid
+
     @property
     def K(self):
         return self.rig.K
@@ -436,25 +466,82 @@ class SurfaceLF:
         )
         return self.values, self.surface_normals, self.environment_map
 
-    def transform(self, rel_pose):
-        rel_pose = rel_pose.to(self.values["means"].dtype)
+    def relight(self, rel_pose, min_valid_views: int = 3, lambda_reg: float = 1e-3):
+        rel_pose = rel_pose.to(
+            device=self.values["means"].device,
+            dtype=self.values["means"].dtype,
+        )
         values = self.values.copy()
-        try:
-            values["harmonics"] = transform_shs(
-                values["harmonics"].float(), rel_pose[:3, :3].float()
-            )
-        except Exception as e:
-            values["harmonics"] = values["harmonics"].float()
+
         R = rel_pose[:3, :3]
         t = rel_pose[:3, 3]
+
         points0 = self.values["means"]
-        points_centered = points0
-        points1 = (R @ points_centered.T).T + t[None, :]
+        points1 = (R @ points0.T).T + t[None, :]
         values["means"] = points1
+
+        old_harmonics = self.values["harmonics"].float()
+
+        env_map_hwc = self._ensure_env_hwc(self.environment_map).to(
+            device=points1.device,
+            dtype=points1.dtype,
+        )
+
+        # Rotate normals consistently with the rigid transform.
+        normals0 = self.surface_normals.to(device=points1.device, dtype=points1.dtype)
+        normals1 = F.normalize((R @ normals0.T).T, dim=-1, eps=1e-8)
+
+        N = self.rig.poses_4x4.shape[0]
+        points_rep = points1.unsqueeze(0).expand(N, -1, -1)
+        image_size = torch.tensor([[self.H, self.W]], device=points1.device).expand(N, -1)
+        points_screen = self.cameras.transform_points_screen(
+            points_rep.float(), image_size=image_size
+        )
+
+        uv_px = points_screen[..., :2]
+        z = points_screen[..., 2]
+        x, y = uv_px[..., 0], uv_px[..., 1]
+        in_bounds = (x >= 0) & (x <= (self.W - 1)) & (y >= 0) & (y <= (self.H - 1))
+        in_front = z > 0
+        valid_geom = in_bounds & in_front
+
+        cam_centers = self.cameras.get_camera_center()
+        view_vec = points_rep - cam_centers[:, None, :]
+        view_dirs = view_vec / (view_vec.norm(dim=-1, keepdim=True) + 1e-8)
+
+        normals_rep = normals1.unsqueeze(0).expand(N, -1, -1)
+        reflected_dirs = (
+            view_dirs
+            - 2.0 * (view_dirs * normals_rep).sum(dim=-1, keepdim=True) * normals_rep
+        )
+        reflected_dirs = F.normalize(reflected_dirs, dim=-1)
+
+        sampled_colors, env_valid = self._sample_environment_map(reflected_dirs, env_map_hwc)
+        fit_valid = valid_geom & env_valid
+
+        # Skip relighting if any required env sample is missing for this Gaussian.
+        visible_count = valid_geom.sum(dim=0)
+        has_missing_env = (valid_geom & (~env_valid)).any(dim=0)
+        can_relight = (visible_count >= min_valid_views) & (~has_missing_env)
+
+        new_harmonics = fit_sh_coeffs_per_point(
+            sampled_colors.float(),
+            view_dirs.float(),
+            fit_valid.float(),
+            max_degree=2,
+            lambda_reg=lambda_reg,
+        )
+        values["harmonics"] = torch.where(
+            can_relight[:, None, None], new_harmonics, old_harmonics
+        )
         return values
 
+    def transform(self, rel_pose):
+        # Backward-compatible entrypoint used by refinement code.
+        return self.relight(rel_pose)
+
     def rasterize(self, rel_pose):
-        values = self.transform(rel_pose)
+        values = self.relight(rel_pose)
         image, depth = batch_rasterize(
             points=values["means"].float(),
             quats=values["rotations"].float(),
