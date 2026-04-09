@@ -56,7 +56,6 @@ if __name__ == "__main__":
                 else:
                     depth, depth_conf_mask = depth_estimator(frame, mask)
                     depth = depth[depth.shape[0] // 2]
-                    # mask = mask & depth_conf_mask
                 pc, pc_scales = backproject_depth_to_pointcloud(
                     pixel_indices=None,
                     depths=depth,
