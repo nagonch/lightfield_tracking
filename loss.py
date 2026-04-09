@@ -477,7 +477,7 @@ def refine_pose(
     num_iterations=500,
     learning_rate_rot: float = 1e-3,
     learning_rate_trans: float = 1e-3,
-    convergence_plot_filename: str = "convergence.png",
+    convergence_plot_filename: str = None,
     loss_images_dir: str = None,
     loss_image_gamma: float = 0.5,
     rendered_images_dir: str = None,
@@ -503,14 +503,6 @@ def refine_pose(
             {"params": [rotation_param], "lr": float(learning_rate_rot)},
             {"params": [translation_param], "lr": float(learning_rate_trans)},
         ],
-    )
-    _save_rgb_image(
-        surface_lf_prev.rasterize(torch.eye(4).cuda())[0],
-        os.path.join(f"image_source.png"),
-    )
-    _save_rgb_image(
-        image,
-        os.path.join(f"image_target.png"),
     )
     # Variables to track the best state
     best_loss = float("inf")

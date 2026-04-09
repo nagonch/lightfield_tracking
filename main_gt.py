@@ -1,3 +1,4 @@
+from depth_estimator import DepthEstimator
 from icp_simple import (
     apply_transform_to_points,
     apply_transform_to_points,
@@ -6,9 +7,9 @@ from icp_simple import (
     pose_errors,
 )
 from main import rebase_poses
+from segmentor import Segmentor
 from src.utilities import backproject_depth_to_pointcloud
 from src.dataset import LFDataset
-from src.utilities import Visualizer
 from tqdm import tqdm
 import numpy as np
 import os
@@ -18,14 +19,21 @@ from loss import refine_pose
 
 
 if __name__ == "__main__":
+    EXP_NAME = "ours_icp_box_refined"
+    USE_GT_DEPTH = False
+    SEGMENTATION_PROMPT = "cube."
+
     for REFLECTIVITY in [
-        # "0.0",
+        "0.0",
         # "0.5",
         # "0.7",
-        "1.0",
+        # "1.0",
     ]:
-        RESULTS_FOLDER = f"ours_icp_box_refined_{REFLECTIVITY}/ycbv_lf"
+        RESULTS_FOLDER = f"{EXP_NAME}_{REFLECTIVITY}/ycbv_lf"
         os.makedirs(RESULTS_FOLDER, exist_ok=True)
+        segmentor = Segmentor(prompt=SEGMENTATION_PROMPT)
+        if not USE_GT_DEPTH:
+            depth_estimator = DepthEstimator(infer_gs=False)
         for sequence_name in os.listdir(
             f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_{REFLECTIVITY}"
         ):
@@ -37,14 +45,18 @@ if __name__ == "__main__":
             gt_poses = []
             est_poses_coarse = []
             est_poses = []
-            # v = Visualizer()
             pose_rel_prev = None
             for i, frame in tqdm(enumerate(dataset)):
                 frame["pose"] = frame["object_pose"]
-                mask = frame["masks"][s_size // 2, t_size // 2]
                 img_central = frame["LF"][s_size // 2, t_size // 2]
+                mask = segmentor(img_central)
                 camera_matrix = frame["camera_matrix"]
-                depth = frame["depth"]
+                if USE_GT_DEPTH:
+                    depth = frame["depth"]
+                else:
+                    depth, depth_conf_mask = depth_estimator(frame, mask)
+                    depth = depth[depth.shape[0] // 2]
+                    # mask = mask & depth_conf_mask
                 pc, pc_scales = backproject_depth_to_pointcloud(
                     pixel_indices=None,
                     depths=depth,
@@ -78,9 +90,6 @@ if __name__ == "__main__":
                     )
                     image, depth = surface_lf.rasterize(torch.eye(4).cuda())
                 else:
-                    gt_pose_rel_rhs = (
-                        np.linalg.inv(gt_poses[-2]) @ frame["pose"].cpu().numpy()
-                    )
                     surface_lf = SurfaceLF(
                         surface_lf_rig,
                         torch.tensor(pc).cuda(),
@@ -88,9 +97,6 @@ if __name__ == "__main__":
                         .reshape(-1, frame["LF"].shape[2], frame["LF"].shape[3], 3)
                         .permute(0, 3, 1, 2),
                         torch.tensor(pc_scales).cuda(),
-                    )
-                    image_prev, depth_prev = surface_lf_prev.rasterize(
-                        torch.eye(4).cuda()
                     )
                     image, depth = surface_lf.rasterize(torch.eye(4).cuda())
                     coarsest_pose, pc_prev_trans = get_coarsest_pose(
@@ -120,7 +126,6 @@ if __name__ == "__main__":
                             image=image.cuda(),
                             depth=depth.cuda(),
                             pivot_world=torch.tensor(est_poses[-1]).float().cuda(),
-                            pose_gt_rhs=torch.tensor(gt_pose_rel_rhs).float().cuda(),
                             convergence_plot_filename=None,
                         )
                     )
@@ -138,5 +143,3 @@ if __name__ == "__main__":
                 np.save(os.path.join(RESULTS_FOLDER, f"{sequence_name}.npy"), est_poses)
                 print(pose_errors(gt_poses_np, est_poses_coarse_np))
                 print(pose_errors(gt_poses_np, est_poses_np))
-                if i == 1:
-                    raise
