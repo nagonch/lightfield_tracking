@@ -44,8 +44,10 @@ class SurfaceLFRefinementViewer:
                 height = render_tab_state.viewer_height
 
             c2w = torch.from_numpy(camera_state.c2w).float().to(self._means.device)
-            K = torch.from_numpy(camera_state.get_K((width, height))).float().to(
-                self._means.device
+            K = (
+                torch.from_numpy(camera_state.get_K((width, height)))
+                .float()
+                .to(self._means.device)
             )
             viewmat = c2w.inverse()
 
@@ -84,7 +86,9 @@ class SurfaceLFRefinementViewer:
             )
 
             render_tab_state.total_gs_count = len(self._means)
-            render_tab_state.rendered_gs_count = (info["radii"] > 0).all(-1).sum().item()
+            render_tab_state.rendered_gs_count = (
+                (info["radii"] > 0).all(-1).sum().item()
+            )
             render_colors = torch.clip(render_colors[0, ..., :3], min=0.0, max=1.0)
             return render_colors.detach().cpu().numpy()
 
@@ -157,7 +161,9 @@ class SurfaceLFRefinementViewer:
         )
 
     @torch.no_grad()
-    def update(self, transformed_values, loss_value, iteration, rendered_image, target_image):
+    def update(
+        self, transformed_values, loss_value, iteration, rendered_image, target_image
+    ):
         if not self.enabled:
             return
         if iteration % self.update_every != 0 and iteration != 0:
