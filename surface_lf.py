@@ -493,7 +493,9 @@ class SurfaceLF:
 
         N = self.rig.poses_4x4.shape[0]
         points_rep = points1.unsqueeze(0).expand(N, -1, -1)
-        image_size = torch.tensor([[self.H, self.W]], device=points1.device).expand(N, -1)
+        image_size = torch.tensor([[self.H, self.W]], device=points1.device).expand(
+            N, -1
+        )
         points_screen = self.cameras.transform_points_screen(
             points_rep.float(), image_size=image_size
         )
@@ -516,7 +518,9 @@ class SurfaceLF:
         )
         reflected_dirs = F.normalize(reflected_dirs, dim=-1)
 
-        sampled_colors, env_valid = self._sample_environment_map(reflected_dirs, env_map_hwc)
+        sampled_colors, env_valid = self._sample_environment_map(
+            reflected_dirs, env_map_hwc
+        )
         fit_valid = valid_geom & env_valid
 
         # Skip relighting if any required env sample is missing for this Gaussian.
