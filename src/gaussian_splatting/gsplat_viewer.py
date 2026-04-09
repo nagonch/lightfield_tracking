@@ -42,6 +42,7 @@ class GsplatViewer(Viewer):
         mode: Literal["rendering", "training"] = "rendering",
     ):
         super().__init__(server, render_fn, output_dir, mode)
+        self._closed = False
         server.gui.set_panel_label("gsplat viewer")
 
     def _init_rendering_tab(self):
@@ -238,10 +239,22 @@ class GsplatViewer(Viewer):
         super()._populate_rendering_tab()
 
     def _after_render(self):
+        if self._closed:
+            return
+
         # Update the GUI elements with current values
-        self._rendering_tab_handles["total_gs_count_number"].value = (
-            self.render_tab_state.total_gs_count
-        )
-        self._rendering_tab_handles["rendered_gs_count_number"].value = (
-            self.render_tab_state.rendered_gs_count
-        )
+        try:
+            self._rendering_tab_handles["total_gs_count_number"].value = (
+                self.render_tab_state.total_gs_count
+            )
+            self._rendering_tab_handles["rendered_gs_count_number"].value = (
+                self.render_tab_state.rendered_gs_count
+            )
+        except RuntimeError:
+            self._closed = True
+
+    def close(self):
+        self._closed = True
+        close = getattr(super(), "close", None)
+        if close is not None:
+            close()

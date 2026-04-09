@@ -13,6 +13,7 @@ class SurfaceLFRefinementViewer:
     def __init__(self, enabled: bool = True, update_every: int = 10):
         self.enabled = enabled
         self.update_every = max(1, int(update_every))
+        self._closed = False
         self._means = None
         self._harmonics = None
         self._rotations = None
@@ -166,6 +167,8 @@ class SurfaceLFRefinementViewer:
     ):
         if not self.enabled:
             return
+        if self._closed:
+            return
         if iteration % self.update_every != 0 and iteration != 0:
             return
 
@@ -175,23 +178,31 @@ class SurfaceLFRefinementViewer:
         scales = transformed_values["scales"].detach().float()
         opacities = transformed_values["opacities"].detach().float()
 
-        self.viewer.lock.acquire()
-        self._means = means
-        self._harmonics = harmonics
-        self._rotations = rotations
-        self._scales = scales
-        self._opacities = opacities
-        self.viewer.lock.release()
+        try:
+            self.viewer.lock.acquire()
+            self._means = means
+            self._harmonics = harmonics
+            self._rotations = rotations
+            self._scales = scales
+            self._opacities = opacities
+        finally:
+            self.viewer.lock.release()
 
-        self.iteration_handle.value = int(iteration)
-        self.loss_handle.value = float(loss_value)
-        self.num_gaussians_handle.value = int(means.shape[0])
-        self._update_scene_images(rendered_image, target_image)
-
-        self.viewer.rerender(None)
+        try:
+            self.iteration_handle.value = int(iteration)
+            self.loss_handle.value = float(loss_value)
+            self.num_gaussians_handle.value = int(means.shape[0])
+            self._update_scene_images(rendered_image, target_image)
+            self.viewer.rerender(None)
+        except RuntimeError:
+            self._closed = True
 
     def close(self):
         if not self.enabled:
             return
-        self.server.scene.reset()
-        self.server.stop()
+        self._closed = True
+        try:
+            self.server.scene.reset()
+            self.server.stop()
+        except RuntimeError:
+            pass

@@ -151,11 +151,56 @@ class SurfaceLF:
         pc,
         images,
         pc_scales,
+        previous_environment_map: torch.Tensor | None = None,
+        env_fusion_alpha: float = 0.6,
+        flip_env_u: bool = True,
         flip_env_v: bool = True,
     ):
         self.rig = rig
+        self.flip_env_u = flip_env_u
         self.flip_env_v = flip_env_v
-        self.calculate(pc, images, pc_scales)
+        self.env_fusion_alpha = env_fusion_alpha
+        self.calculate(pc, images, pc_scales, previous_environment_map)
+
+    @staticmethod
+    def _ensure_env_hwc(env_map: torch.Tensor) -> torch.Tensor:
+        if env_map.ndim != 3:
+            raise ValueError("Environment map must be 3D (H,W,3) or (3,H,W)")
+        if env_map.shape[-1] == 3:
+            return env_map
+        if env_map.shape[0] == 3:
+            return env_map.permute(1, 2, 0)
+        raise ValueError("Environment map must have a 3-channel dimension")
+
+    def _fuse_environment_maps(
+        self,
+        previous_environment_map: torch.Tensor | None,
+        current_environment_map: torch.Tensor,
+        eps: float = 1e-8,
+    ) -> torch.Tensor:
+        if previous_environment_map is None:
+            return current_environment_map
+
+        prev = self._ensure_env_hwc(previous_environment_map).to(
+            device=current_environment_map.device,
+            dtype=current_environment_map.dtype,
+        )
+        curr = self._ensure_env_hwc(current_environment_map)
+
+        # Keep older values in unseen bins, blend where both maps contain data.
+        prev_w = prev.sum(dim=-1, keepdim=True)
+        curr_w = curr.sum(dim=-1, keepdim=True)
+        prev_valid = prev_w > eps
+        curr_valid = curr_w > eps
+
+        fused = prev.clone()
+        only_curr = (~prev_valid) & curr_valid
+        both_valid = prev_valid & curr_valid
+
+        blended = (1.0 - self.env_fusion_alpha) * prev + self.env_fusion_alpha * curr
+        fused = torch.where(only_curr.expand_as(fused), curr, fused)
+        fused = torch.where(both_valid.expand_as(fused), blended, fused)
+        return fused
 
     @staticmethod
     def _estimate_normals(points_world: torch.Tensor, k_neighbors: int = 32):
@@ -209,7 +254,11 @@ class SurfaceLF:
 
     @staticmethod
     def _dirs_to_equirect_uv(
-        dirs: torch.Tensor, env_h: int, env_w: int, flip_v: bool = False
+        dirs: torch.Tensor,
+        env_h: int,
+        env_w: int,
+        flip_u: bool = False,
+        flip_v: bool = False,
     ):
         dirs = F.normalize(dirs, dim=-1)
         x, y, z = dirs[:, 0], dirs[:, 1], dirs[:, 2]
@@ -218,6 +267,8 @@ class SurfaceLF:
         lat = torch.asin(torch.clamp(y, -1.0, 1.0))
 
         u = (lon / (2.0 * torch.pi) + 0.5) * (env_w - 1)
+        if flip_u:
+            u = (env_w - 1) - u
         if flip_v:
             v = (0.5 + lat / torch.pi) * (env_h - 1)
         else:
@@ -260,6 +311,7 @@ class SurfaceLF:
             dirs_flat,
             env_h=env_h,
             env_w=env_w,
+            flip_u=self.flip_env_u,
             flip_v=self.flip_env_v,
         )
         lin_idx = v_idx * env_w + u_idx
@@ -298,7 +350,14 @@ class SurfaceLF:
     def device(self):
         return self.rig.K.device
 
-    def calculate(self, points_world, images, pc_scales, eps=1e-8):
+    def calculate(
+        self,
+        points_world,
+        images,
+        pc_scales,
+        previous_environment_map: torch.Tensor | None = None,
+        eps=1e-8,
+    ):
         device = self.device
         N, _, H, W = images.shape
 
@@ -363,16 +422,18 @@ class SurfaceLF:
             "opacities": opacities,
         }
         self.surface_normals = surface_normals
-        self.environment_map = self._build_environment_map(
+        current_environment_map = self._build_environment_map(
             reflected_dirs=reflected_dirs,
             colors=colors,
             valid=valid,
             view_dirs=view_dirs,
             normals=surface_normals,
         )
-        self.environment_map = self.environment_map.permute(1, 2, 0)
-        env_map_img = (self.environment_map.cpu().numpy() * 255).astype(np.uint8)
-        Image.fromarray(env_map_img).save("env_map.png")
+        current_environment_map = current_environment_map.permute(1, 2, 0)
+        self.environment_map = self._fuse_environment_maps(
+            previous_environment_map=previous_environment_map,
+            current_environment_map=current_environment_map,
+        )
         return self.values, self.surface_normals, self.environment_map
 
     def transform(self, rel_pose):
