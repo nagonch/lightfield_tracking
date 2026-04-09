@@ -124,9 +124,29 @@ class SurfaceLFRefinementViewer:
             image = (np.clip(image, 0.0, 1.0) * 255.0).astype(np.uint8)
         return image
 
-    def _update_scene_images(self, rendered_image, target_image):
+    def _to_display_env_map(self, environment_map):
+        if environment_map is None:
+            return None
+        if torch.is_tensor(environment_map):
+            environment_map = environment_map.detach().float().cpu()
+        environment_map = np.asarray(environment_map)
+
+        # Accept either HWC or CHW env maps.
+        if environment_map.ndim == 3 and environment_map.shape[0] == 3:
+            environment_map = np.transpose(environment_map, (1, 2, 0))
+        elif environment_map.ndim != 3 or environment_map.shape[-1] != 3:
+            return None
+
+        if environment_map.dtype != np.uint8:
+            environment_map = (np.clip(environment_map, 0.0, 1.0) * 255.0).astype(
+                np.uint8
+            )
+        return environment_map
+
+    def _update_scene_images(self, rendered_image, target_image, environment_map=None):
         rendered_np = self._to_display_image(rendered_image)
         target_np = self._to_display_image(target_image)
+        env_map_np = self._to_display_env_map(environment_map)
         if rendered_np is None or target_np is None:
             return
 
@@ -139,6 +159,9 @@ class SurfaceLFRefinementViewer:
 
         pose_target = np.eye(4, dtype=np.float32)
         pose_target[:3, 3] = np.array([0.08, -0.02, 0.02], dtype=np.float32)
+
+        pose_env_map = np.eye(4, dtype=np.float32)
+        pose_env_map[:3, 3] = np.array([0.24, -0.02, 0.02], dtype=np.float32)
 
         self.server.scene.add_camera_frustum(
             name="refinement/rendered",
@@ -161,9 +184,30 @@ class SurfaceLFRefinementViewer:
             position=pose_target[:3, 3],
         )
 
+        if env_map_np is not None:
+            env_h, env_w = env_map_np.shape[:2]
+            env_fx = float(max(env_w, 1))
+            env_fov = float(2.0 * np.arctan2(env_w / 2.0, env_fx))
+            self.server.scene.add_camera_frustum(
+                name="refinement/environment_map",
+                aspect=env_w / max(env_h, 1),
+                fov=env_fov,
+                scale=0.03,
+                line_width=1.0,
+                image=env_map_np,
+                wxyz=(1.0, 0.0, 0.0, 0.0),
+                position=pose_env_map[:3, 3],
+            )
+
     @torch.no_grad()
     def update(
-        self, transformed_values, loss_value, iteration, rendered_image, target_image
+        self,
+        transformed_values,
+        loss_value,
+        iteration,
+        rendered_image,
+        target_image,
+        environment_map=None,
     ):
         if not self.enabled:
             return
@@ -192,7 +236,7 @@ class SurfaceLFRefinementViewer:
             self.iteration_handle.value = int(iteration)
             self.loss_handle.value = float(loss_value)
             self.num_gaussians_handle.value = int(means.shape[0])
-            self._update_scene_images(rendered_image, target_image)
+            self._update_scene_images(rendered_image, target_image, environment_map)
             self.viewer.rerender(None)
         except RuntimeError:
             self._closed = True

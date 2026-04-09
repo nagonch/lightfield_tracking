@@ -589,6 +589,7 @@ def refine_pose(
                 iteration=i,
                 rendered_image=image_rendered,
                 target_image=image,
+                environment_map=surface_lf.environment_map,
             )
         # 6. Optimization step
         loss.backward()
