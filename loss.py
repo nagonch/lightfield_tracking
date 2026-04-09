@@ -10,6 +10,8 @@ from itertools import combinations
 import torch
 import torch.nn.functional as F
 
+from src.slf_refinement_viewer import SurfaceLFRefinementViewer
+
 
 def safe_normalize(x, eps=1e-6):
     return x / (x.norm(dim=-1, keepdim=True) + eps)
@@ -483,6 +485,7 @@ def refine_pose(
     rendered_images_dir: str = None,
     rendered_depth_images_dir: str = None,
     rendered_depth_gamma: float = 0.5,
+    refinement_viewer: SurfaceLFRefinementViewer = None,
 ):
     device = pose_coarse_rhs.device
 
@@ -561,6 +564,7 @@ def refine_pose(
             aggregate=False,
         )
         loss = per_pixel_loss.mean()
+        current_loss_val = loss.item()
         if normalize_by is None:
             normalize_by = per_pixel_loss.max().item()
         if loss_images_dir is not None:
@@ -572,11 +576,20 @@ def refine_pose(
             )
 
         # Track the minimum loss state
-        current_loss_val = loss.item()
         loss_history.append(current_loss_val)
         if current_loss_val < best_loss:
             best_loss = current_loss_val
             best_pose_rhs = pose_rel_rhs.detach().clone()
+
+        if refinement_viewer is not None:
+            transformed_values = surface_lf_prev.transform(pose_rel_lhs)
+            refinement_viewer.update(
+                transformed_values=transformed_values,
+                loss_value=current_loss_val,
+                iteration=i,
+                rendered_image=image_rendered,
+                target_image=image,
+            )
         # 6. Optimization step
         loss.backward()
         optimizer.step()

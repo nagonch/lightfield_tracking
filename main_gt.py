@@ -16,21 +16,29 @@ import os
 from surface_lf import SurfaceLF, SurfaceLFRig
 import torch
 from loss import refine_pose
+from src.slf_refinement_viewer import SurfaceLFRefinementViewer
 
 
 if __name__ == "__main__":
     EXP_NAME = "ours_icp_box_refined"
     USE_GT_DEPTH = True
+    USE_GT_MASK = True
     SEGMENTATION_PROMPT = "cube."
+    ENABLE_REFINEMENT_VIEWER = True
+    REFINEMENT_VIEWER_UPDATE_EVERY = 10
 
     for REFLECTIVITY in [
-        "0.0",
+        # "0.0",
         # "0.5",
         # "0.7",
-        # "1.0",
+        "1.0",
     ]:
         RESULTS_FOLDER = f"{EXP_NAME}_{REFLECTIVITY}/ycbv_lf"
         os.makedirs(RESULTS_FOLDER, exist_ok=True)
+        refinement_viewer = SurfaceLFRefinementViewer(
+            enabled=ENABLE_REFINEMENT_VIEWER,
+            update_every=REFINEMENT_VIEWER_UPDATE_EVERY,
+        )
         segmentor = Segmentor(prompt=SEGMENTATION_PROMPT)
         if not USE_GT_DEPTH:
             depth_estimator = DepthEstimator(infer_gs=False)
@@ -49,7 +57,10 @@ if __name__ == "__main__":
             for i, frame in tqdm(enumerate(dataset)):
                 frame["pose"] = frame["object_pose"]
                 img_central = frame["LF"][s_size // 2, t_size // 2]
-                mask = segmentor(img_central)
+                if USE_GT_MASK:
+                    mask = frame["masks"][s_size // 2, t_size // 2]
+                else:
+                    mask = segmentor.segment(img_central.cpu().numpy())
                 camera_matrix = frame["camera_matrix"]
                 if USE_GT_DEPTH:
                     depth = frame["depth"]
@@ -121,11 +132,12 @@ if __name__ == "__main__":
                         refine_pose(
                             surface_lf_prev=surface_lf_prev,
                             surface_lf=surface_lf,
-                            pose_coarse_rhs=torch.tensor(pose_rel_rhs).cuda().float(),
+                            pose_coarse_rhs=torch.tensor(np.eye(4)).cuda().float(),
                             image=image.cuda(),
                             depth=depth.cuda(),
                             pivot_world=torch.tensor(est_poses[-1]).float().cuda(),
                             convergence_plot_filename=None,
+                            refinement_viewer=refinement_viewer,
                         )
                     )
                     pose_refined = pose_rel_lhs_refined @ est_poses[-1]
@@ -142,3 +154,4 @@ if __name__ == "__main__":
                 np.save(os.path.join(RESULTS_FOLDER, f"{sequence_name}.npy"), est_poses)
                 print(pose_errors(gt_poses_np, est_poses_coarse_np))
                 print(pose_errors(gt_poses_np, est_poses_np))
+            refinement_viewer.close()
