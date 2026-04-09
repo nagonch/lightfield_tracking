@@ -2,6 +2,7 @@ from time import time
 from tqdm import tqdm
 import torch
 from pytorch3d.renderer.cameras import PerspectiveCameras
+from pytorch3d.ops import knn_points
 import torch.nn.functional as F
 from PIL import Image
 from sh_helpers import fit_sh_coeffs_per_point
@@ -144,9 +145,138 @@ class SurfaceLFRig:
 
 
 class SurfaceLF:
-    def __init__(self, rig: SurfaceLFRig, pc, images, pc_scales):
+    def __init__(
+        self,
+        rig: SurfaceLFRig,
+        pc,
+        images,
+        pc_scales,
+        flip_env_v: bool = True,
+    ):
         self.rig = rig
+        self.flip_env_v = flip_env_v
         self.calculate(pc, images, pc_scales)
+
+    @staticmethod
+    def _estimate_normals(points_world: torch.Tensor, k_neighbors: int = 32):
+        # PCA normals from local neighborhoods with guards for NaN/Inf and ill-conditioned patches.
+        device = points_world.device
+        dtype = points_world.dtype
+        n_points = points_world.shape[0]
+
+        if n_points < 3:
+            fallback = torch.zeros((n_points, 3), device=device, dtype=dtype)
+            fallback[:, 2] = 1.0
+            return fallback
+
+        finite_points = torch.isfinite(points_world).all(dim=-1)
+        points_safe = torch.nan_to_num(points_world, nan=0.0, posinf=0.0, neginf=0.0)
+
+        points = points_safe.unsqueeze(0)
+        k_eff = max(2, min(k_neighbors + 1, n_points))
+        knn = knn_points(points, points, K=k_eff, return_nn=True)
+        neighbors = knn.knn[0, :, 1:, :]
+        neighbors = torch.nan_to_num(neighbors, nan=0.0, posinf=0.0, neginf=0.0)
+
+        centered = neighbors - neighbors.mean(dim=1, keepdim=True)
+        cov = centered.transpose(1, 2) @ centered / max(neighbors.shape[1], 1)
+        cov = torch.nan_to_num(cov, nan=0.0, posinf=0.0, neginf=0.0)
+
+        # Symmetrize + diagonal jitter to keep covariance numerically PSD.
+        cov = 0.5 * (cov + cov.transpose(-1, -2))
+        eye = torch.eye(3, device=device, dtype=cov.dtype).unsqueeze(0)
+        cov = cov + 1e-6 * eye
+
+        try:
+            _, eigvecs = torch.linalg.eigh(cov)
+        except RuntimeError:
+            # Fallback avoids sporadic cuSOLVER batched-eigh failures.
+            cov_cpu = cov.float().cpu()
+            _, eigvecs_cpu = torch.linalg.eigh(cov_cpu)
+            eigvecs = eigvecs_cpu.to(device=device, dtype=cov.dtype)
+
+        normals = eigvecs[:, :, 0]
+        normals = torch.nan_to_num(normals, nan=0.0, posinf=0.0, neginf=0.0)
+        normals = F.normalize(normals, dim=-1, eps=1e-8)
+
+        # Default invalid source points to a stable up normal.
+        if (~finite_points).any():
+            normals = normals.clone()
+            normals[~finite_points] = torch.tensor(
+                [0.0, 0.0, 1.0], device=device, dtype=normals.dtype
+            )
+        return normals
+
+    @staticmethod
+    def _dirs_to_equirect_uv(
+        dirs: torch.Tensor, env_h: int, env_w: int, flip_v: bool = False
+    ):
+        dirs = F.normalize(dirs, dim=-1)
+        x, y, z = dirs[:, 0], dirs[:, 1], dirs[:, 2]
+
+        lon = torch.atan2(x, z)
+        lat = torch.asin(torch.clamp(y, -1.0, 1.0))
+
+        u = (lon / (2.0 * torch.pi) + 0.5) * (env_w - 1)
+        if flip_v:
+            v = (0.5 + lat / torch.pi) * (env_h - 1)
+        else:
+            v = (0.5 - lat / torch.pi) * (env_h - 1)
+        u_idx = torch.clamp(u.round().long(), 0, env_w - 1)
+        v_idx = torch.clamp(v.round().long(), 0, env_h - 1)
+        return u_idx, v_idx
+
+    def _build_environment_map(
+        self,
+        reflected_dirs: torch.Tensor,
+        colors: torch.Tensor,
+        valid: torch.Tensor,
+        view_dirs: torch.Tensor,
+        normals: torch.Tensor,
+        env_h: int = 256,
+        env_w: int = 512,
+        eps: float = 1e-8,
+    ):
+        n_views, n_points, _ = reflected_dirs.shape
+        dirs_flat = reflected_dirs.reshape(n_views * n_points, 3)
+        colors_flat = colors.reshape(n_views * n_points, 3)
+        valid_flat = valid.reshape(n_views * n_points)
+
+        # Confidence from grazing-angle attenuation.
+        cos_term = torch.abs((view_dirs * normals.unsqueeze(0)).sum(dim=-1))
+        weights_flat = cos_term.reshape(n_views * n_points)
+
+        keep = valid_flat > 0
+        if keep.sum() == 0:
+            return torch.zeros(
+                (3, env_h, env_w), device=colors.device, dtype=colors.dtype
+            )
+
+        dirs_flat = dirs_flat[keep]
+        colors_flat = colors_flat[keep]
+        weights_flat = weights_flat[keep].to(colors_flat.dtype)
+
+        u_idx, v_idx = self._dirs_to_equirect_uv(
+            dirs_flat,
+            env_h=env_h,
+            env_w=env_w,
+            flip_v=self.flip_env_v,
+        )
+        lin_idx = v_idx * env_w + u_idx
+
+        accum_rgb = torch.zeros(
+            (env_h * env_w, 3), device=colors.device, dtype=colors.dtype
+        )
+        accum_w = torch.zeros(
+            (env_h * env_w,), device=colors.device, dtype=colors.dtype
+        )
+
+        accum_rgb.index_add_(0, lin_idx, colors_flat * weights_flat.unsqueeze(-1))
+        accum_w.index_add_(0, lin_idx, weights_flat)
+
+        env = accum_rgb / (accum_w.unsqueeze(-1) + eps)
+        env = env.reshape(env_h, env_w, 3).permute(2, 0, 1).contiguous()
+        return env
 
     @property
     def K(self):
@@ -171,6 +301,8 @@ class SurfaceLF:
     def calculate(self, points_world, images, pc_scales, eps=1e-8):
         device = self.device
         N, _, H, W = images.shape
+
+        surface_normals = self._estimate_normals(points_world)
 
         points_rep = points_world.unsqueeze(0).expand(N, -1, -1)
         image_size = torch.tensor([[H, W]], device=device).expand(N, -1)
@@ -200,6 +332,13 @@ class SurfaceLF:
         view_vec = points_rep - cam_centers[:, None, :]
         view_dirs = view_vec / (view_vec.norm(dim=-1, keepdim=True) + eps)
 
+        normals_rep = surface_normals.unsqueeze(0).expand(N, -1, -1)
+        reflected_dirs = (
+            view_dirs
+            - 2.0 * (view_dirs * normals_rep).sum(dim=-1, keepdim=True) * normals_rep
+        )
+        reflected_dirs = F.normalize(reflected_dirs, dim=-1)
+
         sh_coeffs = fit_sh_coeffs_per_point(
             colors.float(),
             view_dirs.float(),
@@ -223,7 +362,18 @@ class SurfaceLF:
             "scales": pc_scales,
             "opacities": opacities,
         }
-        return self.values
+        self.surface_normals = surface_normals
+        self.environment_map = self._build_environment_map(
+            reflected_dirs=reflected_dirs,
+            colors=colors,
+            valid=valid,
+            view_dirs=view_dirs,
+            normals=surface_normals,
+        )
+        self.environment_map = self.environment_map.permute(1, 2, 0)
+        env_map_img = (self.environment_map.cpu().numpy() * 255).astype(np.uint8)
+        Image.fromarray(env_map_img).save("env_map.png")
+        return self.values, self.surface_normals, self.environment_map
 
     def transform(self, rel_pose):
         rel_pose = rel_pose.to(self.values["means"].dtype)
