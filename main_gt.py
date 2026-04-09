@@ -20,7 +20,7 @@ from loss import refine_pose
 
 if __name__ == "__main__":
     EXP_NAME = "ours_icp_box_refined"
-    USE_GT_DEPTH = False
+    USE_GT_DEPTH = True
     SEGMENTATION_PROMPT = "cube."
 
     for REFLECTIVITY in [
