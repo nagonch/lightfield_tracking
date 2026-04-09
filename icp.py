@@ -1,6 +1,8 @@
+import os
 import numpy as np
 import open3d as o3d
-from src.utilities import Visualizer
+from scipy.spatial.transform import Rotation as R
+import itertools
 
 
 def rebase_poses(gt_poses, est_poses):
@@ -62,313 +64,315 @@ def pose_errors(gt_poses, est_poses):
     }
 
 
-def icp_track(
-    pc_curr,
-    pc_prev,
-    color_curr,
-    color_prev,
-    pose_prev,
-    pose_rel_prev=None,
-):
-    # ---- helpers ----
-    def transform_to_origin(
-        points_xyz: np.ndarray, pose_world: np.ndarray
-    ) -> np.ndarray:
-        pose_world_inv = np.linalg.inv(pose_world)
-        points_h = np.concatenate(
-            [points_xyz, np.ones((points_xyz.shape[0], 1))], axis=1
-        )
-        return (pose_world_inv @ points_h.T).T[:, :3]
+def get_coarsest_pose(point_cloud_previous, point_cloud_current, pose_previous):
+    previous_median = np.median(point_cloud_previous, axis=0)
+    current_median = np.median(point_cloud_current, axis=0)
+    translation_coarse = current_median - previous_median
 
-    def rotation_angle_deg_single(R: np.ndarray) -> float:
-        trace_val = float(np.trace(R))
-        cos_theta = np.clip((trace_val - 1.0) / 2.0, -1.0, 1.0)
-        return float(np.degrees(np.arccos(cos_theta)))
+    pose_coarse = pose_previous.copy()
+    pose_coarse[:3, 3] += translation_coarse
 
-    def preprocess(points_xyz: np.ndarray, colors_rgb: np.ndarray, voxel_size: float):
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(points_xyz)
-        pcd.colors = o3d.utility.Vector3dVector(colors_rgb)
+    point_cloud_previous_aligned = point_cloud_previous + translation_coarse
 
-        pcd = pcd.voxel_down_sample(voxel_size=voxel_size)
+    return pose_coarse, point_cloud_previous_aligned
 
-        # stronger normals than your original (you had radius ~ 2.5*voxel)
-        normal_radius = voxel_size * 6.0
-        pcd.estimate_normals(
-            o3d.geometry.KDTreeSearchParamHybrid(radius=normal_radius, max_nn=50)
-        )
-        # optional but usually helps stability
-        pcd.orient_normals_consistent_tangent_plane(k=30)
-        return pcd
 
-    def compute_fpfh(pcd: o3d.geometry.PointCloud, voxel_size: float):
-        feat_radius = voxel_size * 15.0
-        return o3d.pipelines.registration.compute_fpfh_feature(
-            pcd,
-            o3d.geometry.KDTreeSearchParamHybrid(radius=feat_radius, max_nn=200),
-        )
+def get_aligned_pc(pc, pose_rel):
+    aligned_pc = (pose_rel[:3, :3] @ pc.T).T + pose_rel[:3, 3]
+    return aligned_pc
 
-    def run_multiscale_icp(
-        source_base: o3d.geometry.PointCloud,
-        target_base: o3d.geometry.PointCloud,
-        initial_transform: np.ndarray,
-        voxel_scales: list[float],
-    ):
-        T = initial_transform.copy()
 
-        for voxel_size in voxel_scales:
-            src = source_base.voxel_down_sample(voxel_size)
-            tgt = target_base.voxel_down_sample(voxel_size)
+def numpy_point_cloud_from_arrays(
+    points_xyz: np.ndarray,
+    colors_rgb: np.ndarray | None = None,
+) -> o3d.geometry.PointCloud:
+    if points_xyz.ndim != 2 or points_xyz.shape[1] != 3:
+        raise ValueError(f"points_xyz must have shape [N, 3], got {points_xyz.shape}")
 
-            # normals at this scale
-            normal_radius = voxel_size * 6.0
-            for pcd in (src, tgt):
-                pcd.estimate_normals(
-                    o3d.geometry.KDTreeSearchParamHybrid(
-                        radius=normal_radius, max_nn=50
-                    )
-                )
-                pcd.orient_normals_consistent_tangent_plane(k=30)
+    point_cloud = o3d.geometry.PointCloud()
+    point_cloud.points = o3d.utility.Vector3dVector(points_xyz.astype(np.float64))
 
-            max_corr = voxel_size * 4.0
-
-            # 1) colored ICP (good for small residuals + texture)
-            try:
-                colored = o3d.pipelines.registration.registration_colored_icp(
-                    source=src,
-                    target=tgt,
-                    max_correspondence_distance=max_corr,
-                    init=T,
-                    estimation_method=o3d.pipelines.registration.TransformationEstimationForColoredICP(),
-                    criteria=o3d.pipelines.registration.ICPConvergenceCriteria(
-                        relative_fitness=1e-6, relative_rmse=1e-6, max_iteration=60
-                    ),
-                )
-            except RuntimeError:
-                return initial_transform.copy(), 0.0, float("inf")
-            T = colored.transformation
-
-            # 2) point-to-plane ICP refinement (this is the rotation driver)
-            try:
-                p2l = o3d.pipelines.registration.registration_icp(
-                    source=src,
-                    target=tgt,
-                    max_correspondence_distance=max_corr,
-                    init=T,
-                    estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPlane(),
-                    criteria=o3d.pipelines.registration.ICPConvergenceCriteria(
-                        max_iteration=40
-                    ),
-                )
-            except RuntimeError:
-                return initial_transform.copy(), 0.0, float("inf")
-            T = p2l.transformation
-
-        # score on finest scale using point-to-plane ICP result fields (fitness/rmse)
-        # (we re-run one quick eval ICP to get comparable metrics)
-        voxel_finest = voxel_scales[-1]
-        src_f = source_base.voxel_down_sample(voxel_finest)
-        tgt_f = target_base.voxel_down_sample(voxel_finest)
-        normal_radius = voxel_finest * 6.0
-        for pcd in (src_f, tgt_f):
-            pcd.estimate_normals(
-                o3d.geometry.KDTreeSearchParamHybrid(radius=normal_radius, max_nn=50)
+    if colors_rgb is not None:
+        if colors_rgb.shape != points_xyz.shape:
+            raise ValueError(
+                f"colors_rgb must match points_xyz shape {points_xyz.shape}, got {colors_rgb.shape}"
             )
-        try:
-            eval_icp = o3d.pipelines.registration.registration_icp(
-                source=src_f,
-                target=tgt_f,
-                max_correspondence_distance=voxel_finest * 4.0,
-                init=T,
-                estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPlane(),
-                criteria=o3d.pipelines.registration.ICPConvergenceCriteria(
-                    max_iteration=1
-                ),
-            )
-        except RuntimeError:
-            return initial_transform.copy(), 0.0, float("inf")
-        return T, float(eval_icp.fitness), float(eval_icp.inlier_rmse)
+        point_cloud.colors = o3d.utility.Vector3dVector(colors_rgb.astype(np.float64))
 
-    # ---- put both clouds into the same frame: pose_prev-origin ----
-    pc_prev_origin = transform_to_origin(pc_prev, pose_prev)
-    pc_curr_origin = transform_to_origin(pc_curr, pose_prev)
+    return point_cloud
 
-    # ---- multi-scale schedule (coarse -> fine) ----
-    # tune these; start coarser if your motion is bigger
-    voxel_finest = 0.002  # 2mm (your original)
-    voxel_scales = [voxel_finest * 4.0, voxel_finest * 2.0, voxel_finest]
 
-    # preprocess at finest (we downsample inside the pyramid)
-    pcd_prev_base = preprocess(pc_prev_origin, color_prev, voxel_finest)
-    pcd_curr_base = preprocess(pc_curr_origin, color_curr, voxel_finest)
+def make_transform(
+    rotation_matrix: np.ndarray,
+    translation_vector: np.ndarray,
+) -> np.ndarray:
+    transform_matrix = np.eye(4, dtype=np.float64)
+    transform_matrix[:3, :3] = rotation_matrix
+    transform_matrix[:3, 3] = translation_vector
+    return transform_matrix
 
-    # ---- build candidate initializations ----
-    has_motion_prior = pose_rel_prev is not None
-    T_motion_init = pose_rel_prev if has_motion_prior else np.eye(4)
 
-    # centroid translation prior (robust: per-axis median)
-    # NOTE: we will NOT use this as an ICP initialization; we will use it to
-    # post-correct the ICP translation if ICP underestimates translation.
-    centroid_prev = np.median(pc_prev_origin, axis=0)
-    centroid_curr = np.median(pc_curr_origin, axis=0)
-    centroid_delta = centroid_curr - centroid_prev
+def invert_transform(transform_matrix: np.ndarray) -> np.ndarray:
+    rotation_matrix = transform_matrix[:3, :3]
+    translation_vector = transform_matrix[:3, 3]
 
-    # feature init (RANSAC) at coarse scale to help rotation when texture/geometry is ambiguous
-    pcd_prev_r = pcd_prev_base.voxel_down_sample(voxel_finest * 4.0)
-    pcd_curr_r = pcd_curr_base.voxel_down_sample(voxel_finest * 4.0)
-    for pcd in (pcd_prev_r, pcd_curr_r):
-        pcd.estimate_normals(
-            o3d.geometry.KDTreeSearchParamHybrid(
-                radius=(voxel_finest * 4.0) * 6.0, max_nn=50
-            )
-        )
+    transform_inverse = np.eye(4, dtype=np.float64)
+    transform_inverse[:3, :3] = rotation_matrix.T
+    transform_inverse[:3, 3] = -rotation_matrix.T @ translation_vector
+    return transform_inverse
 
-    fpfh_prev = compute_fpfh(pcd_prev_r, voxel_finest * 4.0)
-    fpfh_curr = compute_fpfh(pcd_curr_r, voxel_finest * 4.0)
 
-    ransac_result = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
-        pcd_prev_r,
-        pcd_curr_r,
-        fpfh_prev,
-        fpfh_curr,
-        mutual_filter=True,
-        max_correspondence_distance=(voxel_finest * 4.0) * 5.0,
-        estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(
-            False
-        ),
-        ransac_n=4,
-        checkers=[
-            o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(0.9),
-            o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(
-                (voxel_finest * 4.0) * 5.0
-            ),
-        ],
-        criteria=o3d.pipelines.registration.RANSACConvergenceCriteria(100000, 0.999),
+def build_rotation_hypotheses(
+    angle_step_degrees: float = 3.0,
+    max_angle_degrees: float = 9.0,
+    include_full_axis_combinations: bool = True,
+) -> list[np.ndarray]:
+    """
+    Build a small SO(3) hypothesis set around identity.
+
+    Example with step=3, max=9:
+        angles = [-9, -6, -3, 0, 3, 6, 9]
+
+    Returns:
+        List of [3, 3] rotation matrices.
+    """
+    sampled_angles_deg = np.arange(
+        -max_angle_degrees,
+        max_angle_degrees + 1e-9,
+        angle_step_degrees,
+        dtype=np.float64,
     )
-    T_ransac_init = ransac_result.transformation
 
-    # Try both: motion prior + ransac, then keep better
-    candidates = []
-    candidates.append(("motion", T_motion_init))
-    candidates.append(("ransac", T_ransac_init))
+    rotation_hypotheses = []
 
-    best = None
-    for name, T_init in candidates:
-        T_refined, fitness, rmse = run_multiscale_icp(
-            source_base=pcd_prev_base,
-            target_base=pcd_curr_base,
-            initial_transform=T_init,
-            voxel_scales=voxel_scales,
-        )
-        # score: prefer high fitness, then low rmse
-        score = (fitness, -rmse)
-        if (best is None) or (score > best["score"]):
-            best = {
-                "name": name,
-                "T": T_refined,
-                "fitness": fitness,
-                "rmse": rmse,
-                "score": score,
-            }
+    # Identity first
+    rotation_hypotheses.append(np.eye(3, dtype=np.float64))
 
-    T_rel_icp = best["T"]
+    # Single-axis perturbations
+    for roll_deg in sampled_angles_deg:
+        if abs(roll_deg) > 1e-12:
+            rotation_hypotheses.append(
+                R.from_euler("x", roll_deg, degrees=True).as_matrix()
+            )
 
-    # ---- centroid translation post-correction (simple) ----
-    # If ICP returns a tiny translation but the centroids moved a lot, pull the
-    # translation toward the centroid delta. Rotation stays as ICP found it.
-    t_icp = T_rel_icp[:3, 3].copy()
-    t_icp_norm = float(np.linalg.norm(t_icp))
-    t_cent_norm = float(np.linalg.norm(centroid_delta))
+    for pitch_deg in sampled_angles_deg:
+        if abs(pitch_deg) > 1e-12:
+            rotation_hypotheses.append(
+                R.from_euler("y", pitch_deg, degrees=True).as_matrix()
+            )
 
-    # thresholds in meters
-    centroid_min_motion = 0.01  # ignore centroid if < 1 cm (noise)
-    icp_small_motion = 0.005  # treat ICP translation as "small" if < 5 mm
-    centroid_big_ratio = 2.5  # centroid must be this many times bigger than ICP
+    for yaw_deg in sampled_angles_deg:
+        if abs(yaw_deg) > 1e-12:
+            rotation_hypotheses.append(
+                R.from_euler("z", yaw_deg, degrees=True).as_matrix()
+            )
 
-    # blend weight: 0 -> trust ICP, 1 -> fully replace by centroid
-    w = 0.0
-    if t_cent_norm >= centroid_min_motion:
-        if (t_icp_norm <= icp_small_motion) and (
-            t_cent_norm >= centroid_big_ratio * max(t_icp_norm, 1e-9)
+    # Full combinations around identity
+    if include_full_axis_combinations:
+        for roll_deg, pitch_deg, yaw_deg in itertools.product(
+            sampled_angles_deg, sampled_angles_deg, sampled_angles_deg
         ):
-            w = 1.0
-        else:
-            # smooth pull when centroid is larger than ICP
-            # w ~ 0 when ICP matches centroid, w -> 1 as ICP becomes much smaller.
-            w = float(np.clip(1.0 - (t_icp_norm / (t_cent_norm + 1e-9)), 0.0, 1.0))
-            # don't overreact for mild differences
-            w *= 0.5
+            if (
+                abs(roll_deg) < 1e-12
+                and abs(pitch_deg) < 1e-12
+                and abs(yaw_deg) < 1e-12
+            ):
+                continue
+            rotation_hypotheses.append(
+                R.from_euler(
+                    "xyz", [roll_deg, pitch_deg, yaw_deg], degrees=True
+                ).as_matrix()
+            )
 
-    if w > 0.0:
-        T_rel_icp = T_rel_icp.copy()
-        T_rel_icp[:3, 3] = (1.0 - w) * t_icp + w * centroid_delta
+    # Deduplicate numerically
+    deduplicated_rotations = []
+    for candidate_rotation in rotation_hypotheses:
+        is_duplicate = any(
+            np.allclose(candidate_rotation, kept_rotation, atol=1e-10)
+            for kept_rotation in deduplicated_rotations
+        )
+        if not is_duplicate:
+            deduplicated_rotations.append(candidate_rotation)
 
-    # ---- sanity gating (loosen rotation gate) ----
-    min_fitness = 0.20
-    max_inlier_rmse = voxel_finest * 3.0
+    return deduplicated_rotations
 
-    max_trans_jump = 0.10  # 10 cm per frame (was 5 cm)
-    max_rot_jump_deg = 60.0  # was 20 deg
 
-    t_jump = float(np.linalg.norm(T_rel_icp[:3, 3]))
-    rot_jump_deg = rotation_angle_deg_single(T_rel_icp[:3, :3])
+def rank_icp_result(
+    registration_result: o3d.pipelines.registration.RegistrationResult,
+) -> tuple[float, float]:
+    """
+    Higher fitness is better, lower RMSE is better.
+    We return a tuple suitable for lexicographic comparison.
+    """
+    return (registration_result.fitness, -registration_result.inlier_rmse)
 
-    icp_good = (
-        (best["fitness"] >= min_fitness)
-        and (best["rmse"] <= max_inlier_rmse)
-        and (t_jump <= max_trans_jump)
-        and (rot_jump_deg <= max_rot_jump_deg)
+
+def run_explorative_icp_with_centering(
+    source_points_xyz: np.ndarray,
+    target_points_xyz: np.ndarray,
+    source_colors_rgb: np.ndarray | None = None,
+    target_colors_rgb: np.ndarray | None = None,
+    max_correspondence_distance: float = 0.05,
+    coarse_iterations: int = 10,
+    final_iterations: int = 50,
+    angle_step_degrees: float = 4.5,
+    max_angle_degrees: float = 9.0,
+    include_full_axis_combinations: bool = False,
+    coarse_voxel_size: float | None = None,
+    final_voxel_size: float | None = None,
+    top_k_finalists: int = 3,
+) -> dict:
+    source_points_xyz = np.asarray(source_points_xyz, dtype=np.float64)
+    target_points_xyz = np.asarray(target_points_xyz, dtype=np.float64)
+
+    if source_points_xyz.ndim != 2 or source_points_xyz.shape[1] != 3:
+        raise ValueError(
+            f"source_points_xyz must have shape [N, 3], got {source_points_xyz.shape}"
+        )
+    if target_points_xyz.ndim != 2 or target_points_xyz.shape[1] != 3:
+        raise ValueError(
+            f"target_points_xyz must have shape [N, 3], got {target_points_xyz.shape}"
+        )
+
+    # Center with NumPy once.
+    source_centroid = source_points_xyz.mean(axis=0)
+    target_centroid = target_points_xyz.mean(axis=0)
+
+    centered_source_points_xyz = source_points_xyz - source_centroid
+    centered_target_points_xyz = target_points_xyz - target_centroid
+
+    # Build coarse clouds.
+    coarse_source_point_cloud = numpy_point_cloud_from_arrays(
+        centered_source_points_xyz, source_colors_rgb
+    )
+    coarse_target_point_cloud = numpy_point_cloud_from_arrays(
+        centered_target_points_xyz, target_colors_rgb
     )
 
-    if not icp_good:
-        # fallback: trust motion prior if available, else keep ICP anyway (you can choose)
-        if has_motion_prior:
-            T_rel = T_motion_init
-        else:
-            T_rel = T_rel_icp
-    else:
-        T_rel = T_rel_icp
+    if coarse_voxel_size is not None and coarse_voxel_size > 0.0:
+        coarse_source_point_cloud = coarse_source_point_cloud.voxel_down_sample(
+            coarse_voxel_size
+        )
+        coarse_target_point_cloud = coarse_target_point_cloud.voxel_down_sample(
+            coarse_voxel_size
+        )
 
-    # ---- lift back to world ----
-    T_world = pose_prev @ T_rel
-    return T_world, T_rel
+    # Build final clouds separately so coarse downsampling does not affect final ICP.
+    final_source_point_cloud = numpy_point_cloud_from_arrays(
+        centered_source_points_xyz, source_colors_rgb
+    )
+    final_target_point_cloud = numpy_point_cloud_from_arrays(
+        centered_target_points_xyz, target_colors_rgb
+    )
+
+    if final_voxel_size is not None and final_voxel_size > 0.0:
+        final_source_point_cloud = final_source_point_cloud.voxel_down_sample(
+            final_voxel_size
+        )
+        final_target_point_cloud = final_target_point_cloud.voxel_down_sample(
+            final_voxel_size
+        )
+
+    rotation_hypotheses = build_rotation_hypotheses(
+        angle_step_degrees=angle_step_degrees,
+        max_angle_degrees=max_angle_degrees,
+        include_full_axis_combinations=include_full_axis_combinations,
+    )
+
+    coarse_criteria = o3d.pipelines.registration.ICPConvergenceCriteria(
+        relative_fitness=1e-3,
+        relative_rmse=1e-3,
+        max_iteration=coarse_iterations,
+    )
+    final_criteria = o3d.pipelines.registration.ICPConvergenceCriteria(
+        relative_fitness=1e-6,
+        relative_rmse=1e-6,
+        max_iteration=final_iterations,
+    )
+    estimation_method = (
+        o3d.pipelines.registration.TransformationEstimationPointToPoint()
+    )
+
+    coarse_candidates = []
+
+    for initial_rotation_matrix in rotation_hypotheses:
+        initial_transform = np.eye(4, dtype=np.float64)
+        initial_transform[:3, :3] = initial_rotation_matrix
+
+        coarse_icp_result = o3d.pipelines.registration.registration_icp(
+            coarse_source_point_cloud,
+            coarse_target_point_cloud,
+            max_correspondence_distance,
+            initial_transform,
+            estimation_method,
+            coarse_criteria,
+        )
+
+        coarse_candidates.append(
+            (
+                rank_icp_result(coarse_icp_result),
+                initial_transform,
+                coarse_icp_result.transformation,
+            )
+        )
+
+    coarse_candidates.sort(key=lambda item: item[0], reverse=True)
+    finalist_candidates = coarse_candidates[:top_k_finalists]
+
+    best_final_result = None
+    best_final_score = -np.inf
+    best_initial_transform = None
+
+    for _, initial_transform, finalist_seed_transform in finalist_candidates:
+        final_icp_result = o3d.pipelines.registration.registration_icp(
+            final_source_point_cloud,
+            final_target_point_cloud,
+            max_correspondence_distance,
+            finalist_seed_transform,
+            estimation_method,
+            final_criteria,
+        )
+
+        final_score = rank_icp_result(final_icp_result)
+        if final_score[0] > best_final_score:
+            best_final_result = final_icp_result
+            best_final_score = final_score[0]
+            best_initial_transform = initial_transform
+
+    centered_source_to_centered_target = best_final_result.transformation
+
+    transform_source_to_target = np.eye(4, dtype=np.float64)
+    transform_source_to_target[:3, :3] = centered_source_to_centered_target[:3, :3]
+    transform_source_to_target[:3, 3] = (
+        target_centroid
+        + centered_source_to_centered_target[:3, 3]
+        - centered_source_to_centered_target[:3, :3] @ source_centroid
+    )
+
+    return {
+        "transform_source_to_target": transform_source_to_target,
+        "fitness": best_final_result.fitness,
+        "inlier_rmse": best_final_result.inlier_rmse,
+        "icp_result": best_final_result,
+        "num_rotation_hypotheses": len(rotation_hypotheses),
+        "best_initial_transform": best_initial_transform,
+    }
 
 
-import torch
+def apply_transform_to_points(
+    points_xyz: np.ndarray, transform_matrix: np.ndarray
+) -> np.ndarray:
+    """
+    Apply a 4x4 rigid transform to [N, 3] points.
+    """
+    points_xyz = np.asarray(points_xyz, dtype=np.float64)
+    homogeneous_points = np.concatenate(
+        [points_xyz, np.ones((points_xyz.shape[0], 1), dtype=np.float64)],
+        axis=1,
+    )
+    transformed_points_h = (transform_matrix @ homogeneous_points.T).T
+    return transformed_points_h[:, :3]
+
 
 if __name__ == "__main__":
-    gt_poses = []
-    est_poses = []
-    v = Visualizer()
-    pose_rel_prev = None
-    for i in range(20):
-        print(i)
-        frame = torch.load(f"box_pts/frame_{str(i).zfill(4)}.pt")
-        gt_poses.append(frame["pose"].cpu().numpy())
-        if i == 0:
-            pc_prev = frame["pc"].cpu().numpy()
-            color_prev = frame["color"].cpu().numpy()
-            est_poses.append(frame["pose"].cpu().numpy())
-        else:
-            pc = frame["pc"].cpu().numpy()
-            color = frame["color"].cpu().numpy()
-            pose_prev = est_poses[-1]
-            pose_new_world, pose_rel_prev = icp_track(
-                pc,
-                pc_prev,
-                color,
-                color_prev,
-                pose_prev,
-                pose_rel_prev=pose_rel_prev,
-            )
-            est_poses.append(pose_new_world)
-            pc_prev = pc
-            color_prev = color
-    gt_poses = np.stack(gt_poses, axis=0)
-    est_poses = np.stack(est_poses, axis=0)
-    est_poses = rebase_poses(gt_poses, est_poses)
-    print(pose_errors(gt_poses, est_poses))
-    for i, (pose_est, pose_gt) in enumerate(zip(est_poses, gt_poses)):
-        v.add_frame(f"{i}_est", pose_est)
-        v.add_frame(f"{i}_gt", pose_gt)
-    v.run()
+    pass

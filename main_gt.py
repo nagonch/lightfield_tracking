@@ -1,12 +1,12 @@
 from depth_estimator import DepthEstimator
-from icp_simple import (
+from icp import (
     apply_transform_to_points,
     apply_transform_to_points,
     get_coarsest_pose,
     run_explorative_icp_with_centering,
     pose_errors,
+    rebase_poses,
 )
-from main import rebase_poses
 from segmentor import Segmentor
 from src.utilities import backproject_depth_to_pointcloud
 from src.dataset import LFDataset
