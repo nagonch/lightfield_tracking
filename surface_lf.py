@@ -279,6 +279,29 @@ class SurfaceLF:
         v_idx = torch.clamp(v.round().long(), 0, env_h - 1)
         return u_idx, v_idx
 
+    @staticmethod
+    def _dirs_to_equirect_uv_float(
+        dirs: torch.Tensor,
+        env_h: int,
+        env_w: int,
+        flip_u: bool = False,
+        flip_v: bool = False,
+    ):
+        dirs = F.normalize(dirs, dim=-1)
+        x, y, z = dirs[:, 0], dirs[:, 1], dirs[:, 2]
+
+        lon = torch.atan2(x, z)
+        lat = torch.asin(torch.clamp(y, -1.0, 1.0))
+
+        u = (lon / (2.0 * torch.pi) + 0.5) * (env_w - 1)
+        if flip_u:
+            u = (env_w - 1) - u
+        if flip_v:
+            v = (0.5 + lat / torch.pi) * (env_h - 1)
+        else:
+            v = (0.5 - lat / torch.pi) * (env_h - 1)
+        return u, v
+
     def _build_environment_map(
         self,
         reflected_dirs: torch.Tensor,
@@ -345,7 +368,7 @@ class SurfaceLF:
         """
         env_h, env_w = env_map_hwc.shape[:2]
         dirs_flat = reflected_dirs.reshape(-1, 3)
-        u_idx, v_idx = self._dirs_to_equirect_uv(
+        u, v = self._dirs_to_equirect_uv_float(
             dirs_flat,
             env_h=env_h,
             env_w=env_w,
@@ -353,12 +376,42 @@ class SurfaceLF:
             flip_v=self.flip_env_v,
         )
 
-        sampled = env_map_hwc[v_idx, u_idx]
+        # Bilinear equirect sampling with horizontal wrap to avoid specular banding.
+        u0 = torch.floor(u).long()
+        v0 = torch.floor(v).long()
+        u1 = u0 + 1
+        v1 = v0 + 1
+
+        u0w = torch.remainder(u0, env_w)
+        u1w = torch.remainder(u1, env_w)
+        v0c = torch.clamp(v0, 0, env_h - 1)
+        v1c = torch.clamp(v1, 0, env_h - 1)
+
+        du = (u - u0.to(u.dtype)).unsqueeze(-1)
+        dv = (v - v0.to(v.dtype)).unsqueeze(-1)
+        w00 = (1.0 - du) * (1.0 - dv)
+        w10 = du * (1.0 - dv)
+        w01 = (1.0 - du) * dv
+        w11 = du * dv
+
+        c00 = env_map_hwc[v0c, u0w]
+        c10 = env_map_hwc[v0c, u1w]
+        c01 = env_map_hwc[v1c, u0w]
+        c11 = env_map_hwc[v1c, u1w]
+        sampled = w00 * c00 + w10 * c10 + w01 * c01 + w11 * c11
         sampled = sampled.view(*reflected_dirs.shape[:2], 3)
 
+        valid_map = (env_map_hwc.sum(dim=-1) > eps).to(env_map_hwc.dtype)
+        vm00 = valid_map[v0c, u0w].unsqueeze(-1)
+        vm10 = valid_map[v0c, u1w].unsqueeze(-1)
+        vm01 = valid_map[v1c, u0w].unsqueeze(-1)
+        vm11 = valid_map[v1c, u1w].unsqueeze(-1)
+        valid_interp = w00 * vm00 + w10 * vm10 + w01 * vm01 + w11 * vm11
+        valid = valid_interp.squeeze(-1) > 0.5
+        valid = valid.view(*reflected_dirs.shape[:2])
+
         finite = torch.isfinite(sampled).all(dim=-1)
-        has_energy = sampled.sum(dim=-1) > eps
-        valid = finite & has_energy
+        valid = valid & finite
         sampled = torch.nan_to_num(sampled, nan=0.0, posinf=0.0, neginf=0.0)
         return sampled, valid
 
