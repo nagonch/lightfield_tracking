@@ -24,9 +24,17 @@ if __name__ == "__main__":
     EXP_NAME = "ours_icp_box_refined"
     USE_GT_DEPTH = True
     USE_GT_MASK = True
+    USE_GT_ENV_MAP = True
     SEGMENTATION_PROMPT = "cube."
     ENABLE_REFINEMENT_VIEWER = True
     REFINEMENT_VIEWER_UPDATE_EVERY = 10
+
+    env_gt_map = None
+    if USE_GT_ENV_MAP:
+        env_gt_map = torch.from_numpy(
+            np.asarray(Image.open("env_gt.jpg").convert("RGB"), dtype=np.float32)
+            / 255.0
+        )
 
     for REFLECTIVITY in [
         # "0.0",
@@ -100,8 +108,13 @@ if __name__ == "__main__":
                             .reshape(-1, frame["LF"].shape[2], frame["LF"].shape[3], 3)
                             .permute(0, 3, 1, 2),
                             torch.tensor(pc_scales).cuda(),
-                            previous_environment_map=env_map_prev,
+                            previous_environment_map=None,
                         )
+                        if USE_GT_ENV_MAP:
+                            surface_lf.environment_map = env_gt_map.to(
+                                device=surface_lf.environment_map.device,
+                                dtype=surface_lf.environment_map.dtype,
+                            )
                         image, depth = surface_lf.rasterize(torch.eye(4).cuda())
                     else:
                         surface_lf = SurfaceLF(
@@ -111,8 +124,13 @@ if __name__ == "__main__":
                             .reshape(-1, frame["LF"].shape[2], frame["LF"].shape[3], 3)
                             .permute(0, 3, 1, 2),
                             torch.tensor(pc_scales).cuda(),
-                            previous_environment_map=env_map_prev,
+                            previous_environment_map=None,
                         )
+                        if USE_GT_ENV_MAP:
+                            surface_lf.environment_map = env_gt_map.to(
+                                device=surface_lf.environment_map.device,
+                                dtype=surface_lf.environment_map.dtype,
+                            )
                         image, depth = surface_lf.rasterize(torch.eye(4).cuda())
                         coarsest_pose, pc_prev_trans = get_coarsest_pose(
                             pc_prev, pc, est_poses[-1]
@@ -152,6 +170,8 @@ if __name__ == "__main__":
                         pc_prev = pc
                         color_prev = color
                     env_map_prev = surface_lf.environment_map.detach()
+                    if USE_GT_ENV_MAP:
+                        env_map_prev = env_gt_map
                     env_map_np = (
                         torch.clamp(env_map_prev, 0.0, 1.0).cpu().numpy() * 255.0
                     ).astype(np.uint8)
@@ -168,5 +188,6 @@ if __name__ == "__main__":
                     )
                     print(pose_errors(gt_poses_np, est_poses_coarse_np))
                     print(pose_errors(gt_poses_np, est_poses_np))
+                raise
             finally:
                 refinement_viewer.close()
