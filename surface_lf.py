@@ -153,10 +153,12 @@ class SurfaceLF:
         pc_scales,
         previous_environment_map: torch.Tensor | None = None,
         env_fusion_alpha: float = 0.6,
+        use_relight: bool = True,
         flip_env_u: bool = True,
         flip_env_v: bool = True,
     ):
         self.rig = rig
+        self.use_relight = use_relight
         self.flip_env_u = flip_env_u
         self.flip_env_v = flip_env_v
         self.env_fusion_alpha = env_fusion_alpha
@@ -544,8 +546,28 @@ class SurfaceLF:
         # Backward-compatible entrypoint used by refinement code.
         return self.relight(rel_pose)
 
+    def transform_naive(self, rel_pose):
+        rel_pose = rel_pose.to(self.values["means"].dtype)
+        values = self.values.copy()
+        try:
+            values["harmonics"] = transform_shs(
+                values["harmonics"].float(), rel_pose[:3, :3].float()
+            )
+        except Exception as e:
+            values["harmonics"] = values["harmonics"].float()
+        R = rel_pose[:3, :3]
+        t = rel_pose[:3, 3]
+        points0 = self.values["means"]
+        points_centered = points0
+        points1 = (R @ points_centered.T).T + t[None, :]
+        values["means"] = points1
+        return values
+
     def rasterize(self, rel_pose):
-        values = self.relight(rel_pose)
+        if self.use_relight:
+            values = self.relight(rel_pose)
+        else:
+            values = self.transform_naive(rel_pose)
         image, depth = batch_rasterize(
             points=values["means"].float(),
             quats=values["rotations"].float(),
