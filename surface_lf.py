@@ -440,6 +440,7 @@ class SurfaceLF:
         points_world,
         images,
         pc_scales,
+        scale_constant=0.5,
         previous_environment_map: torch.Tensor | None = None,
         eps=1e-8,
     ):
@@ -503,7 +504,7 @@ class SurfaceLF:
             "means": points_world,
             "harmonics": sh_coeffs,
             "rotations": quats,
-            "scales": pc_scales,
+            "scales": pc_scales * scale_constant,
             "opacities": opacities,
         }
         self.surface_normals = surface_normals

@@ -107,6 +107,24 @@ def _save_rgb_image(image_hw3: torch.Tensor, path: str) -> None:
     Image.fromarray(image_u8, mode="RGB").save(path)
 
 
+def _low_pass_rgb(image_hw3: torch.Tensor, kernel_size: int = 3) -> torch.Tensor:
+    """
+    Apply a mild low-pass filter to an [H,W,3] image using depthwise average pooling.
+    Keeps gradients intact and uses reflect padding to avoid border darkening.
+    """
+    k = max(1, int(kernel_size))
+    if k <= 1:
+        return image_hw3
+    if k % 2 == 0:
+        k += 1
+
+    pad = k // 2
+    image_nchw = image_hw3.permute(2, 0, 1).unsqueeze(0)  # [1,3,H,W]
+    image_padded = F.pad(image_nchw, (pad, pad, pad, pad), mode="reflect")
+    image_blurred = F.avg_pool2d(image_padded, kernel_size=k, stride=1)
+    return image_blurred.squeeze(0).permute(1, 2, 0)
+
+
 def loss(
     image_from: torch.Tensor,
     depth_from: torch.Tensor,
@@ -120,6 +138,7 @@ def loss(
     i: int = 0,
     out_dir: str = "losses",
     gamma: float = 0.5,
+    rgb_lowpass_kernel: int = 3,
 ):
     """
     Tracking loss:
@@ -149,7 +168,8 @@ def loss(
     valid_den = valid_mask_hw.sum().clamp(min=1.0)
 
     # --- per-pixel losses ---
-    rgb_residual_hw3 = image_from - image_to  # [H,W,3]
+    image_from_lp = _low_pass_rgb(image_from, kernel_size=rgb_lowpass_kernel)
+    rgb_residual_hw3 = image_from_lp - image_to  # [H,W,3]
     rgb_loss_hw = (rgb_residual_hw3**2).mean(dim=-1)  # [H,W]
 
     depth_residual_hw = depth_from_hw - depth_to_hw  # [H,W]
@@ -230,8 +250,10 @@ def simple_loss(
     target_depth,
     depth_lambda=0.0,
     aggregate=True,
+    rgb_lowpass_kernel=3,
 ):
-    rgb_loss = (rendered_rgb - target_rgb) ** 2
+    rendered_rgb_lp = _low_pass_rgb(rendered_rgb, kernel_size=rgb_lowpass_kernel)
+    rgb_loss = (rendered_rgb_lp - target_rgb) ** 2
     depth_loss = (rendered_depth - target_depth) ** 2
     result = rgb_loss.mean(axis=-1) + depth_lambda * depth_loss
     if aggregate:
