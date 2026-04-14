@@ -440,9 +440,9 @@ class SurfaceLF:
         points_world,
         images,
         pc_scales,
-        scale_constant=0.5,
         previous_environment_map: torch.Tensor | None = None,
         eps=1e-8,
+        scale_constant=0.5,
     ):
         device = self.device
         N, _, H, W = images.shape
