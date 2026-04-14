@@ -205,7 +205,7 @@ class SurfaceLF:
         return fused
 
     @staticmethod
-    def _estimate_normals(points_world: torch.Tensor, k_neighbors: int = 32):
+    def _estimate_normals(points_world: torch.Tensor, k_neighbors: int = 64):
         # PCA normals from local neighborhoods with guards for NaN/Inf and ill-conditioned patches.
         device = points_world.device
         dtype = points_world.dtype
