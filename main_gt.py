@@ -21,12 +21,12 @@ from PIL import Image
 
 
 if __name__ == "__main__":
-    EXP_NAME = "ours_icp_box_refined"
+    EXP_NAME = "results_ours_noicp_box_refined"
     USE_GT_DEPTH = True
     USE_GT_MASK = True
-    USE_GT_ENV_MAP = True
+    USE_GT_ENV_MAP = False
     SEGMENTATION_PROMPT = "cube."
-    ENABLE_REFINEMENT_VIEWER = True
+    ENABLE_REFINEMENT_VIEWER = False
     REFINEMENT_VIEWER_UPDATE_EVERY = 10
 
     env_gt_map = None
@@ -157,7 +157,9 @@ if __name__ == "__main__":
                             refine_pose(
                                 surface_lf_prev=surface_lf_prev,
                                 surface_lf=surface_lf,
-                                pose_coarse_rhs=torch.tensor(np.eye(4)).cuda().float(),
+                                pose_coarse_rhs=torch.tensor(pose_rel_rhs)
+                                .cuda()
+                                .float(),
                                 image=image.cuda(),
                                 depth=depth.cuda(),
                                 pivot_world=torch.tensor(est_poses[-1]).float().cuda(),

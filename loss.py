@@ -134,8 +134,7 @@ def simple_loss(
     aggregate=True,
     rgb_lowpass_kernel=3,
 ):
-    rendered_rgb_lp = _low_pass_rgb(rendered_rgb, kernel_size=rgb_lowpass_kernel)
-    rgb_loss = (rendered_rgb_lp - target_rgb) ** 2
+    rgb_loss = (rendered_rgb - target_rgb) ** 2
     depth_loss = (rendered_depth - target_depth) ** 2
     result = rgb_loss.mean(axis=-1) + depth_lambda * depth_loss
     if aggregate:
