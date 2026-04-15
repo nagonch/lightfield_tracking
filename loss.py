@@ -262,8 +262,8 @@ def _save_convergence_projections(
 
                     pose_rel_rhs = compose_pose(params[3:], params[:3])
                     pose_rel_lhs = rhs_to_lhs_rel(pose_rel_rhs, pivot_world)
-                    image_rendered, depth_rendered = surface_lf_prev.rasterize(
-                        pose_rel_lhs
+                    image_rendered, depth_rendered, mask_rendered = (
+                        surface_lf_prev.rasterize(pose_rel_lhs)
                     )
                     loss_val = simple_loss(
                         image_rendered,
@@ -441,7 +441,9 @@ def refine_pose(
 
         # 4. Transformation and Rendering
         pose_rel_lhs = rhs_to_lhs_rel(pose_rel_rhs, pivot_world)
-        image_rendered, depth_rendered = surface_lf_prev.rasterize(pose_rel_lhs)
+        image_rendered, depth_rendered, mask_rendered = surface_lf_prev.rasterize(
+            pose_rel_lhs
+        )
         if rendered_images_dir is not None:
             _save_rgb_image(
                 image_rendered,
@@ -629,7 +631,7 @@ def probe_neighbourhood(
                 pose_rel = compose_pose(params[3:], params[:3])
                 pose_rel_lhs = rhs_to_lhs_rel(pose_rel, current_abs_pose)
 
-                image, depth = surface_lv_prev.rasterize(pose_rel_lhs)
+                image, depth, mask_rendered = surface_lv_prev.rasterize(pose_rel_lhs)
 
                 loss_val = simple_loss(
                     image, target_rgb, depth, target_depth, aggregate=False

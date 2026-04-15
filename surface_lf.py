@@ -636,7 +636,7 @@ class SurfaceLF:
             width=self.W,
         )
         image = torch.clamp(image, 0.0, 1.0)
-        return image, depth
+        return image, depth, image_mask
 
 
 if __name__ == "__main__":
