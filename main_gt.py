@@ -21,10 +21,11 @@ from PIL import Image
 
 
 if __name__ == "__main__":
-    EXP_NAME = "results_ours_noicp_box_refined"
+    EXP_NAME = "results_ours_noicp_box_refined_gt_env"
     USE_GT_DEPTH = True
     USE_GT_MASK = True
-    USE_GT_ENV_MAP = False
+    USE_GT_ENV_MAP = True
+    USE_ICP = False
     SEGMENTATION_PROMPT = "cube."
     ENABLE_REFINEMENT_VIEWER = False
     REFINEMENT_VIEWER_UPDATE_EVERY = 10
@@ -132,26 +133,31 @@ if __name__ == "__main__":
                                 dtype=surface_lf.environment_map.dtype,
                             )
                         image, depth = surface_lf.rasterize(torch.eye(4).cuda())
-                        coarsest_pose, pc_prev_trans = get_coarsest_pose(
-                            pc_prev, pc, est_poses[-1]
-                        )
-                        registration_result = run_explorative_icp_with_centering(
-                            source_points_xyz=pc_prev_trans,
-                            target_points_xyz=pc,
-                            source_colors_rgb=color_prev,
-                            target_colors_rgb=color,
-                            max_correspondence_distance=0.01,
-                        )
+                        if USE_ICP:
+                            coarsest_pose, pc_prev_trans = get_coarsest_pose(
+                                pc_prev, pc, est_poses[-1]
+                            )
+                            registration_result = run_explorative_icp_with_centering(
+                                source_points_xyz=pc_prev_trans,
+                                target_points_xyz=pc,
+                                source_colors_rgb=color_prev,
+                                target_colors_rgb=color,
+                                max_correspondence_distance=0.01,
+                            )
 
-                        coarse_pose = registration_result["transform_source_to_target"]
-                        pc_refined = apply_transform_to_points(
-                            pc_prev_trans, coarse_pose
-                        )
-                        coarse_pose = coarse_pose @ coarsest_pose
-                        est_poses_coarse.append(coarse_pose)
+                            coarse_pose = registration_result[
+                                "transform_source_to_target"
+                            ]
+                            pc_refined = apply_transform_to_points(
+                                pc_prev_trans, coarse_pose
+                            )
+                            coarse_pose = coarse_pose @ coarsest_pose
+                            est_poses_coarse.append(coarse_pose)
 
-                        pose_rel_lhs = coarse_pose @ np.linalg.inv(est_poses[-1])
-                        pose_rel_rhs = np.linalg.inv(est_poses[-1]) @ coarse_pose
+                            pose_rel_lhs = coarse_pose @ np.linalg.inv(est_poses[-1])
+                            pose_rel_rhs = np.linalg.inv(est_poses[-1]) @ coarse_pose
+                        else:
+                            pose_rel_rhs = np.eye(4)
 
                         pose_rel_rhs_refined, pose_rel_lhs_refined, pose_history_rhs = (
                             refine_pose(
@@ -168,6 +174,8 @@ if __name__ == "__main__":
                             )
                         )
                         pose_refined = pose_rel_lhs_refined @ est_poses[-1]
+                        if not USE_ICP:
+                            est_poses_coarse.append(pose_refined)
                         est_poses.append(pose_refined)
                         pc_prev = pc
                         color_prev = color
@@ -190,6 +198,5 @@ if __name__ == "__main__":
                     )
                     print(pose_errors(gt_poses_np, est_poses_coarse_np))
                     print(pose_errors(gt_poses_np, est_poses_np))
-                raise
             finally:
                 refinement_viewer.close()
