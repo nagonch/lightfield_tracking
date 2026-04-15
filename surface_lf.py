@@ -73,10 +73,12 @@ def batch_rasterize(
         render_mode=render_mode,
         backgrounds=backgrounds,
     )
+    alphas = alphas[0, 0, ..., -1]
+    image_mask = alphas > 0.98
     rendered = rendered[0]
     depth = rendered[:, :, :, -1]
     rendered = rendered[:, :, :, :3]
-    return rendered[0], depth[0]
+    return rendered[0], depth[0], image_mask
 
 
 @dataclass(frozen=True)
@@ -622,7 +624,7 @@ class SurfaceLF:
             values = self.relight(rel_pose)
         else:
             values = self.transform_naive(rel_pose)
-        image, depth = batch_rasterize(
+        image, depth, image_mask = batch_rasterize(
             points=values["means"].float(),
             quats=values["rotations"].float(),
             scales=values["scales"].float(),
