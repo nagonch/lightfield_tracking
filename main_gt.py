@@ -21,13 +21,15 @@ from PIL import Image
 
 
 if __name__ == "__main__":
-    EXP_NAME = "results_ours_noicp_box_refined_gt_env"
+    EXP_NAME = "results_ours_icp_box_refined_gt_env_mask"
     USE_GT_DEPTH = True
     USE_GT_MASK = True
     USE_GT_ENV_MAP = True
     USE_ICP = False
     SEGMENTATION_PROMPT = "cube."
-    ENABLE_REFINEMENT_VIEWER = False
+    ENABLE_REFINEMENT_VIEWER = True
+    MASK_LOSS = False
+
     REFINEMENT_VIEWER_UPDATE_EVERY = 10
 
     env_gt_map = None
@@ -51,6 +53,11 @@ if __name__ == "__main__":
         for sequence_name in os.listdir(
             f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_{REFLECTIVITY}"
         ):
+            if sequence_name not in [
+                "tomato_soup_can_yalehand0",
+                "cracker_box_reorient",
+            ]:
+                continue
             print(f"running {sequence_name}")
             path = f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_{REFLECTIVITY}/{sequence_name}"
             dataset = LFDataset(path)
@@ -116,7 +123,9 @@ if __name__ == "__main__":
                                 device=surface_lf.environment_map.device,
                                 dtype=surface_lf.environment_map.dtype,
                             )
-                        image, depth = surface_lf.rasterize(torch.eye(4).cuda())
+                        image, depth, target_mask = surface_lf.rasterize(
+                            torch.eye(4).cuda()
+                        )
                     else:
                         surface_lf = SurfaceLF(
                             surface_lf_rig,
@@ -132,7 +141,9 @@ if __name__ == "__main__":
                                 device=surface_lf.environment_map.device,
                                 dtype=surface_lf.environment_map.dtype,
                             )
-                        image, depth = surface_lf.rasterize(torch.eye(4).cuda())
+                        image, depth, target_mask = surface_lf.rasterize(
+                            torch.eye(4).cuda()
+                        )
                         if USE_ICP:
                             coarsest_pose, pc_prev_trans = get_coarsest_pose(
                                 pc_prev, pc, est_poses[-1]
@@ -166,6 +177,7 @@ if __name__ == "__main__":
                                 pose_coarse_rhs=torch.tensor(pose_rel_rhs)
                                 .cuda()
                                 .float(),
+                                target_mask=target_mask.cuda() if MASK_LOSS else None,
                                 image=image.cuda(),
                                 depth=depth.cuda(),
                                 pivot_world=torch.tensor(est_poses[-1]).float().cuda(),

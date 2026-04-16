@@ -9,6 +9,7 @@ from matplotlib import pyplot as plt
 from itertools import combinations
 import torch
 import torch.nn.functional as F
+from scipy.ndimage import distance_transform_edt
 
 from src.slf_refinement_viewer import SurfaceLFRefinementViewer
 
@@ -371,6 +372,27 @@ def _save_convergence_projections(
         plt.close(loss_fig)
 
 
+def mask_loss(target_mask, rendered_mask):
+    device = target_mask.device
+    t = (target_mask > 0.5).float()
+    r = (rendered_mask > 0.5).float()
+
+    def batch_edt(mask):
+        m_np = mask.detach().cpu().numpy()
+        res = np.stack(
+            [distance_transform_edt(m_np[i] == 0) for i in range(m_np.shape[0])]
+        )
+        return torch.from_numpy(res).to(device).float()
+
+    dist_to_t = batch_edt(t)
+    dist_to_r = batch_edt(r)
+
+    result_loss = dist_to_t * (1 - rendered_mask.float()) + dist_to_r * (
+        1 - target_mask.float()
+    )
+    return result_loss
+
+
 def refine_pose(
     surface_lf_prev,
     surface_lf,
@@ -378,6 +400,7 @@ def refine_pose(
     image,
     depth,
     pivot_world,
+    target_mask=None,
     pose_gt_rhs=None,
     num_iterations=500,
     learning_rate_rot: float = 1e-3,
@@ -385,6 +408,7 @@ def refine_pose(
     convergence_plot_filename: str = None,
     loss_images_dir: str = None,
     loss_image_gamma: float = 0.5,
+    mask_loss_weight: float = 0.5,
     rendered_images_dir: str = None,
     rendered_depth_images_dir: str = None,
     rendered_depth_gamma: float = 0.5,
@@ -468,6 +492,8 @@ def refine_pose(
             depth,
             aggregate=False,
         )
+        if target_mask is not None:
+            per_pixel_loss += mask_loss_weight * mask_loss(target_mask, mask_rendered)
         loss = per_pixel_loss.mean()
         current_loss_val = loss.item()
         if normalize_by is None:
