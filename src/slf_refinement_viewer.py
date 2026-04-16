@@ -111,13 +111,18 @@ class SurfaceLFRefinementViewer:
                 "Gaussians", initial_value=0, disabled=True
             )
 
-    def _to_display_image(self, image):
+    def _to_display_image(self, image, gamma=None):
         if image is None:
             return None
         if torch.is_tensor(image):
             image = image.detach().float().cpu()
             if image.ndim == 2:
                 image = image[..., None].repeat(1, 1, 3)
+            # Normalize to [0, 1] if needed (e.g., for loss maps)
+            if gamma is not None:
+                image = image - image.min()
+                image = image / (image.max() + 1e-8)
+                image = torch.pow(image, gamma)
             image = torch.clamp(image, 0.0, 1.0).numpy()
         image = np.asarray(image)
         if image.dtype != np.uint8:
@@ -143,7 +148,9 @@ class SurfaceLFRefinementViewer:
             )
         return environment_map
 
-    def _update_scene_images(self, rendered_image, target_image, environment_map=None):
+    def _update_scene_images(
+        self, rendered_image, target_image, loss_image=None, environment_map=None
+    ):
         rendered_np = self._to_display_image(rendered_image)
         target_np = self._to_display_image(target_image)
         env_map_np = self._to_display_env_map(environment_map)
@@ -154,11 +161,23 @@ class SurfaceLFRefinementViewer:
         fx = float(max(w, 1))
         fov = float(2.0 * np.arctan2(w / 2.0, fx))
 
+        # Use provided loss image or compute from difference
+        if loss_image is not None:
+            loss_np = self._to_display_image(loss_image, gamma=0.5)
+        else:
+            loss_np = np.abs(
+                rendered_np.astype(np.float32) - target_np.astype(np.float32)
+            )
+            loss_np = (np.clip(loss_np, 0.0, 1.0) * 255.0).astype(np.uint8)
+
         pose_rendered = np.eye(4, dtype=np.float32)
         pose_rendered[:3, 3] = np.array([-0.08, -0.02, 0.02], dtype=np.float32)
 
         pose_target = np.eye(4, dtype=np.float32)
         pose_target[:3, 3] = np.array([0.08, -0.02, 0.02], dtype=np.float32)
+
+        pose_loss = np.eye(4, dtype=np.float32)
+        pose_loss[:3, 3] = np.array([0.0, 0.06, 0.02], dtype=np.float32)
 
         pose_env_map = np.eye(4, dtype=np.float32)
         pose_env_map[:3, 3] = np.array([0.24, -0.02, 0.02], dtype=np.float32)
@@ -182,6 +201,16 @@ class SurfaceLFRefinementViewer:
             image=target_np,
             wxyz=(1.0, 0.0, 0.0, 0.0),
             position=pose_target[:3, 3],
+        )
+        self.server.scene.add_camera_frustum(
+            name="refinement/loss",
+            aspect=w / max(h, 1),
+            fov=fov,
+            scale=0.03,
+            line_width=1.0,
+            image=loss_np,
+            wxyz=(1.0, 0.0, 0.0, 0.0),
+            position=pose_loss[:3, 3],
         )
 
         if env_map_np is not None:
@@ -208,6 +237,7 @@ class SurfaceLFRefinementViewer:
         rendered_image,
         target_image,
         environment_map=None,
+        loss_image=None,
     ):
         if not self.enabled:
             return
@@ -236,7 +266,9 @@ class SurfaceLFRefinementViewer:
             self.iteration_handle.value = int(iteration)
             self.loss_handle.value = float(loss_value)
             self.num_gaussians_handle.value = int(means.shape[0])
-            self._update_scene_images(rendered_image, target_image, environment_map)
+            self._update_scene_images(
+                rendered_image, target_image, loss_image, environment_map
+            )
             self.viewer.rerender(None)
         except RuntimeError:
             self._closed = True
