@@ -21,13 +21,13 @@ from PIL import Image
 
 
 if __name__ == "__main__":
-    EXP_NAME = "results_ours_icp_box_refined_gt_env_mask"
+    EXP_NAME = "results_ours_icp_box_refined"
     USE_GT_DEPTH = True
     USE_GT_MASK = True
-    USE_GT_ENV_MAP = True
-    USE_ICP = False
+    USE_GT_ENV_MAP = False
+    USE_ICP = True
     SEGMENTATION_PROMPT = "cube."
-    ENABLE_REFINEMENT_VIEWER = True
+    ENABLE_REFINEMENT_VIEWER = False
     MASK_LOSS = False
 
     REFINEMENT_VIEWER_UPDATE_EVERY = 10
@@ -53,11 +53,6 @@ if __name__ == "__main__":
         for sequence_name in os.listdir(
             f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_{REFLECTIVITY}"
         ):
-            if sequence_name not in [
-                "tomato_soup_can_yalehand0",
-                "cracker_box_reorient",
-            ]:
-                continue
             print(f"running {sequence_name}")
             path = f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_{REFLECTIVITY}/{sequence_name}"
             dataset = LFDataset(path)

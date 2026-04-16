@@ -374,22 +374,16 @@ def _save_convergence_projections(
 
 def mask_loss(target_mask, rendered_mask):
     device = target_mask.device
-    t = (target_mask > 0.5).float()
-    r = (rendered_mask > 0.5).float()
+    t = (target_mask == 0.0).float().cpu().numpy()
+    r = (rendered_mask == 0.0).float().cpu().numpy()
 
-    def batch_edt(mask):
-        m_np = mask.detach().cpu().numpy()
-        res = np.stack(
-            [distance_transform_edt(m_np[i] == 0) for i in range(m_np.shape[0])]
-        )
-        return torch.from_numpy(res).to(device).float()
-
-    dist_to_t = batch_edt(t)
-    dist_to_r = batch_edt(r)
+    dist_to_t = torch.from_numpy(distance_transform_edt(t)).to(device).float()
+    dist_to_r = torch.from_numpy(distance_transform_edt(r)).to(device).float()
 
     result_loss = dist_to_t * (1 - rendered_mask.float()) + dist_to_r * (
         1 - target_mask.float()
     )
+    result_loss[(target_mask == 0.0) & (rendered_mask == 0.0)] = 0.0
     return result_loss
 
 
