@@ -485,7 +485,9 @@ class SurfaceLF:
             - 2.0 * (view_dirs * normals_rep).sum(dim=-1, keepdim=True) * normals_rep
         )
         reflected_dirs = F.normalize(reflected_dirs, dim=-1)
-
+        self.colors = colors
+        self.view_dirs = view_dirs
+        self.valid = valid
         sh_coeffs = fit_sh_coeffs_per_point(
             colors.float(),
             view_dirs.float(),

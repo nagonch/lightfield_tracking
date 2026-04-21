@@ -18,6 +18,8 @@ import torch
 from loss import refine_pose
 from src.slf_refinement_viewer import SurfaceLFRefinementViewer
 from PIL import Image
+from time import sleep
+from reflection_separation import reflection_separation
 
 
 if __name__ == "__main__":
@@ -27,7 +29,7 @@ if __name__ == "__main__":
     USE_GT_ENV_MAP = False
     USE_ICP = True
     SEGMENTATION_PROMPT = "cube."
-    ENABLE_REFINEMENT_VIEWER = False
+    ENABLE_REFINEMENT_VIEWER = True
     MASK_LOSS = False
 
     REFINEMENT_VIEWER_UPDATE_EVERY = 10
@@ -112,12 +114,16 @@ if __name__ == "__main__":
                             .permute(0, 3, 1, 2),
                             torch.tensor(pc_scales).cuda(),
                             previous_environment_map=None,
+                            # use_relight=False,
                         )
                         if USE_GT_ENV_MAP:
                             surface_lf.environment_map = env_gt_map.to(
                                 device=surface_lf.environment_map.device,
                                 dtype=surface_lf.environment_map.dtype,
                             )
+                        # reflection_separation(
+                        #     surface_lf, alpha=(1 - float(REFLECTIVITY))
+                        # )
                         image, depth, target_mask = surface_lf.rasterize(
                             torch.eye(4).cuda()
                         )
