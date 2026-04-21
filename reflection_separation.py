@@ -1,305 +1,458 @@
-import os
-
 import torch
+import numpy as np
+from PIL import Image
+from src.dataset import LFDataset
+from src.utilities import backproject_depth_to_pointcloud
+from surface_lf import SurfaceLF, SurfaceLFRig
+from skimage.metrics import peak_signal_noise_ratio as psnr_func
+from skimage.metrics import structural_similarity as ssim_func
+import torch.nn as nn
 import torch.nn.functional as F
-from PIL import Image, ImageDraw, ImageFont
-
-from sh_helpers import fit_sh_coeffs_per_point
-
-
-def _render_surface_lf(surface_lf, rel_pose=None):
-    if rel_pose is None:
-        rel_pose = torch.eye(
-            4,
-            device=surface_lf.values["means"].device,
-            dtype=surface_lf.values["means"].dtype,
-        )
-    image, _, _ = surface_lf.rasterize(rel_pose)
-    image = torch.clamp(image.detach().float(), 0.0, 1.0)
-    return (image.cpu().numpy() * 255.0).astype("uint8")
+import torch.optim as optim
+import matplotlib.pyplot as plt
+from pathlib import Path
 
 
-def _save_render_comparison(
-    original_rgb,
-    separated_rgb,
-    save_path,
-    diffuse_rgb=None,
-    view_dependent_rgb=None,
+def srgb_to_linear(srgb: torch.Tensor) -> torch.Tensor:
+    """
+    srgb: float tensor in [0,1]
+    returns linear float tensor in [0,1]
+    """
+    cutoff = 0.04045
+    below = srgb <= cutoff
+    linear = torch.empty_like(srgb)
+    linear[below] = srgb[below] / 12.92
+    linear[~below] = ((srgb[~below] + 0.055) / 1.055) ** 2.4
+    return linear
+
+
+def linear_to_srgb(linear: torch.Tensor) -> torch.Tensor:
+    """
+    linear: float tensor in [0,1]
+    returns srgb float tensor in [0,1]
+    """
+    cutoff = 0.0031308
+    below = linear <= cutoff
+    srgb = torch.empty_like(linear)
+    srgb[below] = linear[below] * 12.92
+    srgb[~below] = 1.055 * (linear[~below] ** (1.0 / 2.4)) - 0.055
+    return srgb
+
+
+def build_surface_lf_first_frame(dataset: LFDataset):
+    frame = dataset[0]
+    s_size, t_size = dataset.metadata["n_views"]
+
+    mask = frame["masks"][s_size // 2, t_size // 2]
+    depth = frame["depth"]
+    camera_matrix = frame["camera_matrix"]
+
+    pc, pc_scales = backproject_depth_to_pointcloud(
+        pixel_indices=None,
+        depths=depth,
+        camera_matrix=camera_matrix,
+        return_scales=True,
+    )
+    pc = pc[(mask > 0).reshape(-1)]
+    pc_scales = pc_scales[(mask > 0).reshape(-1)]
+
+    surface_lf_rig = SurfaceLFRig.build(
+        K=frame["camera_matrix"],
+        poses_4x4=frame["camera_poses_rel"].reshape(-1, 4, 4),
+        image_size_hw=(
+            frame["LF"].shape[2],
+            frame["LF"].shape[3],
+        ),
+    )
+
+    surface_lf = SurfaceLF(
+        surface_lf_rig,
+        pc,
+        frame["LF"]
+        .reshape(-1, frame["LF"].shape[2], frame["LF"].shape[3], 3)
+        .permute(0, 3, 1, 2),
+        pc_scales,
+        previous_environment_map=None,
+    )
+    image, depth_rendered, target_mask = surface_lf.rasterize(torch.eye(4).cuda())
+    return surface_lf, image, depth_rendered, target_mask
+
+
+def compute_tv_weight(normal_map, depth_map, sigma_n=1.0, sigma_d=1.0):
+    """
+    Computes weights for TV based on geometric discontinuities.
+    High gradient in normals or depth = lower weight (allows edges).
+    """
+    # normal_map: [U, V, 3], depth_map: [U, V]
+    dn_u = torch.abs(normal_map[1:, :, :] - normal_map[:-1, :, :]).sum(dim=-1)
+    dn_v = torch.abs(normal_map[:, 1:, :] - normal_map[:, :-1, :]).sum(dim=-1)
+    dd_u = torch.abs(depth_map[1:, :] - depth_map[:-1, :])
+    dd_v = torch.abs(depth_map[:, 1:] - depth_map[:, :-1])
+
+    weight_u = torch.exp(-dn_u / sigma_n - dd_u / sigma_d)
+    weight_v = torch.exp(-dn_v / sigma_n - dd_v / sigma_d)
+    return weight_u, weight_v
+
+
+class Decomposer(nn.Module):
+    def __init__(self, u, v, n, alpha, mask):
+        super().__init__()
+        self.u, self.v, self.n = u, v, n
+        self.alpha = alpha  # [U, V, 1] or scalar
+        self.mask = mask  # [U, V]
+        self.eps = 1e-8
+
+        # Diffuse is the only free variable. Reflective is solved from exact
+        # reconstruction constraint per-pixel/per-view.
+        self.diffuse_map = nn.Parameter(torch.rand((u, v, 3), device="cuda") * 0.5)
+
+    def forward(self, color_map_obs):
+        # Keep diffuse in [0, 1].
+        d = torch.sigmoid(self.diffuse_map)
+
+        # Broadcast diffuse over n dimension: [U, V, 3] -> [U, V, n, 3]
+        d_ext = d.unsqueeze(2).expand(-1, -1, self.n, -1)
+
+        # Enforce exact reconstruction in linear space:
+        # color_map_obs == alpha * diffuse + (1 - alpha) * reflective
+        denom = torch.clamp(1.0 - self.alpha, min=self.eps)
+        r = (color_map_obs - self.alpha * d_ext) / denom
+        r = torch.nan_to_num(r, nan=0.0, posinf=1.0, neginf=0.0)
+        recon = self.alpha * d_ext + (1.0 - self.alpha) * r
+        recon = torch.nan_to_num(recon, nan=0.0, posinf=1.0, neginf=0.0)
+        return recon, d, r
+
+
+def optimize_decomposition(
+    color_map_obs, alpha, mask, normal_map, depth_map, n_dims=(5, 5), iterations=1000
 ):
-    original_image = Image.fromarray(original_rgb)
-    separated_image = Image.fromarray(separated_rgb)
+    u, v, n, _ = color_map_obs.shape
 
-    panel_images = [original_image, separated_image]
-    panel_labels = ["original", "separated"]
-    if diffuse_rgb is not None and view_dependent_rgb is not None:
-        panel_images.extend(
-            [Image.fromarray(diffuse_rgb), Image.fromarray(view_dependent_rgb)]
+    # Move inputs to CUDA
+    color_map_obs = color_map_obs.cuda()
+    alpha = torch.tensor(alpha).cuda()
+    mask = mask.cuda().unsqueeze(-1).unsqueeze(-1)  # [U, V, 1, 1]
+
+    model = Decomposer(u, v, n, alpha, mask).cuda()
+    optimizer = optim.Adam(model.parameters(), lr=0.01)
+
+    # Start near the per-pixel mean to reduce early degenerate solutions where
+    # reflective can collapse to near-black.
+    with torch.no_grad():
+        d0 = color_map_obs.mean(dim=2).clamp(1e-4, 1.0 - 1e-4)
+        model.diffuse_map.copy_(torch.log(d0 / (1.0 - d0)))
+
+    # Precompute TV weights from geometry
+    w_u, w_v = compute_tv_weight(normal_map.cuda(), depth_map.cuda())
+
+    for i in range(iterations):
+        optimizer.zero_grad()
+
+        recon, d, r = model(color_map_obs)
+
+        # 1. Reflective Spatial Smoothness (geometry-aware low frequency prior)
+        diff_ru = torch.abs(r[1:, :, :, :] - r[:-1, :, :, :]).mean(dim=(2, 3))
+        diff_rv = torch.abs(r[:, 1:, :, :] - r[:, :-1, :, :]).mean(dim=(2, 3))
+        loss_tv_r_sp = (diff_ru * w_u).mean() + (diff_rv * w_v).mean()
+
+        # 2. Reflective Angular Smoothness
+        # Reshape n back to [S, T] to ensure neighbors in angular space are smooth
+        r_angular = r.view(u, v, n_dims[0], n_dims[1], 3)
+        loss_tv_r_ang = (
+            torch.abs(r_angular[:, :, 1:, :, :] - r_angular[:, :, :-1, :, :]).mean()
+            + torch.abs(r_angular[:, :, :, 1:, :] - r_angular[:, :, :, :-1, :]).mean()
         )
-        panel_labels.extend(["diffuse (c_d)", "view-dependent"])
 
-    panel_w = max(img.width for img in panel_images)
-    panel_h = max(img.height for img in panel_images)
+        # Soft range constraint keeps reflective in [0, 1] while preserving
+        # exact reconstruction (no hard clamp in the model path).
+        loss_r_range = (F.relu(-r) + F.relu(r - 1.0)).mean()
 
-    cols = 2
-    rows = (len(panel_images) + cols - 1) // cols
-    label_height = 24
-    canvas = Image.new(
-        "RGB",
-        (cols * panel_w, rows * (panel_h + label_height)),
-        color=(0, 0, 0),
-    )
+        # Tiny numerical term for reporting the exactness constraint.
+        loss_recon = F.mse_loss(recon * mask, color_map_obs * mask)
 
-    draw = ImageDraw.Draw(canvas)
-    font = ImageFont.load_default()
-    for idx, (img, label) in enumerate(zip(panel_images, panel_labels)):
-        row = idx // cols
-        col = idx % cols
-        x0 = col * panel_w
-        y0 = row * (panel_h + label_height)
-        canvas.paste(img, (x0, y0 + label_height))
-        draw.text((x0 + 8, y0 + 6), label, fill=(255, 255, 255), font=font)
+        # Total Loss: no diffuse TV, reflective is encouraged to be low-frequency.
+        total_loss = (
+            0.2 * loss_tv_r_sp
+            + 0.05 * loss_tv_r_ang
+            + 0.2 * loss_r_range
+            + 1e-6 * loss_recon
+        )
 
-    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
-    canvas.save(save_path)
+        total_loss.backward()
+        optimizer.step()
 
-
-def _render_with_temporary_harmonics(surface_lf, harmonics, rel_pose=None):
-    old_harmonics = surface_lf.values["harmonics"]
-    old_use_relight = surface_lf.use_relight
-    try:
-        surface_lf.values["harmonics"] = harmonics
-        surface_lf.use_relight = False
-        return _render_surface_lf(surface_lf, rel_pose=rel_pose)
-    finally:
-        surface_lf.values["harmonics"] = old_harmonics
-        surface_lf.use_relight = old_use_relight
-
-
-def _masked_nmf_rgb(
-    colors: torch.Tensor,
-    rank: int = 2,
-    iters: int = 10,
-    lambda_cd: float = 1e-4,
-    eps: float = 1e-8,
-):
-    """Batched NMF for [points, views, 3] color stacks."""
-    colors = colors.clamp(0.0, 1.0)
-
-    n_points, n_views, n_channels = colors.shape
-    rank = max(1, min(rank, n_views, n_channels))
-
-    valid_counts = torch.full(
-        (n_points, 1),
-        float(n_views),
-        device=colors.device,
-        dtype=colors.dtype,
-    )
-    mean_color = colors.mean(dim=1)
-    mean_color = mean_color.clamp(0.0, 1.0)
-
-    weights = torch.ones(
-        (n_points, n_views, rank),
-        device=colors.device,
-        dtype=colors.dtype,
-    )
-    weights = weights * (1.0 + 0.05 * torch.rand_like(weights))
-
-    bases = mean_color.unsqueeze(1).expand(n_points, rank, n_channels).clone()
-    bases = bases * (1.0 + 0.05 * torch.rand_like(bases))
-
-    for _ in range(iters):
-        reconstruction = torch.einsum("pnr,prc->pnc", weights, bases)
-
-        bases_numer = torch.einsum("pnr,pnc->prc", weights, colors)
-        bases_denom = torch.einsum("pnr,pnc->prc", weights, reconstruction)
-        bases = bases * bases_numer / (bases_denom + lambda_cd).clamp_min(eps)
-        bases = bases.clamp_min(eps)
-
-        reconstruction = torch.einsum("pnr,prc->pnc", weights, bases)
-
-        weights_numer = torch.einsum("pnc,prc->pnr", colors, bases)
-        weights_denom = torch.einsum("pnc,prc->pnr", reconstruction, bases)
-        weights = weights * weights_numer / (weights_denom + lambda_cd).clamp_min(eps)
-        weights = weights.clamp_min(eps)
-
-    return weights, bases, mean_color, valid_counts
-
-
-def reflection_separation(
-    surface_lf,
-    alpha=0.5,
-    lambda_cd=1e-4,
-    lambda_alpha=1e-2,
-    iters=5,
-    save_render_path: str | None = "reflection_separation_compare.png",
-    visualize_components: bool = True,
-    reflection_viz_gain: float | None = None,
-    diffuse_viz_gain: float | None = None,
-):
-    original_rgb = None
-    specular_viz_harmonics = None
-    diffuse_viz_harmonics = None
-    if save_render_path is not None:
-        original_rgb = _render_surface_lf(surface_lf)
-
-    colors = surface_lf.colors.permute(1, 0, 2).contiguous()
-
-    alpha = min(max(float(alpha), 0.0), 1.0)
-
-    # Exact boundary case: C = C_d when alpha == 1, so keep the model unchanged.
-    if alpha >= 1.0 - 1e-8:
-        if save_render_path is not None:
-            diffuse_rgb = None
-            view_dep_rgb = None
-            if visualize_components:
-                zeros = torch.zeros_like(surface_lf.values["harmonics"])
-                diffuse_rgb = _render_with_temporary_harmonics(
-                    surface_lf,
-                    harmonics=surface_lf.values["harmonics"],
-                )
-                view_dep_rgb = _render_with_temporary_harmonics(
-                    surface_lf, harmonics=zeros
-                )
-            _save_render_comparison(
-                original_rgb,
-                original_rgb,
-                save_render_path,
-                diffuse_rgb=diffuse_rgb,
-                view_dependent_rgb=view_dep_rgb,
+        if i % 100 == 0:
+            print(
+                f"Iter {i} | Loss: {total_loss.item():.6f} | Recon(MSE): {loss_recon.item():.8f} "
+                f"| R-range: {loss_r_range.item():.6f}"
             )
-        return surface_lf
 
-    weights, bases, mean_color, valid_counts = _masked_nmf_rgb(
-        colors=colors,
-        rank=2,
-        iters=max(1, iters),
-        lambda_cd=lambda_cd,
+    with torch.no_grad():
+        _, d_final, r_final = model(color_map_obs)
+
+    return d_final.detach(), r_final.detach()
+
+
+def evaluate_results(diffuse_pred, reflective_pred, diffuse_gt, reflective_gt, mask):
+    """
+    Evaluates Pred vs GT for both components.
+    Tensors expected in [U, V, 3] for diffuse and [U, V, N, 3] for reflective.
+    """
+    # Move to CPU and numpy for standard imaging metrics
+    mask_np = mask.cpu().numpy()
+
+    # --- 1. Diffuse Evaluation ---
+    d_pred_np = diffuse_pred.cpu().numpy()
+    d_gt_np = diffuse_gt.cpu().numpy().mean(axis=-2)
+
+    # MSE (masked)
+    mse_d = np.mean((d_pred_np[mask_np > 0] - d_gt_np[mask_np > 0]) ** 2)
+    psnr_d = psnr_func(d_gt_np, d_pred_np, data_range=1.0)
+
+    # SSIM requires a bit of care with the mask (often easier to crop or pad)
+    ssim_d = ssim_func(d_gt_np, d_pred_np, channel_axis=-1, data_range=1.0)
+
+    # --- 2. Reflective Evaluation ---
+    r_pred_np = reflective_pred.cpu().numpy()
+    r_gt_np = reflective_gt.cpu().numpy()
+
+    # MSE (masked, averaged over n)
+    # mask_np is [U, V], reflective is [U, V, N, 3]
+    expanded_mask = mask_np[:, :, np.newaxis, np.newaxis]
+    mse_r = np.mean(((r_pred_np - r_gt_np) * expanded_mask) ** 2)
+
+    # For PSNR on the 4D volume, we treat it as a flattened set of pixels
+    reflective_valid_mask = np.broadcast_to(expanded_mask > 0, r_gt_np.shape)
+    psnr_r = psnr_func(
+        r_gt_np[reflective_valid_mask],
+        r_pred_np[reflective_valid_mask],
+        data_range=1.0,
     )
 
-    weight_mean = weights.mean(dim=1)
-    weight_var = ((weights - weight_mean[:, None, :]) ** 2).mean(dim=1)
-    const_score = weight_var / (weight_mean**2 + 1e-8)
-    diffuse_index = const_score.argmin(dim=-1)
+    print(f"--- Diffuse Metrics ---")
+    print(f"MSE: {mse_d:.6f} | PSNR: {psnr_d:.2f}dB | SSIM: {ssim_d:.4f}")
+    print(f"--- Reflective Metrics ---")
+    print(f"MSE: {mse_r:.6f} | PSNR: {psnr_r:.2f}dB")
 
-    gather_index = diffuse_index[:, None, None].expand(-1, 1, colors.shape[-1])
-    diffuse_basis = bases.gather(1, gather_index).squeeze(1)
-    diffuse_weight = weight_mean.gather(1, diffuse_index[:, None]).squeeze(1)
-    diffuse_color = diffuse_weight.unsqueeze(-1) * diffuse_basis
-    diffuse_color = (1.0 - lambda_alpha) * diffuse_color + lambda_alpha * mean_color
-    diffuse_color = diffuse_color.clamp(0.0, 1.0)
-
-    diffuse_colors = diffuse_color[:, None, :].expand_as(colors).contiguous()
-    diffuse_contrib = alpha * diffuse_colors
-    mix_denom = max(1.0 - alpha, 1e-8)
-    specular_colors = (colors - diffuse_contrib) / mix_denom
-    specular_colors = torch.clamp(specular_colors, 0.0, 1.0)
-
-    surface_lf.colors = diffuse_contrib.permute(1, 0, 2).contiguous()
-
-    if hasattr(surface_lf, "view_dirs") and hasattr(surface_lf, "surface_normals"):
-        diffuse_base_vp = diffuse_colors.permute(1, 0, 2).contiguous()
-        diffuse_colors_vp = diffuse_contrib.permute(1, 0, 2).contiguous()
-        view_mask_vp = torch.ones(
-            diffuse_colors_vp.shape[:2],
-            device=diffuse_colors_vp.device,
-            dtype=diffuse_colors_vp.dtype,
-        )
-        specular_contrib_vp = ((1.0 - alpha) * specular_colors).permute(1, 0, 2)
-
-        if diffuse_viz_gain is None:
-            diffuse_viz_gain = 1.0 / max(alpha, 1e-3)
-        diffuse_viz_gain = max(float(diffuse_viz_gain), 0.0)
-
-        if reflection_viz_gain is None:
-            reflection_viz_gain = 1.0 / max(1.0 - alpha, 1e-3)
-        reflection_viz_gain = max(float(reflection_viz_gain), 0.0)
-
-        harmonics = fit_sh_coeffs_per_point(
-            diffuse_colors_vp.float(),
-            surface_lf.view_dirs.float(),
-            view_mask_vp.float(),
-            max_degree=2,
-            lambda_reg=1e-3,
-        )
-        surface_lf.values["harmonics"] = harmonics.to(
-            device=surface_lf.values["harmonics"].device,
-            dtype=surface_lf.values["harmonics"].dtype,
-        )
-
-        diffuse_viz_vp = torch.clamp(
-            diffuse_base_vp * diffuse_viz_gain,
-            0.0,
-            1.0,
-        )
-        diffuse_viz_harmonics = fit_sh_coeffs_per_point(
-            diffuse_viz_vp.float(),
-            surface_lf.view_dirs.float(),
-            view_mask_vp.float(),
-            max_degree=2,
-            lambda_reg=1e-3,
-        ).to(
-            device=surface_lf.values["harmonics"].device,
-            dtype=surface_lf.values["harmonics"].dtype,
-        )
-
-        specular_viz_vp = torch.clamp(
-            specular_contrib_vp * reflection_viz_gain,
-            0.0,
-            1.0,
-        )
-        specular_viz_harmonics = fit_sh_coeffs_per_point(
-            specular_viz_vp.float(),
-            surface_lf.view_dirs.float(),
-            view_mask_vp.float(),
-            max_degree=2,
-            lambda_reg=1e-3,
-        ).to(
-            device=surface_lf.values["harmonics"].device,
-            dtype=surface_lf.values["harmonics"].dtype,
-        )
-
-        normals = surface_lf.surface_normals.to(
-            device=colors.device, dtype=colors.dtype
-        )
-        view_dirs = surface_lf.view_dirs.to(device=colors.device, dtype=colors.dtype)
-        normals_rep = normals.unsqueeze(0).expand_as(view_dirs)
-        reflected_dirs = F.normalize(
-            view_dirs
-            - 2.0 * (view_dirs * normals_rep).sum(dim=-1, keepdim=True) * normals_rep,
-            dim=-1,
-            eps=1e-8,
-        )
-        surface_lf.environment_map = surface_lf._build_environment_map(
-            reflected_dirs=reflected_dirs,
-            colors=specular_colors.permute(1, 0, 2).contiguous(),
-            valid=view_mask_vp,
-            view_dirs=view_dirs,
-            normals=normals,
-        )
-
-    if save_render_path is not None:
-        separated_rgb = _render_surface_lf(surface_lf)
-        diffuse_rgb = None
-        view_dep_rgb = None
-        if visualize_components and specular_viz_harmonics is not None:
-            diffuse_rgb = _render_with_temporary_harmonics(
-                surface_lf,
-                harmonics=diffuse_viz_harmonics,
-            )
-            view_dep_rgb = _render_with_temporary_harmonics(
-                surface_lf,
-                harmonics=specular_viz_harmonics,
-            )
-        _save_render_comparison(
-            original_rgb,
-            separated_rgb,
-            save_render_path,
-            diffuse_rgb=diffuse_rgb,
-            view_dependent_rgb=view_dep_rgb,
-        )
-
-    return surface_lf
+    return {"mse_d": mse_d, "psnr_d": psnr_d, "ssim_d": ssim_d, "mse_r": mse_r}
 
 
 if __name__ == "__main__":
-    pass
+    sequence_name = "bleach0"
+
+    MIDDLE_REFLECTIVITY = 0.7
+    ALPHA = 1 - MIDDLE_REFLECTIVITY
+
+    path_diffuse = f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_0.0/{sequence_name}"
+    path_reflective = f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_1.0/{sequence_name}"
+    path_middle = f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_{MIDDLE_REFLECTIVITY}/{sequence_name}"
+
+    dataset_diffuse = LFDataset(path_diffuse)
+    dataset_reflective = LFDataset(path_reflective)
+    dataset_middle = LFDataset(path_middle)
+
+    lf_diffuse_0 = dataset_diffuse[0]["LF"][
+        dataset_diffuse.metadata["n_views"][0] // 2,
+        dataset_diffuse.metadata["n_views"][1] // 2,
+    ]
+    lf_reflective_0 = dataset_reflective[0]["LF"][
+        dataset_diffuse.metadata["n_views"][0] // 2,
+        dataset_diffuse.metadata["n_views"][1] // 2,
+    ]
+    lf_middle_0 = dataset_middle[0]["LF"][
+        dataset_diffuse.metadata["n_views"][0] // 2,
+        dataset_diffuse.metadata["n_views"][1] // 2,
+    ]
+    mask = dataset_diffuse[0]["masks"][
+        dataset_diffuse.metadata["n_views"][0] // 2,
+        dataset_diffuse.metadata["n_views"][1] // 2,
+    ]
+
+    lf_diffuse_0[mask == 0] = 0
+    lf_reflective_0[mask == 0] = 0
+    lf_middle_0[mask == 0] = 0
+
+    surface_lf_diffuse, image_diffuse, depth_diffuse, mask_diffuse = (
+        build_surface_lf_first_frame(dataset_diffuse)
+    )
+    surface_lf_reflective, image_reflective, depth_reflective, mask_reflective = (
+        build_surface_lf_first_frame(dataset_reflective)
+    )
+    surface_lf_middle, image_middle, depth_middle, mask_middle = (
+        build_surface_lf_first_frame(dataset_middle)
+    )
+    surface_normals = surface_lf_middle.surface_normals
+
+    colors_middle = surface_lf_middle.colors.permute(1, 0, 2)
+    object_mask = torch.clone(mask)
+
+    normal_map = torch.zeros(
+        (*mask.shape, 3),
+        device=surface_normals.device,
+    )
+    normal_map[mask > 0] = surface_normals.float()
+
+    depth_map = torch.clone(depth_diffuse)
+    depth_map[mask == 0] = 0
+    color_map = torch.zeros(
+        (*mask.shape, colors_middle.shape[1], colors_middle.shape[2]),
+        device=colors_middle.device,
+    )
+    color_map[mask > 0] = colors_middle
+
+    colors_diffuse = surface_lf_diffuse.colors.permute(1, 0, 2)
+    color_map_diffuse = torch.zeros(
+        (*mask.shape, colors_diffuse.shape[1], colors_diffuse.shape[2]),
+        device=colors_diffuse.device,
+    )
+    color_map_diffuse[mask > 0] = colors_diffuse
+
+    colors_reflective = surface_lf_reflective.colors.permute(1, 0, 2)
+    color_map_reflective = torch.zeros(
+        (*mask.shape, colors_reflective.shape[1], colors_reflective.shape[2]),
+        device=colors_reflective.device,
+    )
+    color_map_reflective[mask > 0] = colors_reflective
+
+    color_map_diffuse = srgb_to_linear(color_map_diffuse)
+    color_map_reflective = srgb_to_linear(color_map_reflective)
+    color_map = srgb_to_linear(color_map)
+
+    diffuse, reflective = optimize_decomposition(
+        color_map_obs=color_map,
+        alpha=ALPHA,
+        mask=object_mask,
+        normal_map=normal_map,
+        depth_map=depth_map,
+    )
+    evaluate_results(
+        diffuse_pred=diffuse,
+        reflective_pred=reflective,
+        diffuse_gt=color_map_diffuse,
+        reflective_gt=color_map_reflective,
+        mask=object_mask,
+    )
+
+    # Visualize diffuse vs reflective for original and predicted (middle subview only)
+    middle_view_idx = reflective.shape[2] // 2
+
+    diffuse_gt_vis = linear_to_srgb(color_map_diffuse[:, :, middle_view_idx, :]).clamp(
+        0.0, 1.0
+    )
+    reflective_gt_vis = linear_to_srgb(
+        color_map_reflective[:, :, middle_view_idx, :]
+    ).clamp(0.0, 1.0)
+    diffuse_pred_vis = linear_to_srgb(diffuse).clamp(0.0, 1.0)
+    reflective_pred_vis = linear_to_srgb(reflective[:, :, middle_view_idx, :]).clamp(
+        0.0, 1.0
+    )
+
+    restore_gt_vis = linear_to_srgb(color_map[:, :, middle_view_idx, :]).clamp(0.0, 1.0)
+    # Compose in linear space, then convert once to sRGB.
+    restore_pred_linear = diffuse * ALPHA + reflective[:, :, middle_view_idx, :] * (
+        1 - ALPHA
+    )
+    restore_pred_vis = linear_to_srgb(restore_pred_linear).clamp(0.0, 1.0)
+
+    recon_abs_err = torch.abs(restore_pred_linear - color_map[:, :, middle_view_idx, :])
+    r_mid = reflective[:, :, middle_view_idx, :]
+    print(
+        "Finite checks: "
+        f"diffuse={torch.isfinite(diffuse).all().item()} | "
+        f"reflective={torch.isfinite(reflective).all().item()} | "
+        f"restore_pred_linear={torch.isfinite(restore_pred_linear).all().item()}"
+    )
+    print(
+        "Reflective middle range (linear) "
+        f"min={r_mid.min().item():.6f}, max={r_mid.max().item():.6f}, "
+        f"mean={r_mid.mean().item():.6f}"
+    )
+    print(
+        "Middle-view reconstruction error (linear) "
+        f"max={recon_abs_err.max().item():.8f}, mean={recon_abs_err.mean().item():.8f}"
+    )
+
+    diffuse_gt_vis = torch.nan_to_num(diffuse_gt_vis, nan=0.0, posinf=1.0, neginf=0.0)
+    reflective_gt_vis = torch.nan_to_num(
+        reflective_gt_vis, nan=0.0, posinf=1.0, neginf=0.0
+    )
+    diffuse_pred_vis = torch.nan_to_num(
+        diffuse_pred_vis, nan=0.0, posinf=1.0, neginf=0.0
+    )
+    reflective_pred_vis = torch.nan_to_num(
+        reflective_pred_vis, nan=0.0, posinf=1.0, neginf=0.0
+    )
+    restore_gt_vis = torch.nan_to_num(restore_gt_vis, nan=0.0, posinf=1.0, neginf=0.0)
+    restore_pred_vis = torch.nan_to_num(
+        restore_pred_vis, nan=0.0, posinf=1.0, neginf=0.0
+    )
+
+    mask_vis = object_mask.unsqueeze(-1).float().to(diffuse_gt_vis.device)
+    diffuse_gt_vis = diffuse_gt_vis * mask_vis
+    reflective_gt_vis = reflective_gt_vis * mask_vis
+    diffuse_pred_vis = diffuse_pred_vis * mask_vis
+    reflective_pred_vis = reflective_pred_vis * mask_vis
+    restore_gt_vis = restore_gt_vis * mask_vis
+    restore_pred_vis = restore_pred_vis * mask_vis
+
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    axes[0, 0].imshow(diffuse_gt_vis.detach().cpu().numpy())
+    axes[0, 0].set_title("Original Diffuse (middle subview)")
+    axes[0, 1].imshow(reflective_gt_vis.detach().cpu().numpy())
+    axes[0, 1].set_title("Original Reflective (middle subview)")
+    axes[1, 0].imshow(diffuse_pred_vis.detach().cpu().numpy())
+    axes[1, 0].set_title("Predicted Diffuse")
+    axes[1, 1].imshow(reflective_pred_vis.detach().cpu().numpy())
+    axes[1, 1].set_title("Predicted Reflective (middle subview)")
+
+    for ax in axes.ravel():
+        ax.axis("off")
+
+    plt.tight_layout()
+    output_dir = Path("results") / "decomposition_visualizations"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    combined_path = output_dir / "diffuse_reflective_middle_comparison.png"
+    fig.savefig(combined_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+    plt.imsave(
+        output_dir / "original_diffuse_middle.png",
+        diffuse_gt_vis.detach().cpu().numpy(),
+    )
+    plt.imsave(
+        output_dir / "original_reflective_middle.png",
+        reflective_gt_vis.detach().cpu().numpy(),
+    )
+    plt.imsave(
+        output_dir / "predicted_diffuse_middle.png",
+        diffuse_pred_vis.detach().cpu().numpy(),
+    )
+    plt.imsave(
+        output_dir / "predicted_reflective_middle.png",
+        reflective_pred_vis.detach().cpu().numpy(),
+    )
+    plt.imsave(
+        output_dir / "original_restore_middle.png",
+        restore_gt_vis.detach().cpu().numpy(),
+    )
+    plt.imsave(
+        output_dir / "predicted_restore_middle.png",
+        restore_pred_vis.detach().cpu().numpy(),
+    )
+
+    fig_restore, axes_restore = plt.subplots(1, 2, figsize=(10, 5))
+    axes_restore[0].imshow(restore_gt_vis.detach().cpu().numpy())
+    axes_restore[0].set_title("Original Restore (middle subview)")
+    axes_restore[1].imshow(restore_pred_vis.detach().cpu().numpy())
+    axes_restore[1].set_title("Predicted Restore (middle subview)")
+    for ax in axes_restore:
+        ax.axis("off")
+    plt.tight_layout()
+    restore_comparison_path = output_dir / "restore_middle_comparison.png"
+    fig_restore.savefig(restore_comparison_path, dpi=200, bbox_inches="tight")
+    plt.close(fig_restore)
+
+    print(f"Saved comparison visualization to: {combined_path}")
+    print(f"Saved restore visualization to: {restore_comparison_path}")
+    print(f"Saved individual component images to: {output_dir}")
