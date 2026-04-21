@@ -105,18 +105,6 @@ if __name__ == "__main__":
     lf_reflective_0[mask == 0] = 0
     lf_middle_0[mask == 0] = 0
 
-    lf_middle_0_pred = linear_to_srgb(
-        srgb_to_linear(lf_diffuse_0) * (1 - MIDDLE_REFLECTIVITY)
-        + srgb_to_linear(lf_reflective_0) * MIDDLE_REFLECTIVITY
-    )
-    print(((lf_middle_0_pred[mask == 1] - lf_middle_0[mask == 1]) ** 2).mean())
-    # Image.fromarray(
-    #     (lf_middle_0_pred.detach().cpu().numpy().clip(0, 1) * 255).astype(np.uint8)
-    # ).save("lf_middle_pred.png")
-    # Image.fromarray(
-    #     (lf_middle_0.detach().cpu().numpy().clip(0, 1) * 255).astype(np.uint8)
-    # ).save("lf_middle_gt.png")
-
     surface_lf_diffuse, image_diffuse, depth_diffuse, mask_diffuse = (
         build_surface_lf_first_frame(dataset_diffuse)
     )
@@ -127,10 +115,13 @@ if __name__ == "__main__":
         build_surface_lf_first_frame(dataset_middle)
     )
 
-    colors_middle = surface_lf_middle.colors.cpu().numpy()
-    colors_middle_pred = linear_to_srgb(
-        srgb_to_linear(surface_lf_diffuse.colors) * (1 - MIDDLE_REFLECTIVITY)
-        + srgb_to_linear(surface_lf_reflective.colors) * MIDDLE_REFLECTIVITY
+    colors_middle = surface_lf_middle.colors.permute(1, 0, 2)
+    object_mask = torch.clone(mask)
+    depth_map = torch.clone(depth_diffuse)
+    depth_map[mask == 0] = 0
+    color_map = torch.zeros(
+        (*mask.shape, colors_middle.shape[1], colors_middle.shape[2]),
+        device=colors_middle.device,
     )
-    colors_middle_pred = colors_middle_pred.cpu().numpy()
-    print(((colors_middle_pred - colors_middle) ** 2).mean())
+    color_map[mask > 0] = colors_middle
+    print(color_map.shape)
