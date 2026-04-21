@@ -139,6 +139,10 @@ if __name__ == "__main__":
     )
     color_map_reflective[mask > 0] = colors_reflective
 
+    color_map_diffuse = srgb_to_linear(color_map_diffuse)
+    color_map_reflective = srgb_to_linear(color_map_reflective)
+    color_map = srgb_to_linear(color_map)
+
     print(color_map_diffuse.shape)
     print(color_map_reflective.shape)
     print(color_map.shape)
