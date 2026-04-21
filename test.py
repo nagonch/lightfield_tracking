@@ -124,4 +124,21 @@ if __name__ == "__main__":
         device=colors_middle.device,
     )
     color_map[mask > 0] = colors_middle
+
+    colors_diffuse = surface_lf_diffuse.colors.permute(1, 0, 2)
+    color_map_diffuse = torch.zeros(
+        (*mask.shape, colors_diffuse.shape[1], colors_diffuse.shape[2]),
+        device=colors_diffuse.device,
+    )
+    color_map_diffuse[mask > 0] = colors_diffuse
+
+    colors_reflective = surface_lf_reflective.colors.permute(1, 0, 2)
+    color_map_reflective = torch.zeros(
+        (*mask.shape, colors_reflective.shape[1], colors_reflective.shape[2]),
+        device=colors_reflective.device,
+    )
+    color_map_reflective[mask > 0] = colors_reflective
+
+    print(color_map_diffuse.shape)
+    print(color_map_reflective.shape)
     print(color_map.shape)
