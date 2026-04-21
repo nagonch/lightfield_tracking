@@ -114,9 +114,17 @@ if __name__ == "__main__":
     surface_lf_middle, image_middle, depth_middle, mask_middle = (
         build_surface_lf_first_frame(dataset_middle)
     )
+    surface_normals = surface_lf_middle.surface_normals
 
     colors_middle = surface_lf_middle.colors.permute(1, 0, 2)
     object_mask = torch.clone(mask)
+
+    normal_map = torch.zeros(
+        (*mask.shape, 3),
+        device=surface_normals.device,
+    )
+    normal_map[mask > 0] = surface_normals.float()
+
     depth_map = torch.clone(depth_diffuse)
     depth_map[mask == 0] = 0
     color_map = torch.zeros(
@@ -146,3 +154,4 @@ if __name__ == "__main__":
     print(color_map_diffuse.shape)
     print(color_map_reflective.shape)
     print(color_map.shape)
+    print(normal_map.shape)
