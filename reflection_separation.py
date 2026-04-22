@@ -124,17 +124,38 @@ class Decomposer(nn.Module):
 
 
 def optimize_decomposition(
-    color_map_obs, alpha, mask, normal_map, depth_map, n_dims=(5, 5), iterations=1000
+    color_map_obs,
+    alpha,
+    mask,
+    normal_map,
+    depth_map,
+    n_dims=(5, 5),
+    iterations=500,
+    return_loss_history=False,
+    save_iter_dir=None,
+    save_every=1,
+    lr=1e-2,
 ):
     u, v, n, _ = color_map_obs.shape
 
     # Move inputs to CUDA
     color_map_obs = color_map_obs.cuda()
     alpha = torch.tensor(alpha).cuda()
-    mask = mask.cuda().unsqueeze(-1).unsqueeze(-1)  # [U, V, 1, 1]
+    mask_2d = mask.cuda()
+    mask = mask_2d.unsqueeze(-1).unsqueeze(-1)  # [U, V, 1, 1]
+
+    if save_iter_dir is not None:
+        save_iter_dir = Path(save_iter_dir)
+        save_iter_dir.mkdir(parents=True, exist_ok=True)
+        iter_diffuse_dir = save_iter_dir / "diffuse"
+        iter_reflective_dir = save_iter_dir / "reflective_middle"
+        iter_diffuse_dir.mkdir(parents=True, exist_ok=True)
+        iter_reflective_dir.mkdir(parents=True, exist_ok=True)
+        middle_view_idx = n // 2
+        mask_vis = mask_2d.unsqueeze(-1).float()
 
     model = Decomposer(u, v, n, alpha, mask).cuda()
-    optimizer = optim.Adam(model.parameters(), lr=0.01)
+    optimizer = optim.Adam(model.parameters(), lr=lr)
 
     # Start near the per-pixel mean to reduce early degenerate solutions where
     # reflective can collapse to near-black.
@@ -144,6 +165,7 @@ def optimize_decomposition(
 
     # Precompute TV weights from geometry
     w_u, w_v = compute_tv_weight(normal_map.cuda(), depth_map.cuda())
+    loss_history = []
 
     for i in range(iterations):
         optimizer.zero_grad()
@@ -180,6 +202,29 @@ def optimize_decomposition(
 
         total_loss.backward()
         optimizer.step()
+        loss_history.append(total_loss.item())
+
+        if save_iter_dir is not None and (i % save_every == 0 or i == iterations - 1):
+            with torch.no_grad():
+                _, d_iter, r_iter = model(color_map_obs)
+                d_vis = linear_to_srgb(d_iter).clamp(0.0, 1.0)
+                r_vis = linear_to_srgb(r_iter[:, :, middle_view_idx, :]).clamp(0.0, 1.0)
+
+                d_vis = torch.nan_to_num(d_vis, nan=0.0, posinf=1.0, neginf=0.0)
+                r_vis = torch.nan_to_num(r_vis, nan=0.0, posinf=1.0, neginf=0.0)
+
+                d_vis = d_vis * mask_vis
+                r_vis = r_vis * mask_vis
+
+                d_uint8 = (d_vis * 255.0).round().clamp(0, 255).to(torch.uint8)
+                r_uint8 = (r_vis * 255.0).round().clamp(0, 255).to(torch.uint8)
+
+                Image.fromarray(d_uint8.detach().cpu().numpy()).save(
+                    iter_diffuse_dir / f"iter_{i:04d}.png"
+                )
+                Image.fromarray(r_uint8.detach().cpu().numpy()).save(
+                    iter_reflective_dir / f"iter_{i:04d}.png"
+                )
 
         if i % 100 == 0:
             print(
@@ -190,6 +235,8 @@ def optimize_decomposition(
     with torch.no_grad():
         _, d_final, r_final = model(color_map_obs)
 
+    if return_loss_history:
+        return d_final.detach(), r_final.detach(), loss_history
     return d_final.detach(), r_final.detach()
 
 
@@ -318,12 +365,19 @@ if __name__ == "__main__":
     color_map_reflective = srgb_to_linear(color_map_reflective)
     color_map = srgb_to_linear(color_map)
 
-    diffuse, reflective = optimize_decomposition(
+    output_dir = Path("results") / "decomposition_visualizations"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    iter_output_dir = output_dir / "middle_view_srgb_uint8_per_iteration"
+
+    diffuse, reflective, loss_history = optimize_decomposition(
         color_map_obs=color_map,
         alpha=ALPHA,
         mask=object_mask,
         normal_map=normal_map,
         depth_map=depth_map,
+        return_loss_history=True,
+        save_iter_dir=iter_output_dir,
+        save_every=1,
     )
     evaluate_results(
         diffuse_pred=diffuse,
@@ -409,8 +463,32 @@ if __name__ == "__main__":
         ax.axis("off")
 
     plt.tight_layout()
-    output_dir = Path("results") / "decomposition_visualizations"
-    output_dir.mkdir(parents=True, exist_ok=True)
+    loss_plot_path = output_dir / "optimization_loss.png"
+    fig_loss, ax_loss = plt.subplots(1, 1, figsize=(8, 4))
+    ax_loss.plot(np.arange(len(loss_history)), np.array(loss_history), linewidth=1.5)
+    ax_loss.set_title("Optimization Total Loss")
+    ax_loss.set_xlabel("Iteration")
+    ax_loss.set_ylabel("Loss")
+    ax_loss.grid(True, alpha=0.3)
+    fig_loss.tight_layout()
+    fig_loss.savefig(loss_plot_path, dpi=200, bbox_inches="tight")
+    plt.close(fig_loss)
+
+    uint8_dir = output_dir / "middle_view_srgb_uint8"
+    uint8_dir.mkdir(parents=True, exist_ok=True)
+
+    diffuse_pred_uint8 = (
+        (diffuse_pred_vis * 255.0).round().clamp(0, 255).to(torch.uint8)
+    )
+    reflective_pred_uint8 = (
+        (reflective_pred_vis * 255.0).round().clamp(0, 255).to(torch.uint8)
+    )
+    Image.fromarray(diffuse_pred_uint8.detach().cpu().numpy()).save(
+        uint8_dir / "predicted_diffuse_middle_uint8.png"
+    )
+    Image.fromarray(reflective_pred_uint8.detach().cpu().numpy()).save(
+        uint8_dir / "predicted_reflective_middle_uint8.png"
+    )
 
     combined_path = output_dir / "diffuse_reflective_middle_comparison.png"
     fig.savefig(combined_path, dpi=200, bbox_inches="tight")
@@ -456,3 +534,6 @@ if __name__ == "__main__":
     print(f"Saved comparison visualization to: {combined_path}")
     print(f"Saved restore visualization to: {restore_comparison_path}")
     print(f"Saved individual component images to: {output_dir}")
+    print(f"Saved optimization loss plot to: {loss_plot_path}")
+    print(f"Saved middle-view sRGB uint8 component images to: {uint8_dir}")
+    print(f"Saved per-iteration middle-view sRGB uint8 images to: {iter_output_dir}")
