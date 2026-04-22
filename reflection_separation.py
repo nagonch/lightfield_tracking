@@ -144,6 +144,24 @@ def optimize_decomposition(
     mask_2d = mask.cuda()
     mask = mask_2d.unsqueeze(-1).unsqueeze(-1)  # [U, V, 1, 1]
 
+    # Deterministic boundary behavior for extreme alpha values.
+    if torch.allclose(alpha, torch.ones_like(alpha)):
+        middle_view_idx = n // 2
+        diffuse = color_map_obs[:, :, middle_view_idx, :] * mask_2d.unsqueeze(-1)
+        reflective = torch.zeros_like(color_map_obs)
+        if return_loss_history:
+            return diffuse.detach(), reflective.detach(), [0.0]
+        return diffuse.detach(), reflective.detach()
+
+    if torch.allclose(alpha, torch.zeros_like(alpha)):
+        diffuse = torch.zeros(
+            (u, v, 3), device=color_map_obs.device, dtype=color_map_obs.dtype
+        )
+        reflective = color_map_obs * mask
+        if return_loss_history:
+            return diffuse.detach(), reflective.detach(), [0.0]
+        return diffuse.detach(), reflective.detach()
+
     if save_iter_dir is not None:
         save_iter_dir = Path(save_iter_dir)
         save_iter_dir.mkdir(parents=True, exist_ok=True)
@@ -287,7 +305,7 @@ def evaluate_results(diffuse_pred, reflective_pred, diffuse_gt, reflective_gt, m
 if __name__ == "__main__":
     sequence_name = "bleach0"
 
-    MIDDLE_REFLECTIVITY = 0.7
+    MIDDLE_REFLECTIVITY = 0.0
     ALPHA = 1 - MIDDLE_REFLECTIVITY
 
     path_diffuse = f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_0.0/{sequence_name}"
