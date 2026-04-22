@@ -13,29 +13,43 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 
-def srgb_to_linear(srgb: torch.Tensor) -> torch.Tensor:
+def srgb_to_linear(
+    srgb: torch.Tensor,
+    cutoff: float = 0.04045,
+    linear_scale: float = 12.92,
+    gamma_offset: float = 0.055,
+    gamma_scale: float = 1.055,
+    gamma_exponent: float = 2.4,
+) -> torch.Tensor:
     """
     srgb: float tensor in [0,1]
     returns linear float tensor in [0,1]
     """
-    cutoff = 0.04045
     below = srgb <= cutoff
     linear = torch.empty_like(srgb)
-    linear[below] = srgb[below] / 12.92
-    linear[~below] = ((srgb[~below] + 0.055) / 1.055) ** 2.4
+    linear[below] = srgb[below] / linear_scale
+    linear[~below] = ((srgb[~below] + gamma_offset) / gamma_scale) ** gamma_exponent
     return linear
 
 
-def linear_to_srgb(linear: torch.Tensor) -> torch.Tensor:
+def linear_to_srgb(
+    linear: torch.Tensor,
+    cutoff: float = 0.0031308,
+    linear_scale: float = 12.92,
+    gamma_offset: float = 0.055,
+    gamma_scale: float = 1.055,
+    gamma_exponent: float = 2.4,
+) -> torch.Tensor:
     """
     linear: float tensor in [0,1]
     returns srgb float tensor in [0,1]
     """
-    cutoff = 0.0031308
     below = linear <= cutoff
     srgb = torch.empty_like(linear)
-    srgb[below] = linear[below] * 12.92
-    srgb[~below] = 1.055 * (linear[~below] ** (1.0 / 2.4)) - 0.055
+    srgb[below] = linear[below] * linear_scale
+    srgb[~below] = (
+        gamma_scale * (linear[~below] ** (1.0 / gamma_exponent)) - gamma_offset
+    )
     return srgb
 
 
@@ -95,16 +109,27 @@ def compute_tv_weight(normal_map, depth_map, sigma_n=1.0, sigma_d=1.0):
 
 
 class Decomposer(nn.Module):
-    def __init__(self, u, v, n, alpha, mask):
+    def __init__(
+        self,
+        u,
+        v,
+        n,
+        alpha,
+        mask,
+        stability_eps=1e-8,
+        diffuse_init_scale=0.5,
+    ):
         super().__init__()
         self.u, self.v, self.n = u, v, n
         self.alpha = alpha  # [U, V, 1] or scalar
         self.mask = mask  # [U, V]
-        self.eps = 1e-8
+        self.eps = stability_eps
 
         # Diffuse is the only free variable. Reflective is solved from exact
         # reconstruction constraint per-pixel/per-view.
-        self.diffuse_map = nn.Parameter(torch.rand((u, v, 3), device="cuda") * 0.5)
+        self.diffuse_map = nn.Parameter(
+            torch.rand((u, v, 3), device="cuda") * diffuse_init_scale
+        )
 
     def forward(self, color_map_obs):
         # Keep diffuse in [0, 1].
@@ -132,9 +157,16 @@ def optimize_decomposition(
     n_dims=(5, 5),
     iterations=500,
     return_loss_history=False,
-    save_iter_dir=None,
-    save_every=1,
     lr=1e-2,
+    diffuse_init_logit_min=1e-4,
+    diffuse_init_logit_max=1.0 - 1e-4,
+    loss_weight_reflective_spatial_tv=0.2,
+    loss_weight_reflective_angular_tv=0.05,
+    loss_weight_reflective_range=0.2,
+    loss_weight_reconstruction=1e-6,
+    log_interval=100,
+    model_stability_eps=1e-8,
+    model_diffuse_init_scale=0.5,
 ):
     u, v, n, _ = color_map_obs.shape
 
@@ -162,23 +194,23 @@ def optimize_decomposition(
             return diffuse.detach(), reflective.detach(), [0.0]
         return diffuse.detach(), reflective.detach()
 
-    if save_iter_dir is not None:
-        save_iter_dir = Path(save_iter_dir)
-        save_iter_dir.mkdir(parents=True, exist_ok=True)
-        iter_diffuse_dir = save_iter_dir / "diffuse"
-        iter_reflective_dir = save_iter_dir / "reflective_middle"
-        iter_diffuse_dir.mkdir(parents=True, exist_ok=True)
-        iter_reflective_dir.mkdir(parents=True, exist_ok=True)
-        middle_view_idx = n // 2
-        mask_vis = mask_2d.unsqueeze(-1).float()
-
-    model = Decomposer(u, v, n, alpha, mask).cuda()
+    model = Decomposer(
+        u,
+        v,
+        n,
+        alpha,
+        mask,
+        stability_eps=model_stability_eps,
+        diffuse_init_scale=model_diffuse_init_scale,
+    ).cuda()
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
     # Start near the per-pixel mean to reduce early degenerate solutions where
     # reflective can collapse to near-black.
     with torch.no_grad():
-        d0 = color_map_obs.mean(dim=2).clamp(1e-4, 1.0 - 1e-4)
+        d0 = color_map_obs.mean(dim=2).clamp(
+            diffuse_init_logit_min, diffuse_init_logit_max
+        )
         model.diffuse_map.copy_(torch.log(d0 / (1.0 - d0)))
 
     # Precompute TV weights from geometry
@@ -212,39 +244,17 @@ def optimize_decomposition(
 
         # Total Loss: no diffuse TV, reflective is encouraged to be low-frequency.
         total_loss = (
-            0.2 * loss_tv_r_sp
-            + 0.05 * loss_tv_r_ang
-            + 0.2 * loss_r_range
-            + 1e-6 * loss_recon
+            loss_weight_reflective_spatial_tv * loss_tv_r_sp
+            + loss_weight_reflective_angular_tv * loss_tv_r_ang
+            + loss_weight_reflective_range * loss_r_range
+            + loss_weight_reconstruction * loss_recon
         )
 
         total_loss.backward()
         optimizer.step()
         loss_history.append(total_loss.item())
 
-        if save_iter_dir is not None and (i % save_every == 0 or i == iterations - 1):
-            with torch.no_grad():
-                _, d_iter, r_iter = model(color_map_obs)
-                d_vis = linear_to_srgb(d_iter).clamp(0.0, 1.0)
-                r_vis = linear_to_srgb(r_iter[:, :, middle_view_idx, :]).clamp(0.0, 1.0)
-
-                d_vis = torch.nan_to_num(d_vis, nan=0.0, posinf=1.0, neginf=0.0)
-                r_vis = torch.nan_to_num(r_vis, nan=0.0, posinf=1.0, neginf=0.0)
-
-                d_vis = d_vis * mask_vis
-                r_vis = r_vis * mask_vis
-
-                d_uint8 = (d_vis * 255.0).round().clamp(0, 255).to(torch.uint8)
-                r_uint8 = (r_vis * 255.0).round().clamp(0, 255).to(torch.uint8)
-
-                Image.fromarray(d_uint8.detach().cpu().numpy()).save(
-                    iter_diffuse_dir / f"iter_{i:04d}.png"
-                )
-                Image.fromarray(r_uint8.detach().cpu().numpy()).save(
-                    iter_reflective_dir / f"iter_{i:04d}.png"
-                )
-
-        if i % 100 == 0:
+        if i % log_interval == 0:
             print(
                 f"Iter {i} | Loss: {total_loss.item():.6f} | Recon(MSE): {loss_recon.item():.8f} "
                 f"| R-range: {loss_r_range.item():.6f}"
@@ -383,175 +393,10 @@ if __name__ == "__main__":
     color_map_reflective = srgb_to_linear(color_map_reflective)
     color_map = srgb_to_linear(color_map)
 
-    output_dir = Path("results") / "decomposition_visualizations"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    iter_output_dir = output_dir / "middle_view_srgb_uint8_per_iteration"
-
-    diffuse, reflective, loss_history = optimize_decomposition(
+    diffuse, reflective = optimize_decomposition(
         color_map_obs=color_map,
         alpha=ALPHA,
         mask=object_mask,
         normal_map=normal_map,
         depth_map=depth_map,
-        return_loss_history=True,
-        save_iter_dir=iter_output_dir,
-        save_every=1,
     )
-    evaluate_results(
-        diffuse_pred=diffuse,
-        reflective_pred=reflective,
-        diffuse_gt=color_map_diffuse,
-        reflective_gt=color_map_reflective,
-        mask=object_mask,
-    )
-
-    # Visualize diffuse vs reflective for original and predicted (middle subview only)
-    middle_view_idx = reflective.shape[2] // 2
-
-    diffuse_gt_vis = linear_to_srgb(color_map_diffuse[:, :, middle_view_idx, :]).clamp(
-        0.0, 1.0
-    )
-    reflective_gt_vis = linear_to_srgb(
-        color_map_reflective[:, :, middle_view_idx, :]
-    ).clamp(0.0, 1.0)
-    diffuse_pred_vis = linear_to_srgb(diffuse).clamp(0.0, 1.0)
-    reflective_pred_vis = linear_to_srgb(reflective[:, :, middle_view_idx, :]).clamp(
-        0.0, 1.0
-    )
-
-    restore_gt_vis = linear_to_srgb(color_map[:, :, middle_view_idx, :]).clamp(0.0, 1.0)
-    # Compose in linear space, then convert once to sRGB.
-    restore_pred_linear = diffuse * ALPHA + reflective[:, :, middle_view_idx, :] * (
-        1 - ALPHA
-    )
-    restore_pred_vis = linear_to_srgb(restore_pred_linear).clamp(0.0, 1.0)
-
-    recon_abs_err = torch.abs(restore_pred_linear - color_map[:, :, middle_view_idx, :])
-    r_mid = reflective[:, :, middle_view_idx, :]
-    print(
-        "Finite checks: "
-        f"diffuse={torch.isfinite(diffuse).all().item()} | "
-        f"reflective={torch.isfinite(reflective).all().item()} | "
-        f"restore_pred_linear={torch.isfinite(restore_pred_linear).all().item()}"
-    )
-    print(
-        "Reflective middle range (linear) "
-        f"min={r_mid.min().item():.6f}, max={r_mid.max().item():.6f}, "
-        f"mean={r_mid.mean().item():.6f}"
-    )
-    print(
-        "Middle-view reconstruction error (linear) "
-        f"max={recon_abs_err.max().item():.8f}, mean={recon_abs_err.mean().item():.8f}"
-    )
-
-    diffuse_gt_vis = torch.nan_to_num(diffuse_gt_vis, nan=0.0, posinf=1.0, neginf=0.0)
-    reflective_gt_vis = torch.nan_to_num(
-        reflective_gt_vis, nan=0.0, posinf=1.0, neginf=0.0
-    )
-    diffuse_pred_vis = torch.nan_to_num(
-        diffuse_pred_vis, nan=0.0, posinf=1.0, neginf=0.0
-    )
-    reflective_pred_vis = torch.nan_to_num(
-        reflective_pred_vis, nan=0.0, posinf=1.0, neginf=0.0
-    )
-    restore_gt_vis = torch.nan_to_num(restore_gt_vis, nan=0.0, posinf=1.0, neginf=0.0)
-    restore_pred_vis = torch.nan_to_num(
-        restore_pred_vis, nan=0.0, posinf=1.0, neginf=0.0
-    )
-
-    mask_vis = object_mask.unsqueeze(-1).float().to(diffuse_gt_vis.device)
-    diffuse_gt_vis = diffuse_gt_vis * mask_vis
-    reflective_gt_vis = reflective_gt_vis * mask_vis
-    diffuse_pred_vis = diffuse_pred_vis * mask_vis
-    reflective_pred_vis = reflective_pred_vis * mask_vis
-    restore_gt_vis = restore_gt_vis * mask_vis
-    restore_pred_vis = restore_pred_vis * mask_vis
-
-    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    axes[0, 0].imshow(diffuse_gt_vis.detach().cpu().numpy())
-    axes[0, 0].set_title("Original Diffuse (middle subview)")
-    axes[0, 1].imshow(reflective_gt_vis.detach().cpu().numpy())
-    axes[0, 1].set_title("Original Reflective (middle subview)")
-    axes[1, 0].imshow(diffuse_pred_vis.detach().cpu().numpy())
-    axes[1, 0].set_title("Predicted Diffuse")
-    axes[1, 1].imshow(reflective_pred_vis.detach().cpu().numpy())
-    axes[1, 1].set_title("Predicted Reflective (middle subview)")
-
-    for ax in axes.ravel():
-        ax.axis("off")
-
-    plt.tight_layout()
-    loss_plot_path = output_dir / "optimization_loss.png"
-    fig_loss, ax_loss = plt.subplots(1, 1, figsize=(8, 4))
-    ax_loss.plot(np.arange(len(loss_history)), np.array(loss_history), linewidth=1.5)
-    ax_loss.set_title("Optimization Total Loss")
-    ax_loss.set_xlabel("Iteration")
-    ax_loss.set_ylabel("Loss")
-    ax_loss.grid(True, alpha=0.3)
-    fig_loss.tight_layout()
-    fig_loss.savefig(loss_plot_path, dpi=200, bbox_inches="tight")
-    plt.close(fig_loss)
-
-    uint8_dir = output_dir / "middle_view_srgb_uint8"
-    uint8_dir.mkdir(parents=True, exist_ok=True)
-
-    diffuse_pred_uint8 = (
-        (diffuse_pred_vis * 255.0).round().clamp(0, 255).to(torch.uint8)
-    )
-    reflective_pred_uint8 = (
-        (reflective_pred_vis * 255.0).round().clamp(0, 255).to(torch.uint8)
-    )
-    Image.fromarray(diffuse_pred_uint8.detach().cpu().numpy()).save(
-        uint8_dir / "predicted_diffuse_middle_uint8.png"
-    )
-    Image.fromarray(reflective_pred_uint8.detach().cpu().numpy()).save(
-        uint8_dir / "predicted_reflective_middle_uint8.png"
-    )
-
-    combined_path = output_dir / "diffuse_reflective_middle_comparison.png"
-    fig.savefig(combined_path, dpi=200, bbox_inches="tight")
-    plt.close(fig)
-
-    plt.imsave(
-        output_dir / "original_diffuse_middle.png",
-        diffuse_gt_vis.detach().cpu().numpy(),
-    )
-    plt.imsave(
-        output_dir / "original_reflective_middle.png",
-        reflective_gt_vis.detach().cpu().numpy(),
-    )
-    plt.imsave(
-        output_dir / "predicted_diffuse_middle.png",
-        diffuse_pred_vis.detach().cpu().numpy(),
-    )
-    plt.imsave(
-        output_dir / "predicted_reflective_middle.png",
-        reflective_pred_vis.detach().cpu().numpy(),
-    )
-    plt.imsave(
-        output_dir / "original_restore_middle.png",
-        restore_gt_vis.detach().cpu().numpy(),
-    )
-    plt.imsave(
-        output_dir / "predicted_restore_middle.png",
-        restore_pred_vis.detach().cpu().numpy(),
-    )
-
-    fig_restore, axes_restore = plt.subplots(1, 2, figsize=(10, 5))
-    axes_restore[0].imshow(restore_gt_vis.detach().cpu().numpy())
-    axes_restore[0].set_title("Original Restore (middle subview)")
-    axes_restore[1].imshow(restore_pred_vis.detach().cpu().numpy())
-    axes_restore[1].set_title("Predicted Restore (middle subview)")
-    for ax in axes_restore:
-        ax.axis("off")
-    plt.tight_layout()
-    restore_comparison_path = output_dir / "restore_middle_comparison.png"
-    fig_restore.savefig(restore_comparison_path, dpi=200, bbox_inches="tight")
-    plt.close(fig_restore)
-
-    print(f"Saved comparison visualization to: {combined_path}")
-    print(f"Saved restore visualization to: {restore_comparison_path}")
-    print(f"Saved individual component images to: {output_dir}")
-    print(f"Saved optimization loss plot to: {loss_plot_path}")
-    print(f"Saved middle-view sRGB uint8 component images to: {uint8_dir}")
-    print(f"Saved per-iteration middle-view sRGB uint8 images to: {iter_output_dir}")
