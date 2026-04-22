@@ -19,8 +19,6 @@ from loss import refine_pose
 from src.slf_refinement_viewer import SurfaceLFRefinementViewer
 from PIL import Image
 from time import sleep
-from reflection_separation import reflection_separation
-
 
 if __name__ == "__main__":
     EXP_NAME = "results_ours_icp_box_refined"
