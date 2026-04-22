@@ -11,6 +11,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import matplotlib.pyplot as plt
 from pathlib import Path
+import os
 
 
 def srgb_to_linear(
@@ -53,8 +54,8 @@ def linear_to_srgb(
     return srgb
 
 
-def build_surface_lf_first_frame(dataset: LFDataset):
-    frame = dataset[0]
+def build_surface_lf(dataset: LFDataset, i):
+    frame = dataset[i]
     s_size, t_size = dataset.metadata["n_views"]
 
     mask = frame["masks"][s_size // 2, t_size // 2]
@@ -89,7 +90,7 @@ def build_surface_lf_first_frame(dataset: LFDataset):
         previous_environment_map=None,
     )
     image, depth_rendered, target_mask = surface_lf.rasterize(torch.eye(4).cuda())
-    return surface_lf, image, depth_rendered, target_mask
+    return surface_lf, image, depth_rendered, mask
 
 
 def compute_tv_weight(normal_map, depth_map, sigma_n=1.0, sigma_d=1.0):
@@ -315,88 +316,74 @@ def evaluate_results(diffuse_pred, reflective_pred, diffuse_gt, reflective_gt, m
 if __name__ == "__main__":
     sequence_name = "bleach0"
 
-    MIDDLE_REFLECTIVITY = 0.0
+    MIDDLE_REFLECTIVITY = 0.5
     ALPHA = 1 - MIDDLE_REFLECTIVITY
+
+    vis_reflective_folder = f"vis_reflective_{MIDDLE_REFLECTIVITY}"
+    vis_diffuse_folder = f"vis_diffuse_{MIDDLE_REFLECTIVITY}"
+    os.makedirs(vis_reflective_folder, exist_ok=True)
+    os.makedirs(vis_diffuse_folder, exist_ok=True)
 
     path_diffuse = f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_0.0/{sequence_name}"
     path_reflective = f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_1.0/{sequence_name}"
     path_middle = f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_{MIDDLE_REFLECTIVITY}/{sequence_name}"
 
-    dataset_diffuse = LFDataset(path_diffuse)
-    dataset_reflective = LFDataset(path_reflective)
-    dataset_middle = LFDataset(path_middle)
+    dataset = LFDataset(path_middle)
+    for i in range(len(dataset)):
 
-    lf_diffuse_0 = dataset_diffuse[0]["LF"][
-        dataset_diffuse.metadata["n_views"][0] // 2,
-        dataset_diffuse.metadata["n_views"][1] // 2,
-    ]
-    lf_reflective_0 = dataset_reflective[0]["LF"][
-        dataset_diffuse.metadata["n_views"][0] // 2,
-        dataset_diffuse.metadata["n_views"][1] // 2,
-    ]
-    lf_middle_0 = dataset_middle[0]["LF"][
-        dataset_diffuse.metadata["n_views"][0] // 2,
-        dataset_diffuse.metadata["n_views"][1] // 2,
-    ]
-    mask = dataset_diffuse[0]["masks"][
-        dataset_diffuse.metadata["n_views"][0] // 2,
-        dataset_diffuse.metadata["n_views"][1] // 2,
-    ]
+        lf = dataset[i]["LF"][
+            dataset.metadata["n_views"][0] // 2,
+            dataset.metadata["n_views"][1] // 2,
+        ]
+        mask = dataset[i]["masks"][
+            dataset.metadata["n_views"][0] // 2,
+            dataset.metadata["n_views"][1] // 2,
+        ]
 
-    lf_diffuse_0[mask == 0] = 0
-    lf_reflective_0[mask == 0] = 0
-    lf_middle_0[mask == 0] = 0
+        lf[mask == 0] = 0
 
-    surface_lf_diffuse, image_diffuse, depth_diffuse, mask_diffuse = (
-        build_surface_lf_first_frame(dataset_diffuse)
-    )
-    surface_lf_reflective, image_reflective, depth_reflective, mask_reflective = (
-        build_surface_lf_first_frame(dataset_reflective)
-    )
-    surface_lf_middle, image_middle, depth_middle, mask_middle = (
-        build_surface_lf_first_frame(dataset_middle)
-    )
-    surface_normals = surface_lf_middle.surface_normals
+        surface_lf, image, depth, mask = build_surface_lf(dataset, i)
+        surface_normals = surface_lf.surface_normals
 
-    colors_middle = surface_lf_middle.colors.permute(1, 0, 2)
-    object_mask = torch.clone(mask)
+        colors_middle = surface_lf.colors.permute(1, 0, 2)
+        object_mask = torch.clone(mask)
 
-    normal_map = torch.zeros(
-        (*mask.shape, 3),
-        device=surface_normals.device,
-    )
-    normal_map[mask > 0] = surface_normals.float()
+        normal_map = torch.zeros(
+            (*mask.shape, 3),
+            device=surface_normals.device,
+        )
+        normal_map[mask > 0] = surface_normals.float()
 
-    depth_map = torch.clone(depth_diffuse)
-    depth_map[mask == 0] = 0
-    color_map = torch.zeros(
-        (*mask.shape, colors_middle.shape[1], colors_middle.shape[2]),
-        device=colors_middle.device,
-    )
-    color_map[mask > 0] = colors_middle
+        depth_map = torch.clone(depth)
+        depth_map[mask == 0] = 0
+        color_map = torch.zeros(
+            (*mask.shape, colors_middle.shape[1], colors_middle.shape[2]),
+            device=colors_middle.device,
+        )
+        color_map[mask > 0] = colors_middle
 
-    colors_diffuse = surface_lf_diffuse.colors.permute(1, 0, 2)
-    color_map_diffuse = torch.zeros(
-        (*mask.shape, colors_diffuse.shape[1], colors_diffuse.shape[2]),
-        device=colors_diffuse.device,
-    )
-    color_map_diffuse[mask > 0] = colors_diffuse
+        color_map = srgb_to_linear(color_map)
 
-    colors_reflective = surface_lf_reflective.colors.permute(1, 0, 2)
-    color_map_reflective = torch.zeros(
-        (*mask.shape, colors_reflective.shape[1], colors_reflective.shape[2]),
-        device=colors_reflective.device,
-    )
-    color_map_reflective[mask > 0] = colors_reflective
+        diffuse, reflective = optimize_decomposition(
+            color_map_obs=color_map,
+            alpha=ALPHA,
+            mask=object_mask,
+            normal_map=normal_map,
+            depth_map=depth_map,
+        )
 
-    color_map_diffuse = srgb_to_linear(color_map_diffuse)
-    color_map_reflective = srgb_to_linear(color_map_reflective)
-    color_map = srgb_to_linear(color_map)
+        diffuse = linear_to_srgb(diffuse)
+        reflective = linear_to_srgb(reflective)
+        reflective = torch.clamp(reflective, 0.0, 1.0)
 
-    diffuse, reflective = optimize_decomposition(
-        color_map_obs=color_map,
-        alpha=ALPHA,
-        mask=object_mask,
-        normal_map=normal_map,
-        depth_map=depth_map,
-    )
+        diffuse_vis = (diffuse.cpu().numpy() * 255).astype(np.uint8)
+        reflective_vis = (
+            reflective[:, :, reflective.shape[2] // 2, :].cpu().numpy() * 255
+        ).astype(np.uint8)
+
+        Image.fromarray(diffuse_vis).save(
+            f"{vis_diffuse_folder}/diffuse_estimate_{str(i).zfill(4)}.png"
+        )
+        Image.fromarray(reflective_vis).save(
+            f"{vis_reflective_folder}/reflective_estimate_{str(i).zfill(4)}.png"
+        )
