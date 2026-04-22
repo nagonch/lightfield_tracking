@@ -149,7 +149,7 @@ class Decomposer(nn.Module):
         return recon, d, r
 
 
-def optimize_decomposition(
+def separate_reflection(
     color_map_obs,
     alpha,
     mask,
@@ -157,7 +157,6 @@ def optimize_decomposition(
     depth_map,
     n_dims=(5, 5),
     iterations=500,
-    return_loss_history=False,
     lr=1e-2,
     diffuse_init_logit_min=1e-4,
     diffuse_init_logit_max=1.0 - 1e-4,
@@ -182,8 +181,6 @@ def optimize_decomposition(
         middle_view_idx = n // 2
         diffuse = color_map_obs[:, :, middle_view_idx, :] * mask_2d.unsqueeze(-1)
         reflective = torch.zeros_like(color_map_obs)
-        if return_loss_history:
-            return diffuse.detach(), reflective.detach(), [0.0]
         return diffuse.detach(), reflective.detach()
 
     if torch.allclose(alpha, torch.zeros_like(alpha)):
@@ -191,8 +188,6 @@ def optimize_decomposition(
             (u, v, 3), device=color_map_obs.device, dtype=color_map_obs.dtype
         )
         reflective = color_map_obs * mask
-        if return_loss_history:
-            return diffuse.detach(), reflective.detach(), [0.0]
         return diffuse.detach(), reflective.detach()
 
     model = Decomposer(
@@ -255,62 +250,10 @@ def optimize_decomposition(
         optimizer.step()
         loss_history.append(total_loss.item())
 
-        if i % log_interval == 0:
-            print(
-                f"Iter {i} | Loss: {total_loss.item():.6f} | Recon(MSE): {loss_recon.item():.8f} "
-                f"| R-range: {loss_r_range.item():.6f}"
-            )
-
     with torch.no_grad():
         _, d_final, r_final = model(color_map_obs)
 
-    if return_loss_history:
-        return d_final.detach(), r_final.detach(), loss_history
     return d_final.detach(), r_final.detach()
-
-
-def evaluate_results(diffuse_pred, reflective_pred, diffuse_gt, reflective_gt, mask):
-    """
-    Evaluates Pred vs GT for both components.
-    Tensors expected in [U, V, 3] for diffuse and [U, V, N, 3] for reflective.
-    """
-    # Move to CPU and numpy for standard imaging metrics
-    mask_np = mask.cpu().numpy()
-
-    # --- 1. Diffuse Evaluation ---
-    d_pred_np = diffuse_pred.cpu().numpy()
-    d_gt_np = diffuse_gt.cpu().numpy().mean(axis=-2)
-
-    # MSE (masked)
-    mse_d = np.mean((d_pred_np[mask_np > 0] - d_gt_np[mask_np > 0]) ** 2)
-    psnr_d = psnr_func(d_gt_np, d_pred_np, data_range=1.0)
-
-    # SSIM requires a bit of care with the mask (often easier to crop or pad)
-    ssim_d = ssim_func(d_gt_np, d_pred_np, channel_axis=-1, data_range=1.0)
-
-    # --- 2. Reflective Evaluation ---
-    r_pred_np = reflective_pred.cpu().numpy()
-    r_gt_np = reflective_gt.cpu().numpy()
-
-    # MSE (masked, averaged over n)
-    # mask_np is [U, V], reflective is [U, V, N, 3]
-    expanded_mask = mask_np[:, :, np.newaxis, np.newaxis]
-    mse_r = np.mean(((r_pred_np - r_gt_np) * expanded_mask) ** 2)
-
-    # For PSNR on the 4D volume, we treat it as a flattened set of pixels
-    reflective_valid_mask = np.broadcast_to(expanded_mask > 0, r_gt_np.shape)
-    psnr_r = psnr_func(
-        r_gt_np[reflective_valid_mask],
-        r_pred_np[reflective_valid_mask],
-        data_range=1.0,
-    )
-
-    print(f"--- Diffuse Metrics ---")
-    print(f"MSE: {mse_d:.6f} | PSNR: {psnr_d:.2f}dB | SSIM: {ssim_d:.4f}")
-    print(f"--- Reflective Metrics ---")
-    print(f"MSE: {mse_r:.6f} | PSNR: {psnr_r:.2f}dB")
-
-    return {"mse_d": mse_d, "psnr_d": psnr_d, "ssim_d": ssim_d, "mse_r": mse_r}
 
 
 if __name__ == "__main__":
@@ -364,7 +307,7 @@ if __name__ == "__main__":
 
         color_map = srgb_to_linear(color_map)
 
-        diffuse, reflective = optimize_decomposition(
+        diffuse, reflective = separate_reflection(
             color_map_obs=color_map,
             alpha=ALPHA,
             mask=object_mask,
