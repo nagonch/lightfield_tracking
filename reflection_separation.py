@@ -316,7 +316,7 @@ def evaluate_results(diffuse_pred, reflective_pred, diffuse_gt, reflective_gt, m
 if __name__ == "__main__":
     sequence_name = "bleach0"
 
-    MIDDLE_REFLECTIVITY = 0.5
+    MIDDLE_REFLECTIVITY = 0.7
     ALPHA = 1 - MIDDLE_REFLECTIVITY
 
     vis_reflective_folder = f"vis_reflective_{MIDDLE_REFLECTIVITY}"
