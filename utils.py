@@ -3,6 +3,46 @@ import torch.nn.functional as F
 import torch
 
 
+def srgb_to_linear(
+    srgb: torch.Tensor,
+    cutoff: float = 0.04045,
+    linear_scale: float = 12.92,
+    gamma_offset: float = 0.055,
+    gamma_scale: float = 1.055,
+    gamma_exponent: float = 2.4,
+) -> torch.Tensor:
+    """
+    srgb: float tensor in [0,1]
+    returns linear float tensor in [0,1]
+    """
+    below = srgb <= cutoff
+    linear = torch.empty_like(srgb)
+    linear[below] = srgb[below] / linear_scale
+    linear[~below] = ((srgb[~below] + gamma_offset) / gamma_scale) ** gamma_exponent
+    return linear
+
+
+def linear_to_srgb(
+    linear: torch.Tensor,
+    cutoff: float = 0.0031308,
+    linear_scale: float = 12.92,
+    gamma_offset: float = 0.055,
+    gamma_scale: float = 1.055,
+    gamma_exponent: float = 2.4,
+) -> torch.Tensor:
+    """
+    linear: float tensor in [0,1]
+    returns srgb float tensor in [0,1]
+    """
+    below = linear <= cutoff
+    srgb = torch.empty_like(linear)
+    srgb[below] = linear[below] * linear_scale
+    srgb[~below] = (
+        gamma_scale * (linear[~below] ** (1.0 / gamma_exponent)) - gamma_offset
+    )
+    return srgb
+
+
 def rhs_to_lhs_rel(rhs_rel: torch.Tensor, pose_abs: torch.Tensor) -> torch.Tensor:
     """
     Converts P1 = pose_abs @ rhs_rel  =>  P1 = lhs_rel @ pose_abs
