@@ -13,12 +13,10 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import os
 from utils import srgb_to_linear, linear_to_srgb
+from tqdm import tqdm
 
 
-def build_surface_lf(dataset: LFDataset, i):
-    frame = dataset[i]
-    s_size, t_size = dataset.metadata["n_views"]
-
+def build_surface_lf(frame, s_size, t_size):
     mask = frame["masks"][s_size // 2, t_size // 2]
     depth = frame["depth"]
     camera_matrix = frame["camera_matrix"]
@@ -50,8 +48,52 @@ def build_surface_lf(dataset: LFDataset, i):
         pc_scales,
         previous_environment_map=None,
     )
-    image, depth_rendered, target_mask = surface_lf.rasterize(torch.eye(4).cuda())
-    return surface_lf, image, depth_rendered, mask
+    return surface_lf
+
+
+class DiffuseModel(nn.Module):
+    def __init__(
+        self,
+        explicit_surface_lf,
+        alpha,
+        mask,
+        stability_eps=1e-8,
+        diffuse_init_scale=0.5,
+    ):
+        super().__init__()
+        self.explicit_surface_lf = explicit_surface_lf
+        self.u, self.v, self.s, self.t = explicit_surface_lf.shape[:4]
+        self.alpha = alpha
+        self.mask = mask
+        self.eps = stability_eps
+
+        self.diffuse_component = nn.Parameter(
+            torch.rand((self.u, self.v, 3), device="cuda") * diffuse_init_scale
+        )
+
+    def forward(self):
+        # Keep diffuse in [0, 1].
+        diffuse_image = torch.sigmoid(self.diffuse_component)
+
+        # Broadcast diffuse over n dimension: [U, V, 3] -> [U, V, S, T, 3]
+        diffuse_image_ext = diffuse_image[:, :, None, None, :].expand(
+            -1, -1, self.s, self.t, -1
+        )
+
+        denom = torch.clamp(1.0 - self.alpha, min=self.eps)
+        reflective_image = (
+            self.explicit_surface_lf - self.alpha * diffuse_image_ext
+        ) / denom
+        reflective_image = torch.nan_to_num(
+            reflective_image, nan=0.0, posinf=1.0, neginf=0.0
+        )
+        reconstruction = (
+            self.alpha * diffuse_image_ext + (1.0 - self.alpha) * reflective_image
+        )
+        reconstruction = torch.nan_to_num(
+            reconstruction, nan=0.0, posinf=1.0, neginf=0.0
+        )
+        return reconstruction, diffuse_image, reflective_image
 
 
 def compute_tv_weight(normal_map, depth_map, sigma_n=1.0, sigma_d=1.0):
@@ -60,101 +102,66 @@ def compute_tv_weight(normal_map, depth_map, sigma_n=1.0, sigma_d=1.0):
     High gradient in normals or depth = lower weight (allows edges).
     """
     # normal_map: [U, V, 3], depth_map: [U, V]
-    dn_u = torch.abs(normal_map[1:, :, :] - normal_map[:-1, :, :]).sum(dim=-1)
-    dn_v = torch.abs(normal_map[:, 1:, :] - normal_map[:, :-1, :]).sum(dim=-1)
-    dd_u = torch.abs(depth_map[1:, :] - depth_map[:-1, :])
-    dd_v = torch.abs(depth_map[:, 1:] - depth_map[:, :-1])
+    normal_grad_u = torch.abs(normal_map[1:, :, :] - normal_map[:-1, :, :]).sum(dim=-1)
+    normal_grad_v = torch.abs(normal_map[:, 1:, :] - normal_map[:, :-1, :]).sum(dim=-1)
+    depth_grad_u = torch.abs(depth_map[1:, :] - depth_map[:-1, :])
+    depth_grad_v = torch.abs(depth_map[:, 1:] - depth_map[:, :-1])
 
-    weight_u = torch.exp(-dn_u / sigma_n - dd_u / sigma_d)
-    weight_v = torch.exp(-dn_v / sigma_n - dd_v / sigma_d)
+    weight_u = torch.exp(-normal_grad_u / sigma_n - depth_grad_u / sigma_d)
+    weight_v = torch.exp(-normal_grad_v / sigma_n - depth_grad_v / sigma_d)
+
     return weight_u, weight_v
 
 
-class Decomposer(nn.Module):
-    def __init__(
-        self,
-        u,
-        v,
-        n,
-        alpha,
-        mask,
-        stability_eps=1e-8,
-        diffuse_init_scale=0.5,
-    ):
-        super().__init__()
-        self.u, self.v, self.n = u, v, n
-        self.alpha = alpha  # [U, V, 1] or scalar
-        self.mask = mask  # [U, V]
-        self.eps = stability_eps
-
-        # Diffuse is the only free variable. Reflective is solved from exact
-        # reconstruction constraint per-pixel/per-view.
-        self.diffuse_map = nn.Parameter(
-            torch.rand((u, v, 3), device="cuda") * diffuse_init_scale
-        )
-
-    def forward(self, color_map_obs):
-        # Keep diffuse in [0, 1].
-        d = torch.sigmoid(self.diffuse_map)
-
-        # Broadcast diffuse over n dimension: [U, V, 3] -> [U, V, n, 3]
-        d_ext = d.unsqueeze(2).expand(-1, -1, self.n, -1)
-
-        # Enforce exact reconstruction in linear space:
-        # color_map_obs == alpha * diffuse + (1 - alpha) * reflective
-        denom = torch.clamp(1.0 - self.alpha, min=self.eps)
-        r = (color_map_obs - self.alpha * d_ext) / denom
-        r = torch.nan_to_num(r, nan=0.0, posinf=1.0, neginf=0.0)
-        recon = self.alpha * d_ext + (1.0 - self.alpha) * r
-        recon = torch.nan_to_num(recon, nan=0.0, posinf=1.0, neginf=0.0)
-        return recon, d, r
-
-
 def separate_reflection(
-    color_map_obs,
+    explicit_surface_lf,
     alpha,
     mask,
     normal_map,
     depth_map,
-    n_dims=(5, 5),
-    iterations=500,
-    lr=1e-2,
-    diffuse_init_logit_min=1e-4,
-    diffuse_init_logit_max=1.0 - 1e-4,
-    loss_weight_reflective_spatial_tv=0.2,
-    loss_weight_reflective_angular_tv=0.05,
-    loss_weight_reflective_range=0.2,
-    loss_weight_reconstruction=1e-6,
-    log_interval=100,
+    diffuse_init_scale=0.5,
     model_stability_eps=1e-8,
     model_diffuse_init_scale=0.5,
+    diffuse_init_logit_min=1e-4,
+    diffuse_init_logit_max=1.0 - 1e-4,
+    lr=1e-2,
+    weight_reflective_tv_spatial=0.2,
+    weight_reflective_tv_angular=0.05,
+    weight_reflective_range=0.2,
+    weight_reconstruction=1e-6,
+    iterations=500,
 ):
-    u, v, n, _ = color_map_obs.shape
+    """
+    explicit_surface_lf: [U, V, S, T, 3] - pick any [u_0, v_0] and get this point's color across a range of angles
+    alpha: scalar
+    mask: [U, V] - where the object is
+    normal_map: [U, V, 3
+    depth_map: [U, V]
+    """
+    u, v, s, t, c = explicit_surface_lf.shape
 
     # Move inputs to CUDA
-    color_map_obs = color_map_obs.cuda()
+    explicit_surface_lf = explicit_surface_lf.cuda()
     alpha = torch.tensor(alpha).cuda()
-    mask_2d = mask.cuda()
-    mask = mask_2d.unsqueeze(-1).unsqueeze(-1)  # [U, V, 1, 1]
+    mask = mask.cuda()
 
-    # Deterministic boundary behavior for extreme alpha values.
+    # Edge cases of alpha=1 or alpha=0
     if torch.allclose(alpha, torch.ones_like(alpha)):
-        middle_view_idx = n // 2
-        diffuse = color_map_obs[:, :, middle_view_idx, :] * mask_2d.unsqueeze(-1)
-        reflective = torch.zeros_like(color_map_obs)
-        return diffuse.detach(), reflective.detach()
+        middle_view_idx = (s // 2, t // 2)
+        diffuse = explicit_surface_lf[:, :, middle_view_idx[0], middle_view_idx[1], :]
+        reflective = torch.zeros_like(explicit_surface_lf)
+        return diffuse, reflective
 
     if torch.allclose(alpha, torch.zeros_like(alpha)):
         diffuse = torch.zeros(
-            (u, v, 3), device=color_map_obs.device, dtype=color_map_obs.dtype
+            (u, v, 3),
+            device=explicit_surface_lf.device,
+            dtype=explicit_surface_lf.dtype,
         )
-        reflective = color_map_obs * mask
-        return diffuse.detach(), reflective.detach()
+        return diffuse, explicit_surface_lf
 
-    model = Decomposer(
-        u,
-        v,
-        n,
+    model = DiffuseModel(
+        explicit_surface_lf,
         alpha,
         mask,
         stability_eps=model_stability_eps,
@@ -165,46 +172,59 @@ def separate_reflection(
     # Start near the per-pixel mean to reduce early degenerate solutions where
     # reflective can collapse to near-black.
     with torch.no_grad():
-        d0 = color_map_obs.mean(dim=2).clamp(
+        diffuse_component0 = explicit_surface_lf.mean(dim=(2, 3)).clamp(
             diffuse_init_logit_min, diffuse_init_logit_max
         )
-        model.diffuse_map.copy_(torch.log(d0 / (1.0 - d0)))
+        model.diffuse_component.copy_(
+            torch.log(diffuse_component0 / (1.0 - diffuse_component0))
+        )
 
     # Precompute TV weights from geometry
-    w_u, w_v = compute_tv_weight(normal_map.cuda(), depth_map.cuda())
+    tv_weight_u, tv_weight_v = compute_tv_weight(normal_map.cuda(), depth_map.cuda())
     loss_history = []
 
-    for i in range(iterations):
+    for i in tqdm(range(iterations)):
         optimizer.zero_grad()
-
-        recon, d, r = model(color_map_obs)
+        reconstruction, diffuse_image, reflective_image = model()
 
         # 1. Reflective Spatial Smoothness (geometry-aware low frequency prior)
-        diff_ru = torch.abs(r[1:, :, :, :] - r[:-1, :, :, :]).mean(dim=(2, 3))
-        diff_rv = torch.abs(r[:, 1:, :, :] - r[:, :-1, :, :]).mean(dim=(2, 3))
-        loss_tv_r_sp = (diff_ru * w_u).mean() + (diff_rv * w_v).mean()
+        reflective_grad_u = torch.abs(
+            reflective_image[1:, :, :, :] - reflective_image[:-1, :, :, :]
+        ).mean(dim=(2, 3))
+        reflective_grad_v = torch.abs(
+            reflective_image[:, 1:, :, :] - reflective_image[:, :-1, :, :]
+        ).mean(dim=(2, 3))
+        loss_reflective_tv_spatial = (
+            reflective_grad_u * tv_weight_u[:, :, None]
+        ).mean() + (reflective_grad_v * tv_weight_v[:, :, None]).mean()
 
         # 2. Reflective Angular Smoothness
         # Reshape n back to [S, T] to ensure neighbors in angular space are smooth
-        r_angular = r.view(u, v, n_dims[0], n_dims[1], 3)
-        loss_tv_r_ang = (
-            torch.abs(r_angular[:, :, 1:, :, :] - r_angular[:, :, :-1, :, :]).mean()
-            + torch.abs(r_angular[:, :, :, 1:, :] - r_angular[:, :, :, :-1, :]).mean()
+        loss_reflective_tv_angular = (
+            torch.abs(
+                reflective_image[:, :, 1:, :, :] - reflective_image[:, :, :-1, :, :]
+            ).mean()
+            + torch.abs(
+                reflective_image[:, :, :, 1:, :] - reflective_image[:, :, :, :-1, :]
+            ).mean()
         )
 
         # Soft range constraint keeps reflective in [0, 1] while preserving
         # exact reconstruction (no hard clamp in the model path).
-        loss_r_range = (F.relu(-r) + F.relu(r - 1.0)).mean()
-
+        loss_reflective_range = (
+            F.relu(-reflective_image) + F.relu(reflective_image - 1.0)
+        ).mean()
         # Tiny numerical term for reporting the exactness constraint.
-        loss_recon = F.mse_loss(recon * mask, color_map_obs * mask)
+        loss_reconstruction = F.mse_loss(
+            reconstruction * mask[:, :, None, None, None],
+            explicit_surface_lf * mask[:, :, None, None, None],
+        )
 
-        # Total Loss: no diffuse TV, reflective is encouraged to be low-frequency.
         total_loss = (
-            loss_weight_reflective_spatial_tv * loss_tv_r_sp
-            + loss_weight_reflective_angular_tv * loss_tv_r_ang
-            + loss_weight_reflective_range * loss_r_range
-            + loss_weight_reconstruction * loss_recon
+            weight_reflective_tv_spatial * loss_reflective_tv_spatial
+            + weight_reflective_tv_angular * loss_reflective_tv_angular
+            + weight_reflective_range * loss_reflective_range
+            + weight_reconstruction * loss_reconstruction
         )
 
         total_loss.backward()
@@ -212,15 +232,14 @@ def separate_reflection(
         loss_history.append(total_loss.item())
 
     with torch.no_grad():
-        _, d_final, r_final = model(color_map_obs)
-
-    return d_final.detach(), r_final.detach()
+        _, diffuse_image, reflective_image = model()
+    return diffuse_image, reflective_image
 
 
 if __name__ == "__main__":
     sequence_name = "bleach0"
 
-    MIDDLE_REFLECTIVITY = 0.7
+    MIDDLE_REFLECTIVITY = 0.5
     ALPHA = 1 - MIDDLE_REFLECTIVITY
 
     vis_reflective_folder = f"vis_reflective_{MIDDLE_REFLECTIVITY}"
@@ -243,10 +262,14 @@ if __name__ == "__main__":
             dataset.metadata["n_views"][0] // 2,
             dataset.metadata["n_views"][1] // 2,
         ]
+        depth = dataset[i]["depth"]
 
         lf[mask == 0] = 0
 
-        surface_lf, image, depth, mask = build_surface_lf(dataset, i)
+        surface_lf = build_surface_lf(
+            dataset[i],
+            *dataset.metadata["n_views"],
+        )
         surface_normals = surface_lf.surface_normals
 
         colors_middle = surface_lf.colors.permute(1, 0, 2)
@@ -260,20 +283,30 @@ if __name__ == "__main__":
 
         depth_map = torch.clone(depth)
         depth_map[mask == 0] = 0
-        color_map = torch.zeros(
+        explicit_surface_lf = torch.zeros(
             (*mask.shape, colors_middle.shape[1], colors_middle.shape[2]),
             device=colors_middle.device,
         )
-        color_map[mask > 0] = colors_middle
-
-        color_map = srgb_to_linear(color_map)
+        explicit_surface_lf[mask > 0] = colors_middle
+        explicit_surface_lf = srgb_to_linear(explicit_surface_lf)
+        explicit_surface_lf = explicit_surface_lf.reshape(
+            explicit_surface_lf.shape[0],
+            explicit_surface_lf.shape[1],
+            *dataset.metadata["n_views"],
+            3,
+        )
 
         diffuse, reflective = separate_reflection(
-            color_map_obs=color_map,
+            explicit_surface_lf=explicit_surface_lf,
             alpha=ALPHA,
             mask=object_mask,
             normal_map=normal_map,
             depth_map=depth_map,
+        )
+
+        mid_subview = (
+            explicit_surface_lf.shape[2] // 2,
+            explicit_surface_lf.shape[3] // 2,
         )
 
         diffuse = linear_to_srgb(diffuse)
@@ -282,7 +315,7 @@ if __name__ == "__main__":
 
         diffuse_vis = (diffuse.cpu().numpy() * 255).astype(np.uint8)
         reflective_vis = (
-            reflective[:, :, reflective.shape[2] // 2, :].cpu().numpy() * 255
+            reflective[:, :, mid_subview[0], mid_subview[1], :].cpu().numpy() * 255
         ).astype(np.uint8)
 
         Image.fromarray(diffuse_vis).save(
