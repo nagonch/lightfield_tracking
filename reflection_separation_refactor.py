@@ -178,7 +178,21 @@ def separate_reflection(
     tv_weight_u, tv_weight_v = compute_tv_weight(normal_map.cuda(), depth_map.cuda())
     loss_history = []
 
-    reconstruction, diffuse_image, reflective_image = model()
+    for i in range(iterations):
+        optimizer.zero_grad()
+        reconstruction, diffuse_image, reflective_image = model()
+
+        # 1. Reflective Spatial Smoothness (geometry-aware low frequency prior)
+        reflective_grad_u = torch.abs(
+            reflective_image[1:, :, :, :] - reflective_image[:-1, :, :, :]
+        ).mean(dim=(2, 3))
+        reflective_grad_v = torch.abs(
+            reflective_image[:, 1:, :, :] - reflective_image[:, :-1, :, :]
+        ).mean(dim=(2, 3))
+        loss_reflective_tv_spatial = (
+            reflective_grad_u * tv_weight_u[:, :, None]
+        ).mean() + (reflective_grad_v * tv_weight_v[:, :, None]).mean()
+
     return reconstruction, diffuse_image, reflective_image
 
 
