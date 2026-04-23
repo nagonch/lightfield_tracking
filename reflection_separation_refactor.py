@@ -143,8 +143,7 @@ def separate_reflection(
     ).cuda()
 
     reconstruction, diffuse_image, reflective_image = model()
-    print(reconstruction, diffuse_image, reflective_image)
-    raise
+    return reconstruction, diffuse_image, reflective_image
 
 
 if __name__ == "__main__":
