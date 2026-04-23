@@ -25,7 +25,7 @@ if __name__ == "__main__":
     USE_GT_DEPTH = True
     USE_GT_MASK = True
     USE_GT_ENV_MAP = False
-    USE_ICP = True
+    USE_ICP = False
     SEGMENTATION_PROMPT = "cube."
     ENABLE_REFINEMENT_VIEWER = True
     MASK_LOSS = False
@@ -112,6 +112,7 @@ if __name__ == "__main__":
                             .permute(0, 3, 1, 2),
                             torch.tensor(pc_scales).cuda(),
                             previous_environment_map=None,
+                            separation_alpha=1.0 - float(REFLECTIVITY),
                             # use_relight=False,
                         )
                         if USE_GT_ENV_MAP:
@@ -134,6 +135,7 @@ if __name__ == "__main__":
                             .permute(0, 3, 1, 2),
                             torch.tensor(pc_scales).cuda(),
                             previous_environment_map=None,
+                            separation_alpha=1.0 - float(REFLECTIVITY),
                         )
                         if USE_GT_ENV_MAP:
                             surface_lf.environment_map = env_gt_map.to(

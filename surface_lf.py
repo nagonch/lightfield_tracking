@@ -155,6 +155,7 @@ class SurfaceLF:
         pc_scales,
         previous_environment_map: torch.Tensor | None = None,
         env_fusion_alpha: float = 0.6,
+        separation_alpha: float = 0.5,
         use_relight: bool = True,
         flip_env_u: bool = True,
         flip_env_v: bool = True,
@@ -164,6 +165,7 @@ class SurfaceLF:
         self.flip_env_u = flip_env_u
         self.flip_env_v = flip_env_v
         self.env_fusion_alpha = env_fusion_alpha
+        self.separation_alpha = float(max(0.0, min(1.0, separation_alpha)))
         self.calculate(pc, images, pc_scales, previous_environment_map)
 
     @staticmethod
@@ -417,6 +419,58 @@ class SurfaceLF:
         sampled = torch.nan_to_num(sampled, nan=0.0, posinf=0.0, neginf=0.0)
         return sampled, valid
 
+    def _separate_with_reflection_model(
+        self,
+        colors: torch.Tensor,
+        valid: torch.Tensor,
+        eps: float = 1e-8,
+        iterations: int = 200,
+    ):
+        # Reuse reflection_separation.separate_reflection by packing points as [U, V=1, S=n_views, T=1, 3].
+        from reflection_separation import separate_reflection
+
+        n_views, n_points, _ = colors.shape
+        valid_f = valid.to(colors.dtype)
+
+        explicit_surface_lf = colors.permute(1, 0, 2).unsqueeze(1).unsqueeze(3)
+        explicit_surface_lf = explicit_surface_lf * valid_f.permute(1, 0).unsqueeze(
+            1
+        ).unsqueeze(3).unsqueeze(-1)
+
+        object_mask = (valid.any(dim=0)).to(colors.dtype).unsqueeze(-1)
+        normal_map = torch.zeros(
+            (n_points, 1, 3),
+            device=colors.device,
+            dtype=colors.dtype,
+        )
+        depth_map = torch.zeros(
+            (n_points, 1),
+            device=colors.device,
+            dtype=colors.dtype,
+        )
+
+        diffuse_image, reflective_image = separate_reflection(
+            explicit_surface_lf=explicit_surface_lf,
+            alpha=self.separation_alpha,
+            mask=object_mask,
+            normal_map=normal_map,
+            depth_map=depth_map,
+            iterations=iterations,
+            weight_reflective_tv_spatial=0.0,
+        )
+
+        diffuse_point = diffuse_image[:, 0, :]
+        diffuse_views = diffuse_point.unsqueeze(0).expand(n_views, -1, -1)
+        specular_views = reflective_image[:, 0, :, 0, :].permute(1, 0, 2).contiguous()
+        specular_views = torch.nan_to_num(
+            specular_views, nan=0.0, posinf=1.0, neginf=0.0
+        )
+        specular_views = torch.clamp(specular_views, 0.0, 1.0)
+
+        diffuse_views = diffuse_views * valid_f.unsqueeze(-1)
+        specular_views = specular_views * valid_f.unsqueeze(-1)
+        return diffuse_views, diffuse_point, specular_views
+
     @property
     def K(self):
         return self.rig.K
@@ -488,8 +542,28 @@ class SurfaceLF:
         self.colors = colors
         self.view_dirs = view_dirs
         self.valid = valid
-        sh_coeffs = fit_sh_coeffs_per_point(
+
+        # 1) Baseline fit from raw colors (used as strict fallback when env is missing).
+        sh_coeffs_original = fit_sh_coeffs_per_point(
             colors.float(),
+            view_dirs.float(),
+            valid.float(),
+            max_degree=2,
+            lambda_reg=1e-3,
+        )
+
+        # 2) Separate colors into diffuse + specular using separate_reflection.
+        diffuse_views, diffuse_point, specular_views = (
+            self._separate_with_reflection_model(
+                colors=colors,
+                valid=valid,
+                eps=eps,
+            )
+        )
+
+        # 3) Fit diffuse values.
+        sh_coeffs_diffuse = fit_sh_coeffs_per_point(
+            diffuse_views.float(),
             view_dirs.float(),
             valid.float(),
             max_degree=2,
@@ -506,15 +580,20 @@ class SurfaceLF:
 
         self.values = {
             "means": points_world,
-            "harmonics": sh_coeffs,
+            "harmonics": sh_coeffs_original,
             "rotations": quats,
             "scales": pc_scales * scale_constant,
             "opacities": opacities,
         }
+        self.original_harmonics = sh_coeffs_original
+        self.diffuse_harmonics = sh_coeffs_diffuse
+        self.diffuse_color_per_point = diffuse_point
         self.surface_normals = surface_normals
+
+        # 4) Build environment map from specular values only.
         current_environment_map = self._build_environment_map(
             reflected_dirs=reflected_dirs,
-            colors=colors,
+            colors=specular_views,
             valid=valid,
             view_dirs=view_dirs,
             normals=surface_normals,
@@ -540,7 +619,7 @@ class SurfaceLF:
         points1 = (R @ points0.T).T + t[None, :]
         values["means"] = points1
 
-        old_harmonics = self.values["harmonics"].float()
+        old_harmonics = self.original_harmonics.float()
 
         env_map_hwc = self._ensure_env_hwc(self.environment_map).to(
             device=points1.device,
@@ -581,6 +660,22 @@ class SurfaceLF:
         sampled_colors, env_valid = self._sample_environment_map(
             reflected_dirs, env_map_hwc
         )
+
+        alpha = torch.tensor(
+            self.separation_alpha,
+            device=points1.device,
+            dtype=sampled_colors.dtype,
+        )
+        diffuse_view = (
+            self.diffuse_color_per_point.to(
+                device=points1.device,
+                dtype=sampled_colors.dtype,
+            )
+            .unsqueeze(0)
+            .expand_as(sampled_colors)
+        )
+        relit_colors = alpha * diffuse_view + (1.0 - alpha) * sampled_colors
+
         fit_valid = valid_geom & env_valid
 
         # Skip relighting if any required env sample is missing for this Gaussian.
@@ -589,7 +684,7 @@ class SurfaceLF:
         can_relight = (visible_count >= min_valid_views) & (~has_missing_env)
 
         new_harmonics = fit_sh_coeffs_per_point(
-            sampled_colors.float(),
+            relit_colors.float(),
             view_dirs.float(),
             fit_valid.float(),
             max_degree=2,
