@@ -50,6 +50,17 @@ def build_surface_lf(frame, s_size, t_size):
     return surface_lf
 
 
+def separate_reflection(explicit_surface_lf, alpha, mask, normal_map, depth_map):
+    """
+    explicit_surface_lf: [U, V, S, T, 3] - pick any [u_0, v_0] and get this point's color across a range of angles
+    alpha: scalar
+    mask: [U, V] - where the object is
+    normal_map: [U, V, 3
+    depth_map: [U, V]
+    """
+    pass
+
+
 if __name__ == "__main__":
     sequence_name = "bleach0"
 
@@ -105,8 +116,19 @@ if __name__ == "__main__":
 
         color_map = srgb_to_linear(color_map)
 
+        color_map = color_map.reshape(
+            color_map.shape[0],
+            color_map.shape[1],
+            *dataset.metadata["n_views"],
+            3,
+        )
+        print(
+            color_map.shape, ALPHA, object_mask.shape, normal_map.shape, depth_map.shape
+        )
+        raise
+
         diffuse, reflective = separate_reflection(
-            color_map_obs=color_map,
+            color_map=color_map,
             alpha=ALPHA,
             mask=object_mask,
             normal_map=normal_map,
