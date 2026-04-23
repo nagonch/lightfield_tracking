@@ -50,7 +50,61 @@ def build_surface_lf(frame, s_size, t_size):
     return surface_lf
 
 
-def separate_reflection(explicit_surface_lf, alpha, mask, normal_map, depth_map):
+class DiffuseModel(nn.Module):
+    def __init__(
+        self,
+        explicit_surface_lf,
+        alpha,
+        mask,
+        stability_eps=1e-8,
+        diffuse_init_scale=0.5,
+    ):
+        super().__init__()
+        self.explicit_surface_lf = explicit_surface_lf
+        self.u, self.v, self.s, self.t = explicit_surface_lf.shape[:4]
+        self.alpha = alpha
+        self.mask = mask
+        self.eps = stability_eps
+
+        self.diffuse_component = nn.Parameter(
+            torch.rand((self.u, self.v, 3), device="cuda") * diffuse_init_scale
+        )
+
+    def forward(self):
+        # Keep diffuse in [0, 1].
+        diffuse_image = torch.sigmoid(self.diffuse_component)
+
+        # Broadcast diffuse over n dimension: [U, V, 3] -> [U, V, S, T, 3]
+        diffuse_image_ext = diffuse_image[:, :, None, None, :].expand(
+            -1, -1, self.s, self.t, -1
+        )
+
+        denom = torch.clamp(1.0 - self.alpha, min=self.eps)
+        reflective_image = (
+            self.explicit_surface_lf - self.alpha * diffuse_image_ext
+        ) / denom
+        reflective_image = torch.nan_to_num(
+            reflective_image, nan=0.0, posinf=1.0, neginf=0.0
+        )
+        reconstruction = (
+            self.alpha * diffuse_image_ext + (1.0 - self.alpha) * reflective_image
+        )
+        reconstruction = torch.nan_to_num(
+            reconstruction, nan=0.0, posinf=1.0, neginf=0.0
+        )
+        return reconstruction, diffuse_image, reflective_image
+
+
+def separate_reflection(
+    explicit_surface_lf,
+    alpha,
+    mask,
+    normal_map,
+    depth_map,
+    diffuse_init_scale=0.5,
+    model_stability_eps=1e-8,
+    model_diffuse_init_scale=0.5,
+):
     """
     explicit_surface_lf: [U, V, S, T, 3] - pick any [u_0, v_0] and get this point's color across a range of angles
     alpha: scalar
@@ -80,11 +134,23 @@ def separate_reflection(explicit_surface_lf, alpha, mask, normal_map, depth_map)
         )
         return diffuse, explicit_surface_lf
 
+    model = DiffuseModel(
+        explicit_surface_lf,
+        alpha,
+        mask,
+        stability_eps=model_stability_eps,
+        diffuse_init_scale=model_diffuse_init_scale,
+    ).cuda()
+
+    reconstruction, diffuse_image, reflective_image = model()
+    print(reconstruction, diffuse_image, reflective_image)
+    raise
+
 
 if __name__ == "__main__":
     sequence_name = "bleach0"
 
-    MIDDLE_REFLECTIVITY = 1.0
+    MIDDLE_REFLECTIVITY = 0.5
     ALPHA = 1 - MIDDLE_REFLECTIVITY
 
     vis_reflective_folder = f"vis_reflective_{MIDDLE_REFLECTIVITY}"
