@@ -95,6 +95,23 @@ class DiffuseModel(nn.Module):
         return reconstruction, diffuse_image, reflective_image
 
 
+def compute_tv_weight(normal_map, depth_map, sigma_n=1.0, sigma_d=1.0):
+    """
+    Computes weights for TV based on geometric discontinuities.
+    High gradient in normals or depth = lower weight (allows edges).
+    """
+    # normal_map: [U, V, 3], depth_map: [U, V]
+    normal_grad_u = torch.abs(normal_map[1:, :, :] - normal_map[:-1, :, :]).sum(dim=-1)
+    normal_grad_v = torch.abs(normal_map[:, 1:, :] - normal_map[:, :-1, :]).sum(dim=-1)
+    depth_grad_u = torch.abs(depth_map[1:, :] - depth_map[:-1, :])
+    depth_grad_v = torch.abs(depth_map[:, 1:] - depth_map[:, :-1])
+
+    weight_u = torch.exp(-normal_grad_u / sigma_n - depth_grad_u / sigma_d)
+    weight_v = torch.exp(-normal_grad_v / sigma_n - depth_grad_v / sigma_d)
+
+    return weight_u, weight_v
+
+
 def separate_reflection(
     explicit_surface_lf,
     alpha,
@@ -104,6 +121,10 @@ def separate_reflection(
     diffuse_init_scale=0.5,
     model_stability_eps=1e-8,
     model_diffuse_init_scale=0.5,
+    diffuse_init_logit_min=1e-4,
+    diffuse_init_logit_max=1.0 - 1e-4,
+    lr=1e-2,
+    iterations=500,
 ):
     """
     explicit_surface_lf: [U, V, S, T, 3] - pick any [u_0, v_0] and get this point's color across a range of angles
@@ -141,6 +162,21 @@ def separate_reflection(
         stability_eps=model_stability_eps,
         diffuse_init_scale=model_diffuse_init_scale,
     ).cuda()
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+
+    # Start near the per-pixel mean to reduce early degenerate solutions where
+    # reflective can collapse to near-black.
+    with torch.no_grad():
+        diffuse_component0 = explicit_surface_lf.mean(dim=(2, 3)).clamp(
+            diffuse_init_logit_min, diffuse_init_logit_max
+        )
+        model.diffuse_component.copy_(
+            torch.log(diffuse_component0 / (1.0 - diffuse_component0))
+        )
+
+    # Precompute TV weights from geometry
+    tv_weight_u, tv_weight_v = compute_tv_weight(normal_map.cuda(), depth_map.cuda())
+    loss_history = []
 
     reconstruction, diffuse_image, reflective_image = model()
     return reconstruction, diffuse_image, reflective_image
