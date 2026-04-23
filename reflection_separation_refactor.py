@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import os
 from utils import srgb_to_linear, linear_to_srgb
+from tqdm import tqdm
 
 
 def build_surface_lf(frame, s_size, t_size):
@@ -124,6 +125,10 @@ def separate_reflection(
     diffuse_init_logit_min=1e-4,
     diffuse_init_logit_max=1.0 - 1e-4,
     lr=1e-2,
+    weight_reflective_tv_spatial=0.2,
+    weight_reflective_tv_angular=0.05,
+    weight_reflective_range=0.2,
+    weight_reconstruction=1e-6,
     iterations=500,
 ):
     """
@@ -178,7 +183,7 @@ def separate_reflection(
     tv_weight_u, tv_weight_v = compute_tv_weight(normal_map.cuda(), depth_map.cuda())
     loss_history = []
 
-    for i in range(iterations):
+    for i in tqdm(range(iterations)):
         optimizer.zero_grad()
         reconstruction, diffuse_image, reflective_image = model()
 
@@ -193,7 +198,42 @@ def separate_reflection(
             reflective_grad_u * tv_weight_u[:, :, None]
         ).mean() + (reflective_grad_v * tv_weight_v[:, :, None]).mean()
 
-    return reconstruction, diffuse_image, reflective_image
+        # 2. Reflective Angular Smoothness
+        # Reshape n back to [S, T] to ensure neighbors in angular space are smooth
+        loss_reflective_tv_angular = (
+            torch.abs(
+                reflective_image[:, :, 1:, :, :] - reflective_image[:, :, :-1, :, :]
+            ).mean()
+            + torch.abs(
+                reflective_image[:, :, :, 1:, :] - reflective_image[:, :, :, :-1, :]
+            ).mean()
+        )
+
+        # Soft range constraint keeps reflective in [0, 1] while preserving
+        # exact reconstruction (no hard clamp in the model path).
+        loss_reflective_range = (
+            F.relu(-reflective_image) + F.relu(reflective_image - 1.0)
+        ).mean()
+        # Tiny numerical term for reporting the exactness constraint.
+        loss_reconstruction = F.mse_loss(
+            reconstruction * mask[:, :, None, None, None],
+            explicit_surface_lf * mask[:, :, None, None, None],
+        )
+
+        total_loss = (
+            weight_reflective_tv_spatial * loss_reflective_tv_spatial
+            + weight_reflective_tv_angular * loss_reflective_tv_angular
+            + weight_reflective_range * loss_reflective_range
+            + weight_reconstruction * loss_reconstruction
+        )
+
+        total_loss.backward()
+        optimizer.step()
+        loss_history.append(total_loss.item())
+
+    with torch.no_grad():
+        _, diffuse_image, reflective_image = model()
+    return diffuse_image, reflective_image
 
 
 if __name__ == "__main__":
