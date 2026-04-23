@@ -47,7 +47,6 @@ def build_surface_lf(frame, s_size, t_size):
         pc_scales,
         previous_environment_map=None,
     )
-    image, depth_rendered, target_mask = surface_lf.rasterize(torch.eye(4).cuda())
     return surface_lf
 
 
