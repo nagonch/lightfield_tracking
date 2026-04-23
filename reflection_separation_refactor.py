@@ -58,13 +58,33 @@ def separate_reflection(explicit_surface_lf, alpha, mask, normal_map, depth_map)
     normal_map: [U, V, 3
     depth_map: [U, V]
     """
-    pass
+    u, v, s, t, c = explicit_surface_lf.shape
+
+    # Move inputs to CUDA
+    explicit_surface_lf = explicit_surface_lf.cuda()
+    alpha = torch.tensor(alpha).cuda()
+    mask = mask.cuda()
+
+    # Edge cases of alpha=1 or alpha=0
+    if torch.allclose(alpha, torch.ones_like(alpha)):
+        middle_view_idx = (s // 2, t // 2)
+        diffuse = explicit_surface_lf[:, :, middle_view_idx[0], middle_view_idx[1], :]
+        reflective = torch.zeros_like(explicit_surface_lf)
+        return diffuse, reflective
+
+    if torch.allclose(alpha, torch.zeros_like(alpha)):
+        diffuse = torch.zeros(
+            (u, v, 3),
+            device=explicit_surface_lf.device,
+            dtype=explicit_surface_lf.dtype,
+        )
+        return diffuse, explicit_surface_lf
 
 
 if __name__ == "__main__":
     sequence_name = "bleach0"
 
-    MIDDLE_REFLECTIVITY = 0.7
+    MIDDLE_REFLECTIVITY = 1.0
     ALPHA = 1 - MIDDLE_REFLECTIVITY
 
     vis_reflective_folder = f"vis_reflective_{MIDDLE_REFLECTIVITY}"
@@ -108,31 +128,30 @@ if __name__ == "__main__":
 
         depth_map = torch.clone(depth)
         depth_map[mask == 0] = 0
-        color_map = torch.zeros(
+        explicit_surface_lf = torch.zeros(
             (*mask.shape, colors_middle.shape[1], colors_middle.shape[2]),
             device=colors_middle.device,
         )
-        color_map[mask > 0] = colors_middle
-
-        color_map = srgb_to_linear(color_map)
-
-        color_map = color_map.reshape(
-            color_map.shape[0],
-            color_map.shape[1],
+        explicit_surface_lf[mask > 0] = colors_middle
+        explicit_surface_lf = srgb_to_linear(explicit_surface_lf)
+        explicit_surface_lf = explicit_surface_lf.reshape(
+            explicit_surface_lf.shape[0],
+            explicit_surface_lf.shape[1],
             *dataset.metadata["n_views"],
             3,
         )
-        print(
-            color_map.shape, ALPHA, object_mask.shape, normal_map.shape, depth_map.shape
-        )
-        raise
 
         diffuse, reflective = separate_reflection(
-            color_map=color_map,
+            explicit_surface_lf=explicit_surface_lf,
             alpha=ALPHA,
             mask=object_mask,
             normal_map=normal_map,
             depth_map=depth_map,
+        )
+
+        mid_subview = (
+            explicit_surface_lf.shape[2] // 2,
+            explicit_surface_lf.shape[3] // 2,
         )
 
         diffuse = linear_to_srgb(diffuse)
@@ -141,7 +160,7 @@ if __name__ == "__main__":
 
         diffuse_vis = (diffuse.cpu().numpy() * 255).astype(np.uint8)
         reflective_vis = (
-            reflective[:, :, reflective.shape[2] // 2, :].cpu().numpy() * 255
+            reflective[:, :, mid_subview[0], mid_subview[1], :].cpu().numpy() * 255
         ).astype(np.uint8)
 
         Image.fromarray(diffuse_vis).save(
