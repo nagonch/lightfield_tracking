@@ -25,7 +25,7 @@ if __name__ == "__main__":
     USE_GT_DEPTH = True
     USE_GT_MASK = True
     USE_GT_ENV_MAP = False
-    USE_ICP = False
+    USE_ICP = True
     SEGMENTATION_PROMPT = "cube."
     ENABLE_REFINEMENT_VIEWER = True
     MASK_LOSS = False
@@ -40,10 +40,10 @@ if __name__ == "__main__":
         )
 
     for REFLECTIVITY in [
-        # "0.0",
+        "0.0",
         # "0.5",
         # "0.7",
-        "1.0",
+        # "1.0",
     ]:
         RESULTS_FOLDER = f"{EXP_NAME}_{REFLECTIVITY}/ycbv_lf"
         os.makedirs(RESULTS_FOLDER, exist_ok=True)
