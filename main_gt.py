@@ -41,9 +41,9 @@ if __name__ == "__main__":
 
     for REFLECTIVITY in [
         "0.0",
-        # "0.5",
-        # "0.7",
-        # "1.0",
+        "0.5",
+        "0.7",
+        "1.0",
     ]:
         RESULTS_FOLDER = f"{EXP_NAME}_{REFLECTIVITY}/ycbv_lf"
         os.makedirs(RESULTS_FOLDER, exist_ok=True)
