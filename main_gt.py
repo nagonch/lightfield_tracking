@@ -21,10 +21,11 @@ from PIL import Image
 from time import sleep
 
 if __name__ == "__main__":
-    EXP_NAME = "results_ours_full_relight"
+    EXP_NAME = "results_ours_full_relight_naive"
     USE_GT_DEPTH = True
     USE_GT_MASK = True
     USE_GT_ENV_MAP = False
+    USE_NAIVE_RELIGHT = True
     USE_ICP = True
     SEGMENTATION_PROMPT = "cube."
     ENABLE_REFINEMENT_VIEWER = False
@@ -41,7 +42,7 @@ if __name__ == "__main__":
     segmentor = Segmentor(prompt=SEGMENTATION_PROMPT)
     for REFLECTIVITY in [
         # "0.0",
-        # "0.5",
+        "0.5",
         "0.7",
         "1.0",
     ]:
@@ -112,6 +113,7 @@ if __name__ == "__main__":
                             torch.tensor(pc_scales).cuda(),
                             previous_environment_map=None,
                             separation_alpha=1.0 - float(REFLECTIVITY),
+                            use_naive_relight=USE_NAIVE_RELIGHT,
                             # use_relight=False,
                         )
                         if USE_GT_ENV_MAP:
@@ -135,6 +137,7 @@ if __name__ == "__main__":
                             torch.tensor(pc_scales).cuda(),
                             previous_environment_map=None,
                             separation_alpha=1.0 - float(REFLECTIVITY),
+                            use_naive_relight=USE_NAIVE_RELIGHT,
                         )
                         if USE_GT_ENV_MAP:
                             surface_lf.environment_map = env_gt_map.to(

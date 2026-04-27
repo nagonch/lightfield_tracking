@@ -156,11 +156,13 @@ class SurfaceLF:
         previous_environment_map: torch.Tensor | None = None,
         env_fusion_alpha: float = 0.6,
         separation_alpha: float = 0.5,
+        use_naive_relight: bool = False,
         use_relight: bool = True,
         flip_env_u: bool = True,
         flip_env_v: bool = True,
     ):
         self.rig = rig
+        self.use_naive_relight = use_naive_relight
         self.use_relight = use_relight
         self.flip_env_u = flip_env_u
         self.flip_env_v = flip_env_v
@@ -552,23 +554,30 @@ class SurfaceLF:
             lambda_reg=1e-3,
         )
 
-        # 2) Separate colors into diffuse + specular using separate_reflection.
-        diffuse_views, diffuse_point, specular_views = (
-            self._separate_with_reflection_model(
-                colors=colors,
-                valid=valid,
-                eps=eps,
+        if self.use_naive_relight:
+            diffuse_views = colors
+            diffuse_count = valid.sum(dim=0).clamp(min=1).unsqueeze(-1).to(colors.dtype)
+            diffuse_point = colors.sum(dim=0) / diffuse_count
+            specular_views = colors
+            sh_coeffs_diffuse = sh_coeffs_original
+        else:
+            # 2) Separate colors into diffuse + specular using separate_reflection.
+            diffuse_views, diffuse_point, specular_views = (
+                self._separate_with_reflection_model(
+                    colors=colors,
+                    valid=valid,
+                    eps=eps,
+                )
             )
-        )
 
-        # 3) Fit diffuse values.
-        sh_coeffs_diffuse = fit_sh_coeffs_per_point(
-            diffuse_views.float(),
-            view_dirs.float(),
-            valid.float(),
-            max_degree=2,
-            lambda_reg=1e-3,
-        )
+            # 3) Fit diffuse values.
+            sh_coeffs_diffuse = fit_sh_coeffs_per_point(
+                diffuse_views.float(),
+                view_dirs.float(),
+                valid.float(),
+                max_degree=2,
+                lambda_reg=1e-3,
+            )
 
         opacities = torch.ones_like(points_world[:, 0])
         quats = torch.stack(
@@ -590,7 +599,7 @@ class SurfaceLF:
         self.diffuse_color_per_point = diffuse_point
         self.surface_normals = surface_normals
 
-        # 4) Build environment map from specular values only.
+        # 4) Build environment map. In naive mode, this uses the raw observed colors.
         current_environment_map = self._build_environment_map(
             reflected_dirs=reflected_dirs,
             colors=specular_views,
@@ -661,20 +670,23 @@ class SurfaceLF:
             reflected_dirs, env_map_hwc
         )
 
-        alpha = torch.tensor(
-            self.separation_alpha,
-            device=points1.device,
-            dtype=sampled_colors.dtype,
-        )
-        diffuse_view = (
-            self.diffuse_color_per_point.to(
+        if self.use_naive_relight:
+            relit_colors = sampled_colors
+        else:
+            alpha = torch.tensor(
+                self.separation_alpha,
                 device=points1.device,
                 dtype=sampled_colors.dtype,
             )
-            .unsqueeze(0)
-            .expand_as(sampled_colors)
-        )
-        relit_colors = alpha * diffuse_view + (1.0 - alpha) * sampled_colors
+            diffuse_view = (
+                self.diffuse_color_per_point.to(
+                    device=points1.device,
+                    dtype=sampled_colors.dtype,
+                )
+                .unsqueeze(0)
+                .expand_as(sampled_colors)
+            )
+            relit_colors = alpha * diffuse_view + (1.0 - alpha) * sampled_colors
 
         fit_valid = valid_geom & env_valid
 
