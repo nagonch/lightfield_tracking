@@ -21,13 +21,13 @@ from PIL import Image
 from time import sleep
 
 if __name__ == "__main__":
-    EXP_NAME = "results_ours_icp_box_refined"
+    EXP_NAME = "results_ours_full_relight"
     USE_GT_DEPTH = True
     USE_GT_MASK = True
     USE_GT_ENV_MAP = False
     USE_ICP = True
     SEGMENTATION_PROMPT = "cube."
-    ENABLE_REFINEMENT_VIEWER = True
+    ENABLE_REFINEMENT_VIEWER = False
     MASK_LOSS = False
 
     REFINEMENT_VIEWER_UPDATE_EVERY = 10
@@ -38,16 +38,15 @@ if __name__ == "__main__":
             np.asarray(Image.open("env_gt.jpg").convert("RGB"), dtype=np.float32)
             / 255.0
         )
-
+    segmentor = Segmentor(prompt=SEGMENTATION_PROMPT)
     for REFLECTIVITY in [
-        "0.0",
-        "0.5",
+        # "0.0",
+        # "0.5",
         "0.7",
         "1.0",
     ]:
         RESULTS_FOLDER = f"{EXP_NAME}_{REFLECTIVITY}/ycbv_lf"
         os.makedirs(RESULTS_FOLDER, exist_ok=True)
-        segmentor = Segmentor(prompt=SEGMENTATION_PROMPT)
         if not USE_GT_DEPTH:
             depth_estimator = DepthEstimator(infer_gs=False)
         for sequence_name in os.listdir(
