@@ -157,12 +157,16 @@ class SurfaceLF:
         env_fusion_alpha: float = 0.6,
         separation_alpha: float = 0.5,
         use_naive_relight: bool = False,
+        use_environment_map: bool = True,
         use_relight: bool = True,
         flip_env_u: bool = True,
         flip_env_v: bool = True,
     ):
         self.rig = rig
         self.use_naive_relight = use_naive_relight
+        self.use_environment_map = use_environment_map and (
+            use_relight or use_naive_relight
+        )
         self.use_relight = use_relight
         self.flip_env_u = flip_env_u
         self.flip_env_v = flip_env_v
@@ -554,6 +558,32 @@ class SurfaceLF:
             lambda_reg=1e-3,
         )
 
+        if not self.use_environment_map:
+            opacities = torch.ones_like(points_world[:, 0])
+            quats = torch.stack(
+                [
+                    torch.tensor([1, 0, 0, 0]).cuda(),
+                ]
+                * points_world.shape[0]
+            ).float()
+
+            self.values = {
+                "means": points_world,
+                "harmonics": sh_coeffs_original,
+                "rotations": quats,
+                "scales": pc_scales * scale_constant,
+                "opacities": opacities,
+            }
+            self.original_harmonics = sh_coeffs_original
+            self.diffuse_harmonics = sh_coeffs_original
+            self.diffuse_color_per_point = None
+            self.surface_normals = None
+            self.colors = colors
+            self.view_dirs = view_dirs
+            self.valid = valid
+            self.environment_map = None
+            return self.values, self.surface_normals, self.environment_map
+
         if self.use_naive_relight:
             diffuse_views = colors
             diffuse_count = valid.sum(dim=0).clamp(min=1).unsqueeze(-1).to(colors.dtype)
@@ -619,6 +649,8 @@ class SurfaceLF:
             device=self.values["means"].device,
             dtype=self.values["means"].dtype,
         )
+        if self.environment_map is None:
+            return self.transform_naive(rel_pose)
         values = self.values.copy()
 
         R = rel_pose[:3, :3]

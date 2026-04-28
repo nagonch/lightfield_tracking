@@ -21,11 +21,13 @@ from PIL import Image
 from time import sleep
 
 if __name__ == "__main__":
-    EXP_NAME = "results_ours_full_relight_naive"
+    EXP_NAME = "results_ours_naive"
     USE_GT_DEPTH = True
     USE_GT_MASK = True
     USE_GT_ENV_MAP = False
-    USE_NAIVE_RELIGHT = True
+    USE_RELIGHT = False
+    USE_NAIVE_RELIGHT = False
+    USE_ENV_MAP = USE_RELIGHT or USE_NAIVE_RELIGHT
     USE_ICP = True
     SEGMENTATION_PROMPT = "cube."
     ENABLE_REFINEMENT_VIEWER = False
@@ -41,7 +43,7 @@ if __name__ == "__main__":
         )
     segmentor = Segmentor(prompt=SEGMENTATION_PROMPT)
     for REFLECTIVITY in [
-        # "0.0",
+        "0.0",
         "0.5",
         "0.7",
         "1.0",
@@ -114,9 +116,11 @@ if __name__ == "__main__":
                             previous_environment_map=None,
                             separation_alpha=1.0 - float(REFLECTIVITY),
                             use_naive_relight=USE_NAIVE_RELIGHT,
+                            use_environment_map=USE_ENV_MAP,
+                            use_relight=USE_RELIGHT,
                             # use_relight=False,
                         )
-                        if USE_GT_ENV_MAP:
+                        if USE_GT_ENV_MAP and surface_lf.environment_map is not None:
                             surface_lf.environment_map = env_gt_map.to(
                                 device=surface_lf.environment_map.device,
                                 dtype=surface_lf.environment_map.dtype,
@@ -138,8 +142,10 @@ if __name__ == "__main__":
                             previous_environment_map=None,
                             separation_alpha=1.0 - float(REFLECTIVITY),
                             use_naive_relight=USE_NAIVE_RELIGHT,
+                            use_environment_map=USE_ENV_MAP,
+                            use_relight=USE_RELIGHT,
                         )
-                        if USE_GT_ENV_MAP:
+                        if USE_GT_ENV_MAP and surface_lf.environment_map is not None:
                             surface_lf.environment_map = env_gt_map.to(
                                 device=surface_lf.environment_map.device,
                                 dtype=surface_lf.environment_map.dtype,
@@ -194,13 +200,16 @@ if __name__ == "__main__":
                         est_poses.append(pose_refined)
                         pc_prev = pc
                         color_prev = color
-                    env_map_prev = surface_lf.environment_map.detach()
-                    if USE_GT_ENV_MAP:
-                        env_map_prev = env_gt_map
-                    env_map_np = (
-                        torch.clamp(env_map_prev, 0.0, 1.0).cpu().numpy() * 255.0
-                    ).astype(np.uint8)
-                    Image.fromarray(env_map_np).save(os.path.join("env_map.png"))
+                    if surface_lf.environment_map is not None:
+                        env_map_prev = surface_lf.environment_map.detach()
+                        if USE_GT_ENV_MAP:
+                            env_map_prev = env_gt_map
+                        env_map_np = (
+                            torch.clamp(env_map_prev, 0.0, 1.0).cpu().numpy() * 255.0
+                        ).astype(np.uint8)
+                        Image.fromarray(env_map_np).save(os.path.join("env_map.png"))
+                    else:
+                        env_map_prev = None
                     surface_lf_prev = surface_lf
                     mask_prev = mask
                     gt_poses_np = np.stack(gt_poses, axis=0)
