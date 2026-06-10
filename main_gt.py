@@ -21,11 +21,11 @@ from PIL import Image
 from time import sleep
 
 if __name__ == "__main__":
-    EXP_NAME = "results_ours_naive"
+    EXP_NAME = "results_ours"
     USE_GT_DEPTH = True
     USE_GT_MASK = True
     USE_GT_ENV_MAP = False
-    USE_RELIGHT = False
+    USE_RELIGHT = True
     USE_NAIVE_RELIGHT = False
     USE_ENV_MAP = USE_RELIGHT or USE_NAIVE_RELIGHT
     USE_ICP = True
