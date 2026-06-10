@@ -2,6 +2,7 @@ import os
 import torch
 import numpy as np
 import json
+import trimesh
 from PIL import Image
 
 
@@ -13,6 +14,26 @@ class LFDataset:
             self.flip = False
         self.poses_to_opencv = poses_to_opencv
         self.folder = folder
+
+        # Determine dataset root and object name from folder path
+        split_dir = os.path.dirname(folder)         # e.g. .../SpecTrack_dataset/cube_0.0
+        split_name = os.path.basename(split_dir)    # e.g. cube_0.0
+        seq_name = os.path.basename(folder)         # e.g. bleach_hard_00_03_chaitanya
+        self.dataset_root = os.path.dirname(split_dir)
+
+        if split_name.startswith("cube_"):
+            self.object_name = "cube"
+        else:
+            mesh_names = [
+                m for m in os.listdir(os.path.join(self.dataset_root, "object_meshes"))
+                if os.path.isdir(os.path.join(self.dataset_root, "object_meshes", m))
+            ]
+            self.object_name = max(
+                mesh_names,
+                key=lambda m: len(os.path.commonprefix([seq_name, m])),
+            )
+
+        self.mesh_dir = os.path.join(self.dataset_root, "object_meshes", self.object_name)
         self.camera_matrix = torch.tensor(
             np.loadtxt(f"{self.folder}/camera_matrix.txt"), dtype=torch.float32
         )
@@ -44,6 +65,10 @@ class LFDataset:
             [[1, 0, 0, 0], [0, 0, -1, 0], [0, 1, 0, 0], [0, 0, 0, 1]],
             dtype=torch.float32,
         ).cuda()
+
+    def get_mesh(self) -> trimesh.Trimesh:
+        obj_path = os.path.join(self.mesh_dir, "textured_simple.obj")
+        return trimesh.load(obj_path, force="mesh")
 
     def __len__(self):
         return self.size
