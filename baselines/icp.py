@@ -18,16 +18,22 @@ class SpecTrackSequence:
 
     5x5 light field; central view is at grid index (2,2) = flat index 12.
     Depth images are uint16 in millimetres; poses use the OpenCV camera convention.
+
+    depth_mode: "gt" → depth/, "synth" → depth_synth/
     """
 
     CENTRAL_VIEW = 12  # 2*5 + 2
+    DEPTH_DIRS = {"gt": "depth", "synth": "depth_synth"}
 
-    def __init__(self, seq_dir: str):
+    def __init__(self, seq_dir: str, depth_mode: str = "gt"):
+        assert depth_mode in self.DEPTH_DIRS, f"depth_mode must be 'gt' or 'synth', got {depth_mode!r}"
         self.seq_dir = seq_dir
+        self.depth_mode = depth_mode
         self.K = np.loadtxt(os.path.join(seq_dir, "camera_matrix.txt"))  # (3,3)
 
         self.frames = sorted(d for d in os.listdir(seq_dir) if d.startswith("LF_"))
-        self.depth_files = sorted(os.listdir(os.path.join(seq_dir, "depth")))
+        synth_files = set(os.listdir(os.path.join(seq_dir, "depth_synth")))
+        self._synth_files = synth_files
         self.obj_pose_files = sorted(
             os.listdir(os.path.join(seq_dir, "object_poses"))
         )
@@ -53,9 +59,15 @@ class SpecTrackSequence:
         frame_dir = os.path.join(self.seq_dir, self.frames[idx])
         vname = f"{self.CENTRAL_VIEW:04d}.png"
         rgb = np.array(Image.open(os.path.join(frame_dir, vname)))
+        # Frame "LF_0138" → depth file "0138.png"
+        depth_fname = self.frames[idx][3:] + ".png"
+        if self.depth_mode == "synth" and depth_fname not in self._synth_files:
+            depth_dir = "depth"  # fall back to GT depth for missing synth frames
+        else:
+            depth_dir = self.DEPTH_DIRS[self.depth_mode]
         depth = (
             np.array(
-                Image.open(os.path.join(self.seq_dir, "depth", self.depth_files[idx]))
+                Image.open(os.path.join(self.seq_dir, depth_dir, depth_fname))
             ).astype(np.float64)
             / 1000.0
         )
@@ -187,25 +199,26 @@ if __name__ == "__main__":
         and (d.startswith("cube_") or d.startswith("objects_"))
     )
 
-    for split in splits:
-        split_dir = os.path.join(DATASET_ROOT, split)
-        out_dir = os.path.join(RESULTS_DIR, split)
-        os.makedirs(out_dir, exist_ok=True)
+    for depth_mode in ("gt", "synth"):
+        for split in splits:
+            split_dir = os.path.join(DATASET_ROOT, split)
+            out_dir = os.path.join(RESULTS_DIR, depth_mode, split)
+            os.makedirs(out_dir, exist_ok=True)
 
-        sequences = sorted(
-            s
-            for s in os.listdir(split_dir)
-            if os.path.isdir(os.path.join(split_dir, s)) and s != "models"
-        )
+            sequences = sorted(
+                s
+                for s in os.listdir(split_dir)
+                if os.path.isdir(os.path.join(split_dir, s)) and s != "models"
+            )
 
-        for seq_name in tqdm(sequences, desc=split):
-            out_path = os.path.join(out_dir, f"{seq_name}.npy")
-            if os.path.exists(out_path):
-                tqdm.write(f"  {split}/{seq_name}: already done, skipping")
-                continue
+            for seq_name in tqdm(sequences, desc=f"{depth_mode}/{split}"):
+                out_path = os.path.join(out_dir, f"{seq_name}.npy")
+                if os.path.exists(out_path):
+                    tqdm.write(f"  {depth_mode}/{split}/{seq_name}: already done, skipping")
+                    continue
 
-            seq = SpecTrackSequence(os.path.join(split_dir, seq_name))
-            tracker = ColoredICPTracker(seq)
-            poses = tracker.run()
-            np.save(out_path, poses)
-            tqdm.write(f"  {split}/{seq_name}: {poses.shape} → {out_path}")
+                seq = SpecTrackSequence(os.path.join(split_dir, seq_name), depth_mode=depth_mode)
+                tracker = ColoredICPTracker(seq)
+                poses = tracker.run()
+                np.save(out_path, poses)
+                tqdm.write(f"  {depth_mode}/{split}/{seq_name}: {poses.shape} → {out_path}")
