@@ -31,7 +31,6 @@ import trimesh
 from scipy.spatial import cKDTree
 from tqdm import tqdm
 
-
 # ── dataset constants ────────────────────────────────────────────────────────
 CENTRAL_VIEW = 12  # flat index in 5×5 LF grid (row 2, col 2)
 _TO_OPENCV = np.array(
@@ -42,6 +41,7 @@ MESH_SAMPLE_PTS = 2000  # max model points used for ADD / ADD-S
 
 
 # ── geometry helpers ─────────────────────────────────────────────────────────
+
 
 def rotation_angle_deg(R_err: np.ndarray) -> np.ndarray:
     """Rotation angle (degrees) for a batch (..., 3, 3) of rotation matrices."""
@@ -81,6 +81,7 @@ def _auc_under_accuracy_curve(errors: np.ndarray, threshold_max: float = 0.1) ->
 
 # ── dataset loading ───────────────────────────────────────────────────────────
 
+
 def load_gt_poses(seq_dir: str) -> np.ndarray:
     """Load all GT object-to-camera poses for a sequence (OpenCV convention)."""
     cam_pose = np.loadtxt(
@@ -100,8 +101,7 @@ def get_object_name(dataset_root: str, split_name: str, seq_name: str) -> str:
         return "cube"
     mesh_root = os.path.join(dataset_root, "object_meshes")
     candidates = [
-        m for m in os.listdir(mesh_root)
-        if os.path.isdir(os.path.join(mesh_root, m))
+        m for m in os.listdir(mesh_root) if os.path.isdir(os.path.join(mesh_root, m))
     ]
     return max(candidates, key=lambda m: len(os.path.commonprefix([seq_name, m])))
 
@@ -121,14 +121,15 @@ def load_mesh_pts(dataset_root: str, split_name: str, seq_name: str) -> np.ndarr
 
 # ── per-sequence evaluation ───────────────────────────────────────────────────
 
+
 def eval_sequence(
     est_poses: np.ndarray,
     gt_poses: np.ndarray,
     model_pts: np.ndarray,
 ) -> dict:
-    assert est_poses.shape == gt_poses.shape, (
-        f"Shape mismatch: est {est_poses.shape} vs gt {gt_poses.shape}"
-    )
+    assert (
+        est_poses.shape == gt_poses.shape
+    ), f"Shape mismatch: est {est_poses.shape} vs gt {gt_poses.shape}"
     N = len(est_poses)
 
     add_errs, adds_errs = [], []
@@ -150,7 +151,7 @@ def eval_sequence(
     return {
         "add_auc": _auc_under_accuracy_curve(add_errs),
         "adds_auc": _auc_under_accuracy_curve(adds_errs),
-        "ate_rmse": float(np.sqrt((trans_errs ** 2).mean())),
+        "ate_rmse": float(np.sqrt((trans_errs**2).mean())),
         "mean_abs_rot_deg": float(rot_errs.mean()),
         "n_frames": N,
     }
@@ -161,9 +162,9 @@ def eval_sequence(
 BLOCK_ORDER = ["cube_gt", "cube_synth", "objects_gt", "objects_synth"]
 
 BLOCK_DISPLAY = {
-    "cube_gt":       "Cube (GT depth)",
-    "cube_synth":    "Cube (Synth depth)",
-    "objects_gt":    "Objects (GT depth)",
+    "cube_gt": "Cube (GT depth)",
+    "cube_synth": "Cube (Synth depth)",
+    "objects_gt": "Objects (GT depth)",
     "objects_synth": "Objects (Synth depth)",
 }
 
@@ -237,10 +238,10 @@ def build_summary_txt(all_metrics: dict) -> str:
     col_names = ["ADD↑ AUC", "ADD-S↑ AUC", "ATE↓ (m)", "Rot↓ (°)"]
     mk = ["add_auc", "adds_auc", "ate_rmse", "mean_abs_rot_deg"]
     fmt = {
-        "ADD↑ AUC":  "{:.4f}".format,
+        "ADD↑ AUC": "{:.4f}".format,
         "ADD-S↑ AUC": "{:.4f}".format,
-        "ATE↓ (m)":  "{:.4f}".format,
-        "Rot↓ (°)":  "{:.2f}".format,
+        "ATE↓ (m)": "{:.4f}".format,
+        "Rot↓ (°)": "{:.2f}".format,
     }
 
     parts = []
@@ -292,6 +293,7 @@ def build_summary_txt(all_metrics: dict) -> str:
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
+
 def collect_sequences(results_root: str) -> list:
     entries = []
     for depth_mode in ("gt", "synth"):
@@ -316,8 +318,8 @@ def run(results_root: str, dataset_root: str, output_dir: str):
         print(f"No .npy files found under {results_root}", file=sys.stderr)
         sys.exit(1)
 
-    all_metrics: dict = {}   # block → split → seq → metrics dict
-    mesh_cache: dict = {}    # (split, seq) → model_pts
+    all_metrics: dict = {}  # block → split → seq → metrics dict
+    mesh_cache: dict = {}  # (split, seq) → model_pts
 
     for depth_mode, split, seq_name in tqdm(entries, desc="Evaluating"):
         npy_path = os.path.join(results_root, depth_mode, split, f"{seq_name}.npy")
@@ -326,8 +328,8 @@ def run(results_root: str, dataset_root: str, output_dir: str):
             tqdm.write(f"  SKIP {depth_mode}/{split}/{seq_name}: dataset dir missing")
             continue
 
-        est_poses = np.load(npy_path)            # (N, 4, 4)
-        gt_poses = load_gt_poses(seq_dir)         # (N, 4, 4)
+        est_poses = np.load(npy_path)  # (N, 4, 4)
+        gt_poses = load_gt_poses(seq_dir)  # (N, 4, 4)
 
         if len(est_poses) != len(gt_poses):
             tqdm.write(
@@ -394,7 +396,7 @@ if __name__ == "__main__":
         "--output-dir",
         default=None,
         help="Where to write metrics.json and table.tex "
-             "(default: eval/results/<method_name>/)",
+        "(default: eval/results/<method_name>/)",
     )
     args = parser.parse_args()
 
