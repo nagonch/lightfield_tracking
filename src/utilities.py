@@ -81,7 +81,10 @@ class Visualizer:
     def run(self):
         run_viser_server(self.server)
 
-    def add_point_cloud(self, name, points, colors=None, point_size=1e-4):
+    def add_mesh(self, name, mesh):
+        self.scene.add_mesh_trimesh(name, mesh)
+
+    def add_point_cloud(self, name, points, colors=None, point_size=1e-3):
         if colors is None:
             colors = np.array([255, 0, 0])
         self.scene.add_point_cloud(name, points, colors=colors, point_size=point_size)
