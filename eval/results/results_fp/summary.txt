@@ -182,19 +182,19 @@ objects_0.0 bleach0                       0.7298     0.8554   0.0493     8.08
 split       sequence                               
 objects_0.0 ── Average ── 0.9325 0.9545 0.0095 2.20
 ·············································································
-split       sequence                                                
-objects_0.5 bleach0                     0.9269 0.9537  0.0067   3.56
-            bleach_hard_00_03_chaitanya 0.2752 0.7965  0.0430  74.20
-            cracker_box_reorient        0.9141 0.9429  0.0070   3.26
-            cracker_box_yalehand0       0.0129 0.0129 19.1646 106.67
-            mustard0                    0.0231 0.0231  7.8749 119.02
-            mustard_easy_00_02          0.0249 0.0249  7.3907 104.92
-            sugar_box1                  0.0184 0.0184 11.6054 130.80
-            sugar_box_yalehand0         0.0178 0.0178 12.2238  99.67
-            tomato_soup_can_yalehand0   0.0091 0.0091 12.2384  95.49
+split       sequence                                              
+objects_0.5 bleach0                     0.9261 0.9519 0.0068  3.43
+            bleach_hard_00_03_chaitanya 0.2752 0.7965 0.0430 74.20
+            cracker_box_reorient        0.9141 0.9429 0.0070  3.26
+            cracker_box_yalehand0       0.9271 0.9505 0.0110  1.48
+            mustard0                    0.9477 0.9642 0.0053  2.72
+            mustard_easy_00_02          0.9449 0.9636 0.0052  2.69
+            sugar_box1                  0.9508 0.9626 0.0048  1.46
+            sugar_box_yalehand0         0.9547 0.9634 0.0040  2.67
+            tomato_soup_can_yalehand0   0.9575 0.9695 0.0040  2.49
 split       sequence                                
-objects_0.5 ── Average ── 0.2469 0.3110 7.8394 81.95
-····································································
+objects_0.5 ── Average ── 0.8665 0.9406 0.0101 10.49
+··································································
 split       sequence                                               
 objects_0.7 bleach0                     0.9164 0.9487 0.0079   3.52
             bleach_hard_00_03_chaitanya 0.0433 0.0679 0.3588  92.15

@@ -6,8 +6,8 @@ import shutil
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
-SRC = os.path.join(os.path.dirname(__file__), "results_fp_fix_cube")
-DST = os.path.join(os.path.dirname(__file__), "results_fp_fix_cube_rotated")
+SRC = os.path.join(os.path.dirname(__file__), "results_fp_rerun")
+DST = os.path.join(os.path.dirname(__file__), "results_fp_rerun_rotated")
 
 # R_z(+90 deg) in homogeneous coords
 R_z90 = R.from_euler("x", 90, degrees=True).as_matrix()
