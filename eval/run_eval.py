@@ -18,16 +18,19 @@ Outputs
 -------
     <output_dir>/metrics.json   – full per-sequence and block-average metrics
     <output_dir>/table.tex      – LaTeX longtable (4 blocks, copy-paste ready)
+    <qual_dir>/{gt,synth}/{split}/{seq}/frame_XXXX.png  – coordinate-frame overlays
 """
 
 import argparse
 import json
+import math
 import os
 import sys
 
 import numpy as np
 import pandas as pd
 import trimesh
+from PIL import Image, ImageDraw
 from scipy.spatial import cKDTree
 from tqdm import tqdm
 
@@ -117,6 +120,98 @@ def load_mesh_pts(dataset_root: str, split_name: str, seq_name: str) -> np.ndarr
         rng = np.random.default_rng(0)
         pts = pts[rng.choice(len(pts), MESH_SAMPLE_PTS, replace=False)]
     return pts
+
+
+# ── qualitative visualisation ────────────────────────────────────────────────
+
+# EST axes: bright RGB.  GT axes: muted pastel RGB.
+_EST_COLORS = {"x": (220, 30, 30), "y": (30, 200, 30), "z": (30, 80, 220)}
+_GT_COLORS = {"x": (200, 130, 130), "y": (130, 200, 130), "z": (130, 130, 200)}
+
+
+def load_camera_matrix(seq_dir: str) -> np.ndarray:
+    return np.loadtxt(os.path.join(seq_dir, "camera_matrix.txt"))
+
+
+def get_frame_image_paths(seq_dir: str) -> list:
+    """Return central-view image paths ordered to match load_gt_poses."""
+    pose_files = sorted(os.listdir(os.path.join(seq_dir, "object_poses")))
+    paths = []
+    for pf in pose_files:
+        frame_id = pf[5:-4]  # "pose_0138.txt" → "0138"
+        paths.append(
+            os.path.join(seq_dir, f"LF_{frame_id}", "masks", f"{CENTRAL_VIEW:04d}.png")
+        )
+    return paths
+
+
+def _project(pt3: np.ndarray, K: np.ndarray):
+    """Project a single camera-space 3D point; returns (u, v) or None."""
+    x, y, z = pt3
+    if z <= 1e-6:
+        return None
+    return (K[0, 0] * x / z + K[0, 2], K[1, 1] * y / z + K[1, 2])
+
+
+def _dashed_line(draw: ImageDraw.Draw, p1, p2, color, width=1, dash=8, gap=5):
+    if p1 is None or p2 is None:
+        return
+    d = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
+    if d < 1:
+        return
+    dx, dy = (p2[0] - p1[0]) / d, (p2[1] - p1[1]) / d
+    t, on = 0.0, True
+    while t < d:
+        t_end = min(t + (dash if on else gap), d)
+        if on:
+            a = (p1[0] + t * dx, p1[1] + t * dy)
+            b = (p1[0] + t_end * dx, p1[1] + t_end * dy)
+            draw.line([a, b], fill=color, width=width)
+        t, on = t_end, not on
+
+
+def _draw_axes(draw: ImageDraw.Draw, K: np.ndarray, T: np.ndarray,
+               colors: dict, axis_len: float, width: int, dashed: bool):
+    origin = _project(T[:3, 3], K)
+    if origin is None:
+        return
+    for name, col in colors.items():
+        offset = {"x": [axis_len, 0, 0], "y": [0, axis_len, 0], "z": [0, 0, axis_len]}[name]
+        tip_3d = T[:3, :3] @ np.array(offset) + T[:3, 3]
+        tip = _project(tip_3d, K)
+        if tip is None:
+            continue
+        if dashed:
+            _dashed_line(draw, origin, tip, col, width=width)
+        else:
+            draw.line([origin, tip], fill=col, width=width)
+        r = width + 1
+        draw.ellipse(
+            [tip[0] - r, tip[1] - r, tip[0] + r, tip[1] + r], fill=col
+        )
+
+
+def visualize_sequence(
+    est_poses: np.ndarray,
+    gt_poses: np.ndarray,
+    img_paths: list,
+    K: np.ndarray,
+    qual_dir: str,
+    depth_mode: str,
+    split: str,
+    seq_name: str,
+    axis_len: float = 0.05,
+):
+    out_dir = os.path.join(qual_dir, depth_mode, split, seq_name)
+    os.makedirs(out_dir, exist_ok=True)
+    for i, (est, gt, img_path) in enumerate(zip(est_poses, gt_poses, img_paths)):
+        if not os.path.exists(img_path):
+            continue
+        img = Image.open(img_path).convert("RGB")
+        draw = ImageDraw.Draw(img)
+        _draw_axes(draw, K, gt, _GT_COLORS, axis_len, width=2, dashed=True)
+        _draw_axes(draw, K, est, _EST_COLORS, axis_len, width=3, dashed=False)
+        img.save(os.path.join(out_dir, f"frame_{i:04d}.png"))
 
 
 # ── per-sequence evaluation ───────────────────────────────────────────────────
@@ -310,7 +405,8 @@ def collect_sequences(results_root: str) -> list:
     return entries
 
 
-def run(results_root: str, dataset_root: str, output_dir: str):
+def run(results_root: str, dataset_root: str, output_dir: str,
+        qual_dir: str | None = None, axis_len: float = 0.05):
     os.makedirs(output_dir, exist_ok=True)
 
     entries = collect_sequences(results_root)
@@ -349,6 +445,14 @@ def run(results_root: str, dataset_root: str, output_dir: str):
         blk = block_for(depth_mode, split)
         all_metrics.setdefault(blk, {}).setdefault(split, {})[seq_name] = metrics
 
+        if qual_dir is not None:
+            K = load_camera_matrix(seq_dir)
+            img_paths = get_frame_image_paths(seq_dir)
+            visualize_sequence(
+                est_poses, gt_poses, img_paths, K,
+                qual_dir, depth_mode, split, seq_name, axis_len=axis_len,
+            )
+
     # ── split-level averages (4 blocks × 4 reflectivity levels = 16) ─────────
     split_avgs = {}
     for blk, splits_dict in all_metrics.items():
@@ -377,6 +481,8 @@ def run(results_root: str, dataset_root: str, output_dir: str):
     print(f"Metrics  → {json_path}")
     print(f"LaTeX    → {tex_path}")
     print(f"Summary  → {txt_path}")
+    if qual_dir is not None:
+        print(f"Qual viz → {qual_dir}")
 
 
 if __name__ == "__main__":
@@ -398,11 +504,34 @@ if __name__ == "__main__":
         help="Where to write metrics.json and table.tex "
         "(default: eval/results/<method_name>/)",
     )
+    parser.add_argument(
+        "--qual-dir",
+        default=None,
+        help="Where to write coordinate-frame overlay images "
+        "(default: eval/results_qual/<method_name>/; use --no-qual to skip)",
+    )
+    parser.add_argument(
+        "--no-qual",
+        action="store_true",
+        help="Skip qualitative visualisation entirely.",
+    )
+    parser.add_argument(
+        "--axis-len",
+        type=float,
+        default=0.05,
+        help="Axis length in metres for the coordinate-frame overlay (default: 0.05).",
+    )
     args = parser.parse_args()
 
     method_name = os.path.basename(os.path.normpath(args.results_folder))
-    output_dir = args.output_dir or os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "results", method_name
-    )
+    eval_dir = os.path.dirname(os.path.abspath(__file__))
 
-    run(args.results_folder, args.dataset_root, output_dir)
+    output_dir = args.output_dir or os.path.join(eval_dir, "results", method_name)
+
+    if args.no_qual:
+        qual_dir = None
+    else:
+        qual_dir = args.qual_dir or os.path.join(eval_dir, "results_qual", method_name)
+
+    run(args.results_folder, args.dataset_root, output_dir,
+        qual_dir=qual_dir, axis_len=args.axis_len)
