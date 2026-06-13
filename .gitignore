@@ -6,5 +6,7 @@ __pycache__
 experiments/
 *.pt
 *.png
+*.npy
 *.npz
 *.gif
+baselines/results_*
