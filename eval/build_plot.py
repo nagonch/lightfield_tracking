@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -25,10 +26,10 @@ OUTPUT_DIR = SCRIPT_DIR / "plots"
 
 # Ordered list of (folder_name, display_label)
 BASELINES = [
-    ("results_fp",   "FP"),
-    ("results_pnp",  "PnP"),
+    ("results_fp", "FP"),
+    ("results_pnp", "PnP"),
     ("results_bsdf", "BSDF"),
-    ("results_icp",  "ICP"),
+    ("results_icp", "ICP"),
 ]
 
 COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
@@ -36,23 +37,24 @@ COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
 REFLECTIVITIES = [0.0, 0.5, 0.7, 1.0]
 
 METRICS = [
-    ("add_auc",          "ADD AUC ↑"),
-    ("ate_rmse",         "ATE RMSE [m] ↓"),
+    ("add_auc", "ADD AUC ↑"),
+    ("ate_rmse", "ATE RMSE [m] ↓"),
     ("mean_abs_rot_deg", "Rot. Error [°] ↓"),
 ]
 
 # (variant_key, linestyle, linewidth, alpha, marker, fill_marker)
 # Synth variants are primary (solid, full opacity); GT is supplementary (dashed, dim).
 VARIANTS = [
-    ("cube_synth",    "solid",  1.8, 1.00, "o", True),
-    ("objects_synth", "solid",  1.8, 1.00, "s", True),
-    ("cube_gt",       "dashed", 1.0, 0.40, "^", False),
-    ("objects_gt",    "dashed", 1.0, 0.40, "D", False),
+    ("cube_synth", "solid", 0.9, 1.00, "o", True),
+    ("objects_synth", "solid", 0.9, 1.00, "s", True),
+    ("cube_gt", "dashed", 0.5, 0.40, "^", False),
+    ("objects_gt", "dashed", 0.5, 0.40, "D", False),
 ]
 
 # ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
+
 
 def load_data() -> dict:
     """Return {display_label: split_averages_dict}."""
@@ -80,9 +82,11 @@ def get_series(split_averages: dict, variant: str, metric_key: str):
             ys.append(variant_data[key][metric_key])
     return xs, ys
 
+
 # ---------------------------------------------------------------------------
 # Plotting
 # ---------------------------------------------------------------------------
+
 
 def main():
     OUTPUT_DIR.mkdir(exist_ok=True)
@@ -92,7 +96,9 @@ def main():
         return
 
     baseline_labels = [label for _, label in BASELINES if label in data]
-    color_map = {label: COLORS[i % len(COLORS)] for i, label in enumerate(baseline_labels)}
+    color_map = {
+        label: COLORS[i % len(COLORS)] for i, label in enumerate(baseline_labels)
+    }
 
     fig, axes = plt.subplots(1, 3, figsize=(16, 5))
     fig.subplots_adjust(wspace=0.35)
@@ -105,13 +111,14 @@ def main():
                 if not xs:
                     continue
                 ax.plot(
-                    xs, ys,
+                    xs,
+                    ys,
                     color=color,
                     linestyle=ls,
                     linewidth=lw,
                     alpha=alpha,
                     marker=marker,
-                    markersize=6.5 if fill else 5,
+                    markersize=3 if fill else 1.5,
                     markerfacecolor=color if fill else "none",
                     markeredgecolor=color,
                     markeredgewidth=1.2,
@@ -131,23 +138,58 @@ def main():
     # ---- Compact legend below all subplots ----
     # Section 1: one color patch per baseline
     legend_handles = [
-        mpatches.Patch(color=color_map[label], label=label)
-        for label in baseline_labels
+        mpatches.Patch(color=color_map[label], label=label) for label in baseline_labels
     ]
     # Separator (invisible) to visually divide the two groups
     legend_handles.append(Line2D([], [], color="none", label=" "))
     # Section 2: four style entries (color-agnostic, gray)
     legend_handles += [
-        Line2D([0], [0], color="#444", linestyle="solid", linewidth=1.8,
-               marker="o", markersize=6.5, label="cube – synth"),
-        Line2D([0], [0], color="#444", linestyle="solid", linewidth=1.8,
-               marker="s", markersize=6.5, label="obj – synth"),
-        Line2D([0], [0], color="#888", linestyle="dashed", linewidth=1.0,
-               alpha=0.7, marker="^", markersize=5,
-               markerfacecolor="none", markeredgecolor="#888", label="cube – GT"),
-        Line2D([0], [0], color="#888", linestyle="dashed", linewidth=1.0,
-               alpha=0.7, marker="D", markersize=5,
-               markerfacecolor="none", markeredgecolor="#888", label="obj – GT"),
+        Line2D(
+            [0],
+            [0],
+            color="#444",
+            linestyle="solid",
+            linewidth=1.8,
+            marker="o",
+            markersize=6.5,
+            label="cube – synth",
+        ),
+        Line2D(
+            [0],
+            [0],
+            color="#444",
+            linestyle="solid",
+            linewidth=1.8,
+            marker="s",
+            markersize=6.5,
+            label="obj – synth",
+        ),
+        Line2D(
+            [0],
+            [0],
+            color="#888",
+            linestyle="dashed",
+            linewidth=1.0,
+            alpha=0.7,
+            marker="^",
+            markersize=5,
+            markerfacecolor="none",
+            markeredgecolor="#888",
+            label="cube – GT",
+        ),
+        Line2D(
+            [0],
+            [0],
+            color="#888",
+            linestyle="dashed",
+            linewidth=1.0,
+            alpha=0.7,
+            marker="D",
+            markersize=5,
+            markerfacecolor="none",
+            markeredgecolor="#888",
+            label="obj – GT",
+        ),
     ]
 
     fig.legend(
