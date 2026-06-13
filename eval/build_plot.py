@@ -32,7 +32,7 @@ BASELINES = [
     ("results_icp", "ICP"),
 ]
 
-COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
+COLORS = ["#1f77b4", "#9467bd", "#2ca02c", "#d62728"]
 
 REFLECTIVITIES = [0.0, 0.5, 0.7, 1.0]
 
@@ -45,10 +45,10 @@ METRICS = [
 # (variant_key, linestyle, linewidth, alpha, marker, fill_marker)
 # Synth variants are primary (solid, full opacity); GT is supplementary (dashed, dim).
 VARIANTS = [
-    ("cube_synth", "solid", 0.9, 1.00, "o", True),
-    ("objects_synth", "solid", 0.9, 1.00, "s", True),
-    ("cube_gt", "dashed", 0.5, 0.40, "^", False),
-    ("objects_gt", "dashed", 0.5, 0.40, "D", False),
+    ("cube_synth",    "solid",  0.9, 1.00, "o", True),
+    ("objects_synth", "solid",  0.9, 1.00, "s", True),
+    ("cube_gt",       "dashed", 0.5, 0.40, "o", False),
+    ("objects_gt",    "dashed", 0.5, 0.40, "s", False),
 ]
 
 # ---------------------------------------------------------------------------
@@ -118,7 +118,7 @@ def main():
                     linewidth=lw,
                     alpha=alpha,
                     marker=marker,
-                    markersize=3 if fill else 1.5,
+                    markersize=5 if fill else 4,
                     markerfacecolor=color if fill else "none",
                     markeredgecolor=color,
                     markeredgewidth=1.2,
@@ -171,7 +171,7 @@ def main():
             linestyle="dashed",
             linewidth=1.0,
             alpha=0.7,
-            marker="^",
+            marker="o",
             markersize=5,
             markerfacecolor="none",
             markeredgecolor="#888",
@@ -184,7 +184,7 @@ def main():
             linestyle="dashed",
             linewidth=1.0,
             alpha=0.7,
-            marker="D",
+            marker="s",
             markersize=5,
             markerfacecolor="none",
             markeredgecolor="#888",
