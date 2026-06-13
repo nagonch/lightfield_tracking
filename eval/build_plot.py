@@ -125,6 +125,8 @@ def main():
                     zorder=3 if fill else 2,
                 )
 
+        if metric_key == "ate_rmse":
+            ax.set_yscale("log")
         ax.set_xlabel("Reflectivity", fontsize=11)
         ax.set_ylabel(metric_label, fontsize=11)
         ax.set_title(metric_label, fontsize=12, fontweight="bold", pad=10)
