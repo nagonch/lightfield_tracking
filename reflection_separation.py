@@ -240,7 +240,7 @@ def separate_reflection(
 if __name__ == "__main__":
     sequence_name = "bleach0"
 
-    MIDDLE_REFLECTIVITY = 0.5
+    MIDDLE_REFLECTIVITY = 0.7
     ALPHA = 1 - MIDDLE_REFLECTIVITY
 
     vis_reflective_folder = f"vis_reflective_{MIDDLE_REFLECTIVITY}"
@@ -248,9 +248,11 @@ if __name__ == "__main__":
     os.makedirs(vis_reflective_folder, exist_ok=True)
     os.makedirs(vis_diffuse_folder, exist_ok=True)
 
-    path_diffuse = f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_0.0/{sequence_name}"
-    path_reflective = f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_1.0/{sequence_name}"
-    path_middle = f"/home/ngoncharov/cvpr2026/ycbv-eoat-lf/dataset_simple_box_reflective_full_{MIDDLE_REFLECTIVITY}/{sequence_name}"
+    path_diffuse = f"/home/ngoncharov/SpecTrack_dataset/cube_0.0/{sequence_name}"
+    path_reflective = f"/home/ngoncharov/SpecTrack_dataset/cube_1.0/{sequence_name}"
+    path_middle = (
+        f"/home/ngoncharov/SpecTrack_dataset/cube_{MIDDLE_REFLECTIVITY}/{sequence_name}"
+    )
 
     dataset = LFDataset(path_middle)
     for i in range(len(dataset)):
@@ -303,6 +305,7 @@ if __name__ == "__main__":
             mask=object_mask,
             normal_map=normal_map,
             depth_map=depth_map,
+            iterations=200,
         )
 
         mid_subview = (
