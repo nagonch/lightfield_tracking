@@ -30,7 +30,7 @@ from diffuse_view import diffuse_midview_uint8, rasterize_diffuse
 from coarse_pose import mixed_coarse_pose
 from loftr_wrapper import LoftrRunner
 from loss import rotation_6d_to_matrix, matrix_to_rotation_6d, simple_loss
-from icp import rebase_poses, pose_errors
+from icp import rebase_poses
 from src.slf_refinement_viewer import SurfaceLFRefinementViewer
 
 # ── configuration ─────────────────────────────────────────────────────────────
@@ -41,8 +41,8 @@ USE_GT_MASK = True
 ENABLE_VIS = True
 
 DEPTH_SOURCES = ["gt", "synth"]
-SPLIT_PREFIXES = ["objects", "cube"]
-REFLECTIVITIES = ["0.0", "0.5", "0.7", "1.0"]
+SPLIT_PREFIXES = ["cube"]
+REFLECTIVITIES = ["0.7", "1.0"]
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -396,15 +396,9 @@ def track_sequence(
     gt_np = np.stack(gt_poses)
     est_np = np.stack(est_poses)
     est_rebased = rebase_poses(gt_np, est_np)
-    np.save(os.path.join(results_folder, f"{sequence_name}.npy"), est_rebased)
-
-    errors = pose_errors(gt_np, est_rebased)
-    tqdm.write(
-        f"  {sequence_name}: "
-        f"rot={errors['mean_abs_rot_deg']:.1f}°  "
-        f"trans={errors['mean_abs_trans']*100:.1f}cm"
-    )
-    return errors
+    out_path = os.path.join(results_folder, f"{sequence_name}.npy")
+    np.save(out_path, est_rebased)
+    tqdm.write(f"  {sequence_name}: {est_rebased.shape} → {out_path}")
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -433,7 +427,6 @@ if __name__ == "__main__":
                     tqdm.write(f"Split not found, skipping: {split_dir}")
                     continue
 
-                all_errors = []
                 for sequence_name in sorted(os.listdir(split_dir)):
                     seq_path = os.path.join(split_dir, sequence_name)
                     if not os.path.isdir(seq_path):
@@ -454,7 +447,7 @@ if __name__ == "__main__":
                         )
 
                     try:
-                        errors = track_sequence(
+                        track_sequence(
                             path=seq_path,
                             results_folder=results_folder,
                             sequence_name=sequence_name,
@@ -464,17 +457,8 @@ if __name__ == "__main__":
                             depth_source=depth_source,
                             vis=vis,
                         )
-                        all_errors.append(errors)
                     except Exception as e:
                         import traceback
 
                         tqdm.write(f"  FAILED: {e}")
                         traceback.print_exc()
-
-                if all_errors:
-                    mean_rot = np.mean([e["mean_abs_rot_deg"] for e in all_errors])
-                    mean_trans = np.mean([e["mean_abs_trans"] for e in all_errors])
-                    print(
-                        f"\n[{depth_source}] [{split_prefix}_{REFLECTIVITY}] "
-                        f"MEAN rot={mean_rot:.1f}°  trans={mean_trans*100:.1f}cm"
-                    )
