@@ -41,8 +41,8 @@ USE_GT_MASK = True
 ENABLE_VIS = True
 
 DEPTH_SOURCES = ["gt", "synth"]
-SPLIT_PREFIXES = ["cube"]
-REFLECTIVITIES = ["0.7", "1.0"]
+SPLIT_PREFIXES = ["objects", "cube"]
+REFLECTIVITIES = ["0.0", "0.5", "0.7", "1.0"]
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
