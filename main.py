@@ -34,7 +34,7 @@ from src.utilities import backproject_depth_to_pointcloud
 from surface_lf import SurfaceLF, SurfaceLFRig
 from canonical_model import CanonicalModel
 from diffuse_view import diffuse_midview_uint8, rasterize_diffuse
-from coarse_pose import mixed_coarse_pose
+from coarse_pose import mixed_coarse_pose, icp_relative_pose
 from loftr_wrapper import LoftrRunner
 from loss import rotation_6d_to_matrix, matrix_to_rotation_6d, simple_loss
 from icp import rebase_poses
@@ -50,6 +50,16 @@ ENABLE_VIS = True
 DEPTH_SOURCES = ["gt", "synth"]
 SPLIT_PREFIXES = ["cube"]
 REFLECTIVITIES = ["0.7", "1.0"]
+
+# ── ablation knobs (sequential: each level requires the ones above) ─────────
+# L2  USE_LOFTR              – coarse pose via LoFTR; False → ICP only
+# L3  USE_DIFFUSE_FOR_LOFTR  – feed SLF-separated diffuse images to LoFTR
+# L4  USE_CANONICAL_REFINE   – photometric refinement against canonical model
+# L5  USE_CANONICAL_ACCUM    – fuse frames into canonical over time
+USE_LOFTR             = True
+USE_DIFFUSE_FOR_LOFTR = True
+USE_CANONICAL_REFINE  = True
+USE_CANONICAL_ACCUM   = True
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -214,6 +224,10 @@ def track_sequence(
     rng: np.random.Generator,
     depth_source: str = "gt",
     vis=None,
+    use_loftr: bool = True,
+    use_diffuse_for_loftr: bool = True,
+    use_canonical_refine: bool = True,
+    use_canonical_accum: bool = True,
 ):
     dataset = LFDataset(path, depth_source=depth_source)
     n_frames = len(dataset)
@@ -228,6 +242,7 @@ def track_sequence(
     est_poses: list[np.ndarray] = []
 
     diffuse_prev_u8 = None
+    raw_prev_u8: np.ndarray | None = None
     depth_prev_np = None
     mask_prev_np = None
     pc_prev = None
@@ -287,21 +302,24 @@ def track_sequence(
                 else:
                     slf_env_np = _env.cpu().numpy()
 
+            raw_curr_u8 = (raw_mid_np * 255).clip(0, 255).astype(np.uint8)
+
             # ── frame 0: initialise ───────────────────────────────────────────
             if i == 0:
                 frame_bar.set_postfix(fr=i, stage="init")
                 est_poses.append(frame["pose"].cpu().numpy())
-                canonical = CanonicalModel.from_surface_lf(
-                    surface_lf=surface_lf,
-                    pose0=frame["pose"],
-                    alpha=alpha,
-                )
+                if use_canonical_refine or use_canonical_accum:
+                    canonical = CanonicalModel.from_surface_lf(
+                        surface_lf=surface_lf,
+                        pose0=frame["pose"],
+                        alpha=alpha,
+                    )
                 if vis is not None:
-                    pts0 = canonical.points_obj.cpu().numpy()
-                    cols0 = canonical.diffuse_colors.cpu().numpy()
+                    pts0 = canonical.points_obj.cpu().numpy() if canonical is not None else pc_curr
+                    cols0 = canonical.diffuse_colors.cpu().numpy() if canonical is not None else color_curr
                     env0 = (
                         canonical.environment_map.cpu().numpy()
-                        if canonical.environment_map is not None
+                        if canonical is not None and canonical.environment_map is not None
                         else None
                     )
                     vis.update_canonical(pts0, cols0, env0, 0)
@@ -323,65 +341,88 @@ def track_sequence(
 
                 # ── coarse pose ───────────────────────────────────────────────
                 frame_bar.set_postfix(fr=i, stage="coarse")
-                coarse_abs_np = mixed_coarse_pose(
-                    alpha=alpha,
-                    diffuse_prev=diffuse_prev_u8,
-                    diffuse_curr=diffuse_curr_u8,
-                    depth_prev=depth_prev_np,
-                    depth_curr=depth_curr_np,
-                    mask_prev=mask_prev_np,
-                    mask_curr=mask_curr_np,
-                    K=K_np,
-                    loftr=loftr,
-                    pc_prev=pc_prev,
-                    pc_curr=pc_curr,
-                    color_prev=color_prev,
-                    color_curr=color_curr,
-                    abs_pose_prev=est_poses[-1],
-                    rng=rng,
-                )
+                if use_loftr:
+                    loftr_prev = diffuse_prev_u8 if use_diffuse_for_loftr else raw_prev_u8
+                    loftr_curr = diffuse_curr_u8 if use_diffuse_for_loftr else raw_curr_u8
+                    coarse_abs_np = mixed_coarse_pose(
+                        alpha=alpha,
+                        diffuse_prev=loftr_prev,
+                        diffuse_curr=loftr_curr,
+                        depth_prev=depth_prev_np,
+                        depth_curr=depth_curr_np,
+                        mask_prev=mask_prev_np,
+                        mask_curr=mask_curr_np,
+                        K=K_np,
+                        loftr=loftr,
+                        pc_prev=pc_prev,
+                        pc_curr=pc_curr,
+                        color_prev=color_prev,
+                        color_curr=color_curr,
+                        abs_pose_prev=est_poses[-1],
+                        rng=rng,
+                    )
+                else:
+                    try:
+                        coarse_abs_np = icp_relative_pose(
+                            pc_prev=pc_prev,
+                            pc_curr=pc_curr,
+                            color_prev=color_prev,
+                            color_curr=color_curr,
+                            abs_pose_prev=est_poses[-1],
+                        )
+                    except Exception:
+                        coarse_abs_np = est_poses[-1].copy()
 
                 # ── pose refinement via canonical relighting ──────────────────
-                frame_bar.set_postfix(fr=i, stage="refine")
-                diffuse_target = rasterize_diffuse(surface_lf).cuda()
-                depth_target = depth.cuda()
-                pose_init = torch.tensor(coarse_abs_np, dtype=torch.float32).cuda()
+                if use_canonical_refine and canonical is not None:
+                    frame_bar.set_postfix(fr=i, stage="refine")
+                    diffuse_target = rasterize_diffuse(surface_lf).cuda()
+                    depth_target = depth.cuda()
+                    pose_init = torch.tensor(coarse_abs_np, dtype=torch.float32).cuda()
 
-                if vis is not None:
-                    vis.reset_refinement(i)
+                    if vis is not None:
+                        vis.reset_refinement(i)
 
-                refined_abs_np, best_loss = refine_pose_canonical(
-                    canonical=canonical,
-                    diffuse_target=diffuse_target,
-                    depth_target=depth_target,
-                    pose_init_abs=pose_init,
-                    on_step=vis.on_refine_step if vis is not None else None,
-                )
+                    refined_abs_np, best_loss = refine_pose_canonical(
+                        canonical=canonical,
+                        diffuse_target=diffuse_target,
+                        depth_target=depth_target,
+                        pose_init_abs=pose_init,
+                        on_step=vis.on_refine_step if vis is not None else None,
+                    )
+
+                    if vis is not None:
+                        vis.finalize_refinement(best_loss)
+                else:
+                    refined_abs_np = coarse_abs_np
+                    best_loss = float("nan")
+
                 est_poses.append(refined_abs_np)
 
-                if vis is not None:
-                    vis.finalize_refinement(best_loss)
-
                 # ── fuse current frame into canonical model ───────────────────
-                frame_bar.set_postfix(fr=i, stage="fuse", loss=f"{best_loss:.4f}")
-                canonical.fuse_frame(
-                    surface_lf=surface_lf,
-                    pose_t=torch.tensor(refined_abs_np, dtype=torch.float32).cuda(),
-                )
+                if use_canonical_accum and canonical is not None:
+                    frame_bar.set_postfix(fr=i, stage="fuse", loss=f"{best_loss:.4f}")
+                    canonical.fuse_frame(
+                        surface_lf=surface_lf,
+                        pose_t=torch.tensor(refined_abs_np, dtype=torch.float32).cuda(),
+                    )
 
                 if vis is not None:
-                    pts_np = canonical.points_obj.cpu().numpy()
-                    cols_np = canonical.diffuse_colors.cpu().numpy()
+                    pts_np = canonical.points_obj.cpu().numpy() if canonical is not None else pc_curr
+                    cols_np = canonical.diffuse_colors.cpu().numpy() if canonical is not None else color_curr
                     env_np = (
                         canonical.environment_map.cpu().numpy()
-                        if canonical.environment_map is not None
+                        if canonical is not None and canonical.environment_map is not None
                         else None
                     )
                     vis.update_canonical(pts_np, cols_np, env_np, i)
-                    with torch.no_grad():
-                        img_r, _, _ = canonical.rasterize(
-                            torch.tensor(refined_abs_np, dtype=torch.float32).cuda()
-                        )
+                    img_r = None
+                    if canonical is not None:
+                        with torch.no_grad():
+                            img_r, _, _ = canonical.rasterize(
+                                torch.tensor(refined_abs_np, dtype=torch.float32).cuda()
+                            )
+                        img_r = img_r.cpu().numpy()
                     vis.add_estimated_frame(
                         frame_idx=i,
                         pose_abs=refined_abs_np,
@@ -389,14 +430,14 @@ def track_sequence(
                         colors_obj=cols_np,
                         pts_cam=pc_curr,
                         colors_cam=color_curr,
-                        img_rendered=img_r.cpu().numpy(),
+                        img_rendered=img_r,
                         img_diffuse=diffuse_curr_u8,
                         img_reflected=reflected_u8,
                         env_hwc=slf_env_np,
                     )
 
             # ── save env map ──────────────────────────────────────────────────
-            if canonical.environment_map is not None:
+            if canonical is not None and canonical.environment_map is not None:
                 env_np = canonical.environment_map.cpu().numpy()
                 env_np = np.clip(env_np * 255, 0, 255).astype(np.uint8)
                 Image.fromarray(env_np).save(
@@ -404,6 +445,7 @@ def track_sequence(
                 )
 
             diffuse_prev_u8 = diffuse_curr_u8
+            raw_prev_u8 = raw_curr_u8
             depth_prev_np = depth_curr_np
             mask_prev_np = mask_curr_np
             pc_prev = pc_curr
@@ -491,6 +533,10 @@ if __name__ == "__main__":
                     rng=rng,
                     depth_source=depth_source,
                     vis=vis,
+                    use_loftr=USE_LOFTR,
+                    use_diffuse_for_loftr=USE_DIFFUSE_FOR_LOFTR,
+                    use_canonical_refine=USE_CANONICAL_REFINE,
+                    use_canonical_accum=USE_CANONICAL_ACCUM,
                 )
             except Exception as e:
                 import traceback
