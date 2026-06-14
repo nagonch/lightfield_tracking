@@ -1,9 +1,8 @@
-"""Coarse pose estimation: α-weighted mix of LoFTR (diffuse images) and ICP (geometry).
+"""Coarse pose estimation: LoFTR (diffuse images) with ICP fallback.
 
 α = separation_alpha = 1 - reflectivity
-  → 1.0 : purely diffuse surface  → LoFTR only
-  → 0.0 : purely reflective        → ICP only
-  → middle: try LoFTR, fall back to ICP if too few inliers
+  ≥ _LOFTR_ALPHA_THRESHOLD and LoFTR succeeds → LoFTR only
+  otherwise                                    → ICP
 
 The returned pose is an ABSOLUTE pose matrix [4, 4] (same convention as
 est_poses in main_old.py: object pose in camera frame at time t).
@@ -134,8 +133,6 @@ def mixed_coarse_pose(
 
     Returns new absolute pose [4,4] float64.
     """
-    loftr_pose, n_inliers = None, 0
-
     if alpha >= _LOFTR_ALPHA_THRESHOLD:
         T_rel, n_inliers = loftr_relative_pose(
             rgb_prev=diffuse_prev,
@@ -149,18 +146,11 @@ def mixed_coarse_pose(
             rng=rng,
         )
         if T_rel is not None and n_inliers >= _LOFTR_MIN_INLIERS:
-            # T_rel maps camera pts from prev to curr.
-            # New absolute pose = T_rel @ abs_pose_prev
-            loftr_pose = T_rel @ abs_pose_prev
+            # T_rel maps camera pts from prev to curr; new absolute pose = T_rel @ abs_pose_prev
+            return T_rel @ abs_pose_prev
 
-    use_loftr = (loftr_pose is not None) and (alpha >= 0.5 or n_inliers >= _LOFTR_MIN_INLIERS * 2)
-
-    if use_loftr and alpha >= 0.9:
-        return loftr_pose
-
-    # Always compute ICP (needed as fallback or for mixing)
     try:
-        geom_pose = icp_relative_pose(
+        return icp_relative_pose(
             pc_prev=pc_prev,
             pc_curr=pc_curr,
             color_prev=color_prev,
@@ -168,32 +158,4 @@ def mixed_coarse_pose(
             abs_pose_prev=abs_pose_prev,
         )
     except Exception:
-        geom_pose = abs_pose_prev.copy()
-
-    if not use_loftr:
-        return geom_pose
-
-    # Soft blend in SE(3): interpolate rotation via SLERP and translation linearly
-    return _blend_poses(loftr_pose, geom_pose, alpha)
-
-
-def _blend_poses(
-    pose_a: np.ndarray,
-    pose_b: np.ndarray,
-    weight_a: float,
-) -> np.ndarray:
-    """Blend two 4×4 poses: weight_a for pose_a, (1-weight_a) for pose_b."""
-    from scipy.spatial.transform import Rotation, Slerp
-    w = float(np.clip(weight_a, 0.0, 1.0))
-
-    R_a = Rotation.from_matrix(pose_a[:3, :3])
-    R_b = Rotation.from_matrix(pose_b[:3, :3])
-    slerp = Slerp([0.0, 1.0], Rotation.concatenate([R_b, R_a]))
-    R_blend = slerp(w).as_matrix()
-
-    t_blend = (1 - w) * pose_b[:3, 3] + w * pose_a[:3, 3]
-
-    out = np.eye(4)
-    out[:3, :3] = R_blend
-    out[:3, 3] = t_blend
-    return out
+        return abs_pose_prev.copy()
