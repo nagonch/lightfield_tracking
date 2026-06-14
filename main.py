@@ -15,6 +15,7 @@ Assumptions (to relax later):
 """
 
 import os
+from collections.abc import Callable
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -32,20 +33,21 @@ from loss import rotation_6d_to_matrix, matrix_to_rotation_6d, simple_loss
 from icp import rebase_poses, pose_errors
 from src.slf_refinement_viewer import SurfaceLFRefinementViewer
 
-
 # ── configuration ─────────────────────────────────────────────────────────────
 
-DATASET_ROOT = "/home/ngoncharov/cvpr2026/ycbv-eoat-lf"
+DATASET_ROOT = "/home/ngoncharov/SpecTrack_dataset"
 EXP_NAME = "results_relift"
 USE_GT_DEPTH = True
 USE_GT_MASK = True
 ENABLE_REFINEMENT_VIEWER = False
 REFINEMENT_VIEWER_UPDATE_EVERY = 10
+ENABLE_VIS = True
 
 REFLECTIVITIES = ["0.0", "0.5", "0.7", "1.0"]
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
 
 def _build_surface_lf(
     frame: dict,
@@ -98,8 +100,8 @@ def _pc_and_color(surface_lf: SurfaceLF) -> tuple[np.ndarray, np.ndarray]:
         valid = surface_lf.valid.float()
         count = valid.sum(dim=0).clamp(min=1).unsqueeze(-1)
         col = (
-            (surface_lf.colors * valid.unsqueeze(-1)).sum(dim=0) / count
-        ).cpu().numpy()
+            ((surface_lf.colors * valid.unsqueeze(-1)).sum(dim=0) / count).cpu().numpy()
+        )
     return pts, col
 
 
@@ -115,6 +117,7 @@ def _canonical_env_for_slf(canonical: CanonicalModel | None) -> torch.Tensor | N
 
 # ── pose refinement with canonical model ─────────────────────────────────────
 
+
 def refine_pose_canonical(
     canonical: CanonicalModel,
     diffuse_target: torch.Tensor,
@@ -123,7 +126,8 @@ def refine_pose_canonical(
     num_iterations: int = 300,
     lr_rot: float = 1e-3,
     lr_trans: float = 1e-3,
-) -> np.ndarray:
+    on_step: Callable | None = None,
+) -> tuple[np.ndarray, float]:
     """Gradient-based refinement against canonical model re-lit rendering.
 
     pose_init_abs : [4, 4] absolute object pose in camera frame (initial guess).
@@ -135,29 +139,30 @@ def refine_pose_canonical(
 
     pose_t = pose_init_abs.to(device=device, dtype=torch.float32)
     rot_6d = matrix_to_rotation_6d(pose_t[:3, :3]).clone().detach().requires_grad_(True)
-    trans  = pose_t[:3, 3].clone().detach().requires_grad_(True)
+    trans = pose_t[:3, 3].clone().detach().requires_grad_(True)
 
     optimizer = torch.optim.AdamW(
-        [{"params": [rot_6d], "lr": lr_rot},
-         {"params": [trans],  "lr": lr_trans}],
+        [{"params": [rot_6d], "lr": lr_rot}, {"params": [trans], "lr": lr_trans}],
     )
 
     best_loss = float("inf")
     best_pose_np = pose_t.cpu().numpy()
 
-    for _ in range(num_iterations):
+    for step in range(num_iterations):
         optimizer.zero_grad()
 
         R = rotation_6d_to_matrix(rot_6d)
         pose_cand = torch.eye(4, device=device, dtype=torch.float32)
         pose_cand[:3, :3] = R
-        pose_cand[:3, 3]  = trans
+        pose_cand[:3, 3] = trans
 
         image_r, depth_r, _ = canonical.rasterize(pose_cand)
 
         loss = simple_loss(
-            image_r, diffuse_target,
-            depth_r, depth_target,
+            image_r,
+            diffuse_target,
+            depth_r,
+            depth_target,
             aggregate=True,
         )
         val = loss.item()
@@ -165,13 +170,22 @@ def refine_pose_canonical(
             best_loss = val
             best_pose_np = pose_cand.detach().cpu().numpy()
 
+        if on_step is not None and step % 25 == 0:
+            on_step(
+                step,
+                val,
+                image_r.detach().cpu().numpy(),
+                diffuse_target.cpu().numpy(),
+            )
+
         loss.backward()
         optimizer.step()
 
-    return best_pose_np
+    return best_pose_np, best_loss
 
 
 # ── per-sequence tracker ──────────────────────────────────────────────────────
+
 
 def track_sequence(
     path: str,
@@ -180,9 +194,15 @@ def track_sequence(
     alpha: float,
     loftr: LoftrRunner,
     rng: np.random.Generator,
+    vis=None,
 ):
     dataset = LFDataset(path)
     s_size, t_size = dataset.metadata["n_views"]
+    if vis is not None:
+        try:
+            vis.total_frames = len(dataset)
+        except TypeError:
+            vis.total_frames = 100
 
     gt_poses: list[np.ndarray] = []
     est_poses: list[np.ndarray] = []
@@ -223,8 +243,8 @@ def track_sequence(
 
         # ── diffuse middle view for LoFTR ─────────────────────────────────────
         diffuse_curr_u8 = diffuse_midview_uint8(surface_lf)
-        depth_curr_np   = depth.cpu().numpy()
-        mask_curr_np    = (mask > 0).cpu().numpy()
+        depth_curr_np = depth.cpu().numpy()
+        mask_curr_np = (mask > 0).cpu().numpy()
         pc_curr, color_curr = _pc_and_color(surface_lf)
 
         # ── frame 0: initialise ───────────────────────────────────────────────
@@ -235,6 +255,25 @@ def track_sequence(
                 pose0=frame["pose"],
                 alpha=alpha,
             )
+            if vis is not None:
+                pts0 = canonical.points_obj.cpu().numpy()
+                cols0 = canonical.diffuse_colors.cpu().numpy()
+                env0 = (
+                    canonical.environment_map.cpu().numpy()
+                    if canonical.environment_map is not None
+                    else None
+                )
+                vis.update_canonical(pts0, cols0, env0, 0)
+                vis.add_estimated_frame(
+                    frame_idx=0,
+                    pose_abs=est_poses[0],
+                    pts_obj=pts0,
+                    colors_obj=cols0,
+                    pts_cam=pc_curr,
+                    colors_cam=color_curr,
+                    img_rendered=None,
+                    img_diffuse=diffuse_curr_u8,
+                )
 
         else:
             K_np = frame["camera_matrix"].cpu().numpy().astype(np.float64)
@@ -260,22 +299,53 @@ def track_sequence(
 
             # ── pose refinement via canonical relighting ──────────────────────
             diffuse_target = rasterize_diffuse(surface_lf).cuda()
-            depth_target   = depth.cuda()
-            pose_init      = torch.tensor(coarse_abs_np, dtype=torch.float32).cuda()
+            depth_target = depth.cuda()
+            pose_init = torch.tensor(coarse_abs_np, dtype=torch.float32).cuda()
 
-            refined_abs_np = refine_pose_canonical(
+            if vis is not None:
+                vis.reset_refinement(i)
+
+            refined_abs_np, best_loss = refine_pose_canonical(
                 canonical=canonical,
                 diffuse_target=diffuse_target,
                 depth_target=depth_target,
                 pose_init_abs=pose_init,
+                on_step=vis.on_refine_step if vis is not None else None,
             )
             est_poses.append(refined_abs_np)
+
+            if vis is not None:
+                vis.finalize_refinement(best_loss)
 
             # ── fuse current frame into canonical model ───────────────────────
             canonical.fuse_frame(
                 surface_lf=surface_lf,
                 pose_t=torch.tensor(refined_abs_np, dtype=torch.float32).cuda(),
             )
+
+            if vis is not None:
+                pts_np = canonical.points_obj.cpu().numpy()
+                cols_np = canonical.diffuse_colors.cpu().numpy()
+                env_np = (
+                    canonical.environment_map.cpu().numpy()
+                    if canonical.environment_map is not None
+                    else None
+                )
+                vis.update_canonical(pts_np, cols_np, env_np, i)
+                with torch.no_grad():
+                    img_r, _, _ = canonical.rasterize(
+                        torch.tensor(refined_abs_np, dtype=torch.float32).cuda()
+                    )
+                vis.add_estimated_frame(
+                    frame_idx=i,
+                    pose_abs=refined_abs_np,
+                    pts_obj=pts_np,
+                    colors_obj=cols_np,
+                    pts_cam=pc_curr,
+                    colors_cam=color_curr,
+                    img_rendered=img_r.cpu().numpy(),
+                    img_diffuse=diffuse_curr_u8,
+                )
 
         # ── save env map ──────────────────────────────────────────────────────
         if canonical.environment_map is not None:
@@ -287,13 +357,13 @@ def track_sequence(
 
         # bookkeeping
         diffuse_prev_u8 = diffuse_curr_u8
-        depth_prev_np   = depth_curr_np
-        mask_prev_np    = mask_curr_np
-        pc_prev         = pc_curr
-        color_prev      = color_curr
+        depth_prev_np = depth_curr_np
+        mask_prev_np = mask_curr_np
+        pc_prev = pc_curr
+        color_prev = color_curr
 
     # ── save results ──────────────────────────────────────────────────────────
-    gt_np  = np.stack(gt_poses)
+    gt_np = np.stack(gt_poses)
     est_np = np.stack(est_poses)
     est_rebased = rebase_poses(gt_np, est_np)
     np.save(os.path.join(results_folder, f"{sequence_name}.npy"), est_rebased)
@@ -310,6 +380,12 @@ def track_sequence(
 # ── main ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    vis = None
+    if ENABLE_VIS:
+        from vis import ReLiFTVis
+
+        vis = ReLiFTVis(port=8080)
+
     loftr = LoftrRunner()
     rng = np.random.default_rng(seed=42)
 
@@ -343,16 +419,18 @@ if __name__ == "__main__":
                     alpha=alpha,
                     loftr=loftr,
                     rng=rng,
+                    vis=vis,
                 )
                 all_errors.append(errors)
             except Exception as e:
                 import traceback
+
                 tqdm.write(f"  FAILED: {e}")
                 traceback.print_exc()
 
         if all_errors:
-            mean_rot   = np.mean([e["mean_abs_rot_deg"]  for e in all_errors])
-            mean_trans = np.mean([e["mean_abs_trans"]     for e in all_errors])
+            mean_rot = np.mean([e["mean_abs_rot_deg"] for e in all_errors])
+            mean_trans = np.mean([e["mean_abs_trans"] for e in all_errors])
             print(
                 f"\n[reflectivity={REFLECTIVITY}] "
                 f"MEAN rot={mean_rot:.1f}°  trans={mean_trans*100:.1f}cm"
