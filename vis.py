@@ -31,6 +31,7 @@ from io import BytesIO
 from typing import Optional
 
 import numpy as np
+import trimesh as tm
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -187,12 +188,17 @@ class ReLiFTVis:
         )
 
         if env_hwc is not None:
-            # Textured UV sphere
-            self.server.scene.add_mesh_simple(
+            # Env map textured onto a UV sphere via trimesh vertex colours
+            vcols = _env_vert_colors(env_hwc)
+            sphere_mesh = tm.Trimesh(
+                vertices=_SPHERE_VERTS.copy(),
+                faces=_SPHERE_FACES.copy(),
+                vertex_colors=vcols,
+                process=False,
+            )
+            self.server.scene.add_mesh_trimesh(
                 "/canonical/env_sphere",
-                vertices=_SPHERE_VERTS,
-                faces=_SPHERE_FACES,
-                vertex_colors=_env_vert_colors(env_hwc),
+                mesh=sphere_mesh,
                 position=(0.0, 0.0, 0.7),
                 wxyz=(1, 0, 0, 0),
             )

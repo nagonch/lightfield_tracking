@@ -391,8 +391,8 @@ if __name__ == "__main__":
 
     for REFLECTIVITY in REFLECTIVITIES:
         alpha = 1.0 - float(REFLECTIVITY)
-        split_dir = f"{DATASET_ROOT}/dataset_simple_box_reflective_full_{REFLECTIVITY}"
-        results_folder = f"{EXP_NAME}_{REFLECTIVITY}/ycbv_lf"
+        split_dir = f"{DATASET_ROOT}/objects_{REFLECTIVITY}"
+        results_folder = f"{EXP_NAME}_{REFLECTIVITY}/spectrack"
         os.makedirs(results_folder, exist_ok=True)
 
         if not os.path.isdir(split_dir):
