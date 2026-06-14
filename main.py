@@ -43,23 +43,23 @@ from src.slf_refinement_viewer import SurfaceLFRefinementViewer
 # ── configuration ─────────────────────────────────────────────────────────────
 
 DATASET_ROOT = "/home/ngoncharov/SpecTrack_dataset"
-EXP_NAME = "results_relift"
+EXP_NAME = "results_loftr_only"
 USE_GT_MASK = True
-ENABLE_VIS = True
+ENABLE_VIS = False
 
 DEPTH_SOURCES = ["gt", "synth"]
-SPLIT_PREFIXES = ["cube"]
-REFLECTIVITIES = ["0.7", "1.0"]
+SPLIT_PREFIXES = ["objects", "cube"]
+REFLECTIVITIES = ["0.0", "0.5", "0.7", "1.0"]
 
 # ── ablation knobs (sequential: each level requires the ones above) ─────────
 # L2  USE_LOFTR              – coarse pose via LoFTR; False → ICP only
 # L3  USE_DIFFUSE_FOR_LOFTR  – feed SLF-separated diffuse images to LoFTR
 # L4  USE_CANONICAL_REFINE   – photometric refinement against canonical model
 # L5  USE_CANONICAL_ACCUM    – fuse frames into canonical over time
-USE_LOFTR             = True
-USE_DIFFUSE_FOR_LOFTR = True
-USE_CANONICAL_REFINE  = True
-USE_CANONICAL_ACCUM   = True
+USE_LOFTR = True
+USE_DIFFUSE_FOR_LOFTR = False
+USE_CANONICAL_REFINE = False
+USE_CANONICAL_ACCUM = False
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -315,11 +315,20 @@ def track_sequence(
                         alpha=alpha,
                     )
                 if vis is not None:
-                    pts0 = canonical.points_obj.cpu().numpy() if canonical is not None else pc_curr
-                    cols0 = canonical.diffuse_colors.cpu().numpy() if canonical is not None else color_curr
+                    pts0 = (
+                        canonical.points_obj.cpu().numpy()
+                        if canonical is not None
+                        else pc_curr
+                    )
+                    cols0 = (
+                        canonical.diffuse_colors.cpu().numpy()
+                        if canonical is not None
+                        else color_curr
+                    )
                     env0 = (
                         canonical.environment_map.cpu().numpy()
-                        if canonical is not None and canonical.environment_map is not None
+                        if canonical is not None
+                        and canonical.environment_map is not None
                         else None
                     )
                     vis.update_canonical(pts0, cols0, env0, 0)
@@ -342,8 +351,12 @@ def track_sequence(
                 # ── coarse pose ───────────────────────────────────────────────
                 frame_bar.set_postfix(fr=i, stage="coarse")
                 if use_loftr:
-                    loftr_prev = diffuse_prev_u8 if use_diffuse_for_loftr else raw_prev_u8
-                    loftr_curr = diffuse_curr_u8 if use_diffuse_for_loftr else raw_curr_u8
+                    loftr_prev = (
+                        diffuse_prev_u8 if use_diffuse_for_loftr else raw_prev_u8
+                    )
+                    loftr_curr = (
+                        diffuse_curr_u8 if use_diffuse_for_loftr else raw_curr_u8
+                    )
                     coarse_abs_np = mixed_coarse_pose(
                         alpha=alpha,
                         diffuse_prev=loftr_prev,
@@ -408,11 +421,20 @@ def track_sequence(
                     )
 
                 if vis is not None:
-                    pts_np = canonical.points_obj.cpu().numpy() if canonical is not None else pc_curr
-                    cols_np = canonical.diffuse_colors.cpu().numpy() if canonical is not None else color_curr
+                    pts_np = (
+                        canonical.points_obj.cpu().numpy()
+                        if canonical is not None
+                        else pc_curr
+                    )
+                    cols_np = (
+                        canonical.diffuse_colors.cpu().numpy()
+                        if canonical is not None
+                        else color_curr
+                    )
                     env_np = (
                         canonical.environment_map.cpu().numpy()
-                        if canonical is not None and canonical.environment_map is not None
+                        if canonical is not None
+                        and canonical.environment_map is not None
                         else None
                     )
                     vis.update_canonical(pts_np, cols_np, env_np, i)
