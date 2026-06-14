@@ -1,1 +1,0 @@
-tar -czf baseline_results.tar.gz results_*
