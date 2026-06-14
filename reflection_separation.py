@@ -130,6 +130,7 @@ def separate_reflection(
     weight_reflective_range=0.2,
     weight_reconstruction=1e-6,
     iterations=500,
+    verbose=False,
 ):
     """
     explicit_surface_lf: [U, V, S, T, 3] - pick any [u_0, v_0] and get this point's color across a range of angles
@@ -183,7 +184,7 @@ def separate_reflection(
     tv_weight_u, tv_weight_v = compute_tv_weight(normal_map.cuda(), depth_map.cuda())
     loss_history = []
 
-    for i in tqdm(range(iterations)):
+    for i in tqdm(range(iterations), disable=not verbose):
         optimizer.zero_grad()
         reconstruction, diffuse_image, reflective_image = model()
 

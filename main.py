@@ -14,6 +14,7 @@ Assumptions (to relax later):
   - Reflectivity known per-split (REFLECTIVITY parameter)
 """
 
+import logging
 import os
 from collections.abc import Callable
 import numpy as np
@@ -21,6 +22,12 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 from PIL import Image
+
+logging.basicConfig(
+    format="%(asctime)s  %(levelname)-7s  %(message)s",
+    datefmt="%H:%M:%S",
+    level=logging.INFO,
+)
 
 from src.dataset import LFDataset
 from src.utilities import backproject_depth_to_pointcloud
@@ -209,10 +216,11 @@ def track_sequence(
     vis=None,
 ):
     dataset = LFDataset(path, depth_source=depth_source)
+    n_frames = len(dataset)
     s_size, t_size = dataset.metadata["n_views"]
     if vis is not None:
         try:
-            vis.total_frames = len(dataset)
+            vis.total_frames = n_frames
         except TypeError:
             vis.total_frames = 100
 
@@ -226,171 +234,181 @@ def track_sequence(
     color_prev = None
     canonical: CanonicalModel | None = None
 
-    for i, frame in tqdm(enumerate(dataset), desc=f"  {sequence_name}", leave=False):
-        frame["pose"] = frame["object_pose"]
-        gt_poses.append(frame["pose"].cpu().numpy())
+    with tqdm(
+        total=n_frames,
+        desc="  frames",
+        leave=False,
+        unit="fr",
+        dynamic_ncols=True,
+    ) as frame_bar:
+        for i, frame in enumerate(dataset):
+            frame_bar.set_postfix(fr=i, stage="SLF")
+            frame["pose"] = frame["object_pose"]
+            gt_poses.append(frame["pose"].cpu().numpy())
 
-        # ── depth & mask ──────────────────────────────────────────────────────
-        depth = frame["depth"]
+            # ── depth & mask ──────────────────────────────────────────────────
+            depth = frame["depth"]
 
-        if USE_GT_MASK:
-            mask = frame["masks"][s_size // 2, t_size // 2]
-        else:
-            raise NotImplementedError("Predicted mask not yet wired")
-
-        # ── SurfaceLF (reflection separation + env map) ───────────────────────
-        prev_env_chw = _canonical_env_for_slf(canonical)
-        surface_lf = _build_surface_lf(
-            frame=frame,
-            s_size=s_size,
-            t_size=t_size,
-            mask=mask,
-            depth=depth,
-            alpha=alpha,
-            previous_env_map=prev_env_chw,
-        )
-
-        # ── diffuse + reflected middle views ──────────────────────────────────
-        diffuse_curr_u8 = diffuse_midview_uint8(surface_lf)
-        raw_mid_np = (
-            frame["LF"][s_size // 2, t_size // 2].cpu().numpy()
-        )  # [H,W,3] float [0,1]
-        reflected_u8 = _reflected_image(raw_mid_np, diffuse_curr_u8)
-
-        depth_curr_np = depth.cpu().numpy()
-        mask_curr_np = (mask > 0).cpu().numpy()
-        pc_curr, color_curr = _pc_and_color(surface_lf)
-
-        # Per-frame env map (HWC float) for vis — from SurfaceLF if available
-        slf_env_np: np.ndarray | None = None
-        if (
-            hasattr(surface_lf, "environment_map")
-            and surface_lf.environment_map is not None
-        ):
-            _env = surface_lf.environment_map
-            if _env.ndim == 3 and _env.shape[0] == 3:  # CHW → HWC
-                slf_env_np = _env.permute(1, 2, 0).cpu().numpy()
+            if USE_GT_MASK:
+                mask = frame["masks"][s_size // 2, t_size // 2]
             else:
-                slf_env_np = _env.cpu().numpy()
+                raise NotImplementedError("Predicted mask not yet wired")
 
-        # ── frame 0: initialise ───────────────────────────────────────────────
-        if i == 0:
-            est_poses.append(frame["pose"].cpu().numpy())
-            canonical = CanonicalModel.from_surface_lf(
-                surface_lf=surface_lf,
-                pose0=frame["pose"],
+            # ── SurfaceLF (reflection separation + env map) ───────────────────
+            prev_env_chw = _canonical_env_for_slf(canonical)
+            surface_lf = _build_surface_lf(
+                frame=frame,
+                s_size=s_size,
+                t_size=t_size,
+                mask=mask,
+                depth=depth,
                 alpha=alpha,
+                previous_env_map=prev_env_chw,
             )
-            if vis is not None:
-                pts0 = canonical.points_obj.cpu().numpy()
-                cols0 = canonical.diffuse_colors.cpu().numpy()
-                env0 = (
-                    canonical.environment_map.cpu().numpy()
-                    if canonical.environment_map is not None
-                    else None
+
+            # ── diffuse + reflected middle views ──────────────────────────────
+            diffuse_curr_u8 = diffuse_midview_uint8(surface_lf)
+            raw_mid_np = frame["LF"][s_size // 2, t_size // 2].cpu().numpy()
+            reflected_u8 = _reflected_image(raw_mid_np, diffuse_curr_u8)
+
+            depth_curr_np = depth.cpu().numpy()
+            mask_curr_np = (mask > 0).cpu().numpy()
+            pc_curr, color_curr = _pc_and_color(surface_lf)
+
+            # Per-frame env map (HWC float) for vis — from SurfaceLF if available
+            slf_env_np: np.ndarray | None = None
+            if (
+                hasattr(surface_lf, "environment_map")
+                and surface_lf.environment_map is not None
+            ):
+                _env = surface_lf.environment_map
+                if _env.ndim == 3 and _env.shape[0] == 3:  # CHW → HWC
+                    slf_env_np = _env.permute(1, 2, 0).cpu().numpy()
+                else:
+                    slf_env_np = _env.cpu().numpy()
+
+            # ── frame 0: initialise ───────────────────────────────────────────
+            if i == 0:
+                frame_bar.set_postfix(fr=i, stage="init")
+                est_poses.append(frame["pose"].cpu().numpy())
+                canonical = CanonicalModel.from_surface_lf(
+                    surface_lf=surface_lf,
+                    pose0=frame["pose"],
+                    alpha=alpha,
                 )
-                vis.update_canonical(pts0, cols0, env0, 0)
-                vis.add_estimated_frame(
-                    frame_idx=0,
-                    pose_abs=est_poses[0],
-                    pts_obj=pts0,
-                    colors_obj=cols0,
-                    pts_cam=pc_curr,
-                    colors_cam=color_curr,
-                    img_rendered=None,
-                    img_diffuse=diffuse_curr_u8,
-                    img_reflected=reflected_u8,
-                    env_hwc=slf_env_np,
-                )
-
-        else:
-            K_np = frame["camera_matrix"].cpu().numpy().astype(np.float64)
-
-            # ── coarse pose ───────────────────────────────────────────────────
-            coarse_abs_np = mixed_coarse_pose(
-                alpha=alpha,
-                diffuse_prev=diffuse_prev_u8,
-                diffuse_curr=diffuse_curr_u8,
-                depth_prev=depth_prev_np,
-                depth_curr=depth_curr_np,
-                mask_prev=mask_prev_np,
-                mask_curr=mask_curr_np,
-                K=K_np,
-                loftr=loftr,
-                pc_prev=pc_prev,
-                pc_curr=pc_curr,
-                color_prev=color_prev,
-                color_curr=color_curr,
-                abs_pose_prev=est_poses[-1],
-                rng=rng,
-            )
-
-            # ── pose refinement via canonical relighting ──────────────────────
-            diffuse_target = rasterize_diffuse(surface_lf).cuda()
-            depth_target = depth.cuda()
-            pose_init = torch.tensor(coarse_abs_np, dtype=torch.float32).cuda()
-
-            if vis is not None:
-                vis.reset_refinement(i)
-
-            refined_abs_np, best_loss = refine_pose_canonical(
-                canonical=canonical,
-                diffuse_target=diffuse_target,
-                depth_target=depth_target,
-                pose_init_abs=pose_init,
-                on_step=vis.on_refine_step if vis is not None else None,
-            )
-            est_poses.append(refined_abs_np)
-
-            if vis is not None:
-                vis.finalize_refinement(best_loss)
-
-            # ── fuse current frame into canonical model ───────────────────────
-            canonical.fuse_frame(
-                surface_lf=surface_lf,
-                pose_t=torch.tensor(refined_abs_np, dtype=torch.float32).cuda(),
-            )
-
-            if vis is not None:
-                pts_np = canonical.points_obj.cpu().numpy()
-                cols_np = canonical.diffuse_colors.cpu().numpy()
-                env_np = (
-                    canonical.environment_map.cpu().numpy()
-                    if canonical.environment_map is not None
-                    else None
-                )
-                vis.update_canonical(pts_np, cols_np, env_np, i)
-                with torch.no_grad():
-                    img_r, _, _ = canonical.rasterize(
-                        torch.tensor(refined_abs_np, dtype=torch.float32).cuda()
+                if vis is not None:
+                    pts0 = canonical.points_obj.cpu().numpy()
+                    cols0 = canonical.diffuse_colors.cpu().numpy()
+                    env0 = (
+                        canonical.environment_map.cpu().numpy()
+                        if canonical.environment_map is not None
+                        else None
                     )
-                vis.add_estimated_frame(
-                    frame_idx=i,
-                    pose_abs=refined_abs_np,
-                    pts_obj=pts_np,
-                    colors_obj=cols_np,
-                    pts_cam=pc_curr,
-                    colors_cam=color_curr,
-                    img_rendered=img_r.cpu().numpy(),
-                    img_diffuse=diffuse_curr_u8,
-                    img_reflected=reflected_u8,
-                    env_hwc=slf_env_np,
+                    vis.update_canonical(pts0, cols0, env0, 0)
+                    vis.add_estimated_frame(
+                        frame_idx=0,
+                        pose_abs=est_poses[0],
+                        pts_obj=pts0,
+                        colors_obj=cols0,
+                        pts_cam=pc_curr,
+                        colors_cam=color_curr,
+                        img_rendered=None,
+                        img_diffuse=diffuse_curr_u8,
+                        img_reflected=reflected_u8,
+                        env_hwc=slf_env_np,
+                    )
+
+            else:
+                K_np = frame["camera_matrix"].cpu().numpy().astype(np.float64)
+
+                # ── coarse pose ───────────────────────────────────────────────
+                frame_bar.set_postfix(fr=i, stage="coarse")
+                coarse_abs_np = mixed_coarse_pose(
+                    alpha=alpha,
+                    diffuse_prev=diffuse_prev_u8,
+                    diffuse_curr=diffuse_curr_u8,
+                    depth_prev=depth_prev_np,
+                    depth_curr=depth_curr_np,
+                    mask_prev=mask_prev_np,
+                    mask_curr=mask_curr_np,
+                    K=K_np,
+                    loftr=loftr,
+                    pc_prev=pc_prev,
+                    pc_curr=pc_curr,
+                    color_prev=color_prev,
+                    color_curr=color_curr,
+                    abs_pose_prev=est_poses[-1],
+                    rng=rng,
                 )
 
-        # ── save env map ──────────────────────────────────────────────────────
-        if canonical.environment_map is not None:
-            env_np = canonical.environment_map.cpu().numpy()
-            env_np = np.clip(env_np * 255, 0, 255).astype(np.uint8)
-            Image.fromarray(env_np).save(
-                os.path.join(results_folder, f"{sequence_name}_env_map.png")
-            )
+                # ── pose refinement via canonical relighting ──────────────────
+                frame_bar.set_postfix(fr=i, stage="refine")
+                diffuse_target = rasterize_diffuse(surface_lf).cuda()
+                depth_target = depth.cuda()
+                pose_init = torch.tensor(coarse_abs_np, dtype=torch.float32).cuda()
 
-        # bookkeeping
-        diffuse_prev_u8 = diffuse_curr_u8
-        depth_prev_np = depth_curr_np
-        mask_prev_np = mask_curr_np
-        pc_prev = pc_curr
-        color_prev = color_curr
+                if vis is not None:
+                    vis.reset_refinement(i)
+
+                refined_abs_np, best_loss = refine_pose_canonical(
+                    canonical=canonical,
+                    diffuse_target=diffuse_target,
+                    depth_target=depth_target,
+                    pose_init_abs=pose_init,
+                    on_step=vis.on_refine_step if vis is not None else None,
+                )
+                est_poses.append(refined_abs_np)
+
+                if vis is not None:
+                    vis.finalize_refinement(best_loss)
+
+                # ── fuse current frame into canonical model ───────────────────
+                frame_bar.set_postfix(fr=i, stage="fuse", loss=f"{best_loss:.4f}")
+                canonical.fuse_frame(
+                    surface_lf=surface_lf,
+                    pose_t=torch.tensor(refined_abs_np, dtype=torch.float32).cuda(),
+                )
+
+                if vis is not None:
+                    pts_np = canonical.points_obj.cpu().numpy()
+                    cols_np = canonical.diffuse_colors.cpu().numpy()
+                    env_np = (
+                        canonical.environment_map.cpu().numpy()
+                        if canonical.environment_map is not None
+                        else None
+                    )
+                    vis.update_canonical(pts_np, cols_np, env_np, i)
+                    with torch.no_grad():
+                        img_r, _, _ = canonical.rasterize(
+                            torch.tensor(refined_abs_np, dtype=torch.float32).cuda()
+                        )
+                    vis.add_estimated_frame(
+                        frame_idx=i,
+                        pose_abs=refined_abs_np,
+                        pts_obj=pts_np,
+                        colors_obj=cols_np,
+                        pts_cam=pc_curr,
+                        colors_cam=color_curr,
+                        img_rendered=img_r.cpu().numpy(),
+                        img_diffuse=diffuse_curr_u8,
+                        img_reflected=reflected_u8,
+                        env_hwc=slf_env_np,
+                    )
+
+            # ── save env map ──────────────────────────────────────────────────
+            if canonical.environment_map is not None:
+                env_np = canonical.environment_map.cpu().numpy()
+                env_np = np.clip(env_np * 255, 0, 255).astype(np.uint8)
+                Image.fromarray(env_np).save(
+                    os.path.join(results_folder, f"{sequence_name}_env_map.png")
+                )
+
+            diffuse_prev_u8 = diffuse_curr_u8
+            depth_prev_np = depth_curr_np
+            mask_prev_np = mask_curr_np
+            pc_prev = pc_curr
+            color_prev = color_curr
+            frame_bar.update(1)
 
     # ── save results ──────────────────────────────────────────────────────────
     gt_np = np.stack(gt_poses)
@@ -398,7 +416,7 @@ def track_sequence(
     est_rebased = rebase_poses(gt_np, est_np)
     out_path = os.path.join(results_folder, f"{sequence_name}.npy")
     np.save(out_path, est_rebased)
-    tqdm.write(f"  {sequence_name}: {est_rebased.shape} → {out_path}")
+    logging.info("%s: %s → %s", sequence_name, est_rebased.shape, out_path)
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -413,52 +431,69 @@ if __name__ == "__main__":
     loftr = LoftrRunner()
     rng = np.random.default_rng(seed=42)
 
+    # Build flat work list so the outer bar knows total count up front
+    work = []
     for depth_source in DEPTH_SOURCES:
         for split_prefix in SPLIT_PREFIXES:
             for REFLECTIVITY in REFLECTIVITIES:
-                alpha = 1.0 - float(REFLECTIVITY)
                 split_dir = f"{DATASET_ROOT}/{split_prefix}_{REFLECTIVITY}"
+                if not os.path.isdir(split_dir):
+                    logging.warning("Split not found, skipping: %s", split_dir)
+                    continue
                 results_folder = (
                     f"{EXP_NAME}/{depth_source}/{split_prefix}_{REFLECTIVITY}"
                 )
                 os.makedirs(results_folder, exist_ok=True)
-
-                if not os.path.isdir(split_dir):
-                    tqdm.write(f"Split not found, skipping: {split_dir}")
-                    continue
-
                 for sequence_name in sorted(os.listdir(split_dir)):
                     seq_path = os.path.join(split_dir, sequence_name)
-                    if not os.path.isdir(seq_path):
-                        continue
-
-                    out_path = os.path.join(results_folder, f"{sequence_name}.npy")
-                    if os.path.exists(out_path):
-                        tqdm.write(f"  {sequence_name}: already done, skipping")
-                        continue
-
-                    tqdm.write(
-                        f"\n[{depth_source}] [{split_prefix}_{REFLECTIVITY}] {sequence_name}"
-                    )
-
-                    if vis is not None:
-                        vis.new_sequence(
-                            f"{depth_source}/{split_prefix}_{REFLECTIVITY}/{sequence_name}"
+                    if os.path.isdir(seq_path):
+                        work.append(
+                            (
+                                depth_source,
+                                split_prefix,
+                                REFLECTIVITY,
+                                sequence_name,
+                                seq_path,
+                                results_folder,
+                            )
                         )
 
-                    try:
-                        track_sequence(
-                            path=seq_path,
-                            results_folder=results_folder,
-                            sequence_name=sequence_name,
-                            alpha=alpha,
-                            loftr=loftr,
-                            rng=rng,
-                            depth_source=depth_source,
-                            vis=vis,
-                        )
-                    except Exception as e:
-                        import traceback
+    with tqdm(work, desc="sequences", unit="seq", dynamic_ncols=True) as seq_bar:
+        for (
+            depth_source,
+            split_prefix,
+            REFLECTIVITY,
+            sequence_name,
+            seq_path,
+            results_folder,
+        ) in seq_bar:
+            alpha = 1.0 - float(REFLECTIVITY)
+            label = f"{depth_source}/{split_prefix}_{REFLECTIVITY}/{sequence_name}"
+            seq_bar.set_postfix(seq=sequence_name)
 
-                        tqdm.write(f"  FAILED: {e}")
-                        traceback.print_exc()
+            out_path = os.path.join(results_folder, f"{sequence_name}.npy")
+            if os.path.exists(out_path):
+                logging.info("%s: already done, skipping", label)
+                continue
+
+            logging.info("▶ %s", label)
+
+            if vis is not None:
+                vis.new_sequence(label)
+
+            try:
+                track_sequence(
+                    path=seq_path,
+                    results_folder=results_folder,
+                    sequence_name=sequence_name,
+                    alpha=alpha,
+                    loftr=loftr,
+                    rng=rng,
+                    depth_source=depth_source,
+                    vis=vis,
+                )
+            except Exception as e:
+                import traceback
+
+                logging.error("%s: FAILED — %s", label, e)
+                traceback.print_exc()
