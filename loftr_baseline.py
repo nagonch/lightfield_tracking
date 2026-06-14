@@ -191,8 +191,35 @@ class LoftrBase:
         depth = _filter_depth_percentile(depth, mask)
         return rgb, depth, mask
 
+    def run_coarse(self) -> np.ndarray:
+        """Accumulate frame-to-frame LoFTR poses into an absolute pose sequence.
+
+        Returns
+        -------
+        poses : (N, 4, 4) float64
+            Absolute poses in the coordinate frame of frame 0 (identity at t=0).
+            Not rebased to GT — suitable as coarse initialisation for refinement.
+        """
+        n = len(self.seq)
+        est_poses = [np.eye(4)]
+        rgb_prev, depth_prev, _ = self._get_depth_filtered(0)
+
+        for idx in tqdm(range(1, n), desc="  frames", leave=False):
+            rgb_cur, depth_cur, _ = self._get_depth_filtered(idx)
+            T_rel = self._estimate_relative_pose(
+                rgb_prev, depth_prev,
+                rgb_cur, depth_cur,
+                self.seq.K,
+            )
+            if T_rel is None:
+                T_rel = np.eye(4)
+            est_poses.append(T_rel @ est_poses[-1])
+            rgb_prev, depth_prev = rgb_cur, depth_cur
+
+        return np.stack(est_poses)
+
     def run(self) -> np.ndarray:
-        """Track the full sequence.
+        """Track the full sequence (baseline evaluation entry point).
 
         Returns
         -------
@@ -201,27 +228,7 @@ class LoftrBase:
         """
         n = len(self.seq)
         gt_poses = np.stack([self.seq.get_gt_pose(i) for i in range(n)])
-
-        est_poses = [np.eye(4)]
-
-        rgb_prev, depth_prev, _ = self._get_depth_filtered(0)
-
-        for idx in tqdm(range(1, n), desc="  frames", leave=False):
-            rgb_cur, depth_cur, _ = self._get_depth_filtered(idx)
-
-            T_rel = self._estimate_relative_pose(
-                rgb_prev, depth_prev,
-                rgb_cur, depth_cur,
-                self.seq.K,
-            )
-            if T_rel is None:
-                # Fall back: no motion
-                T_rel = np.eye(4)
-
-            est_poses.append(T_rel @ est_poses[-1])
-            rgb_prev, depth_prev = rgb_cur, depth_cur
-
-        est_poses = np.stack(est_poses)
+        est_poses = self.run_coarse()
         return rebase_poses(gt_poses, est_poses)
 
     def _estimate_relative_pose(
