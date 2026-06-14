@@ -13,3 +13,6 @@
 [submodule "KISS-Matcher"]
 	path = KISS-Matcher
 	url = https://github.com/MIT-SPARK/KISS-Matcher.git
+[submodule "LoFTR"]
+	path = LoFTR
+	url = https://github.com/zju3dv/LoFTR

@@ -30,9 +30,10 @@ BASELINES = [
     ("results_pnp", "PnP"),
     ("results_bsdf", "BSDF"),
     ("results_icp", "ICP"),
+    ("results_loftr", "LoFTR"),
 ]
 
-COLORS = ["#1f77b4", "#9467bd", "#2ca02c", "#d62728"]
+COLORS = ["#1f77b4", "#9467bd", "#2ca02c", "#d62728", "#ff7f0e"]
 
 REFLECTIVITIES = [0.0, 0.5, 0.7, 1.0]
 

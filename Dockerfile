@@ -24,7 +24,7 @@ COPY sam2/ sam2/
 WORKDIR /sam2
 RUN pip3 install -e .
 WORKDIR /
-RUN pip3 install transformers==4.57.3 nerfview==0.1.3 splines==0.3.3 e3nn==0.5.9 einops==0.8.1 easydict==1.13
+RUN pip3 install transformers==4.57.3 nerfview==0.1.3 splines==0.3.3 e3nn==0.5.9 einops==0.8.1 easydict==1.13 kornia yacs
 RUN pip3 install "git+https://github.com/facebookresearch/pytorch3d.git"
 COPY Video-Depth-Anything/ Video-Depth-Anything/
 
