@@ -9,7 +9,7 @@ Algorithm per frame:
   6. Save estimated poses
 
 Assumptions (to relax later):
-  - Depth from GT (USE_GT_DEPTH=True)
+  - Depth from GT or synth (USE_DEPTH_SOURCE controls which)
   - Mask from GT dataset (USE_GT_MASK=True)
   - Reflectivity known per-split (REFLECTIVITY parameter)
 """
@@ -37,13 +37,12 @@ from src.slf_refinement_viewer import SurfaceLFRefinementViewer
 
 DATASET_ROOT = "/home/ngoncharov/SpecTrack_dataset"
 EXP_NAME = "results_relift"
-USE_GT_DEPTH = True
 USE_GT_MASK = True
-ENABLE_REFINEMENT_VIEWER = False
-REFINEMENT_VIEWER_UPDATE_EVERY = 10
 ENABLE_VIS = True
 
-REFLECTIVITIES = ["0.0", "0.5", "0.7", "1.0"]
+DEPTH_SOURCES = ["gt", "synth"]
+SPLIT_PREFIXES = ["cube"]
+REFLECTIVITIES = ["0.7", "1.0"]
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -113,6 +112,18 @@ def _canonical_env_for_slf(canonical: CanonicalModel | None) -> torch.Tensor | N
     if env.ndim == 3 and env.shape[-1] == 3:
         return env.permute(2, 0, 1).contiguous()
     return env
+
+
+def _reflected_image(
+    raw_lf_mid: np.ndarray,
+    diffuse_u8: np.ndarray,
+    amplify: float = 3.0,
+) -> np.ndarray:
+    """Specular component = raw − diffuse, amplified for visibility."""
+    raw_f = raw_lf_mid.astype(np.float32)
+    dif_f = diffuse_u8.astype(np.float32) / 255.0
+    reflected = np.clip((raw_f - dif_f) * amplify, 0.0, 1.0)
+    return (reflected * 255).astype(np.uint8)
 
 
 # ── pose refinement with canonical model ─────────────────────────────────────
@@ -194,9 +205,10 @@ def track_sequence(
     alpha: float,
     loftr: LoftrRunner,
     rng: np.random.Generator,
+    depth_source: str = "gt",
     vis=None,
 ):
-    dataset = LFDataset(path)
+    dataset = LFDataset(path, depth_source=depth_source)
     s_size, t_size = dataset.metadata["n_views"]
     if vis is not None:
         try:
@@ -219,10 +231,7 @@ def track_sequence(
         gt_poses.append(frame["pose"].cpu().numpy())
 
         # ── depth & mask ──────────────────────────────────────────────────────
-        if USE_GT_DEPTH:
-            depth = frame["depth"]
-        else:
-            raise NotImplementedError("Predicted depth not yet wired")
+        depth = frame["depth"]
 
         if USE_GT_MASK:
             mask = frame["masks"][s_size // 2, t_size // 2]
@@ -241,11 +250,28 @@ def track_sequence(
             previous_env_map=prev_env_chw,
         )
 
-        # ── diffuse middle view for LoFTR ─────────────────────────────────────
+        # ── diffuse + reflected middle views ──────────────────────────────────
         diffuse_curr_u8 = diffuse_midview_uint8(surface_lf)
+        raw_mid_np = (
+            frame["LF"][s_size // 2, t_size // 2].cpu().numpy()
+        )  # [H,W,3] float [0,1]
+        reflected_u8 = _reflected_image(raw_mid_np, diffuse_curr_u8)
+
         depth_curr_np = depth.cpu().numpy()
         mask_curr_np = (mask > 0).cpu().numpy()
         pc_curr, color_curr = _pc_and_color(surface_lf)
+
+        # Per-frame env map (HWC float) for vis — from SurfaceLF if available
+        slf_env_np: np.ndarray | None = None
+        if (
+            hasattr(surface_lf, "environment_map")
+            and surface_lf.environment_map is not None
+        ):
+            _env = surface_lf.environment_map
+            if _env.ndim == 3 and _env.shape[0] == 3:  # CHW → HWC
+                slf_env_np = _env.permute(1, 2, 0).cpu().numpy()
+            else:
+                slf_env_np = _env.cpu().numpy()
 
         # ── frame 0: initialise ───────────────────────────────────────────────
         if i == 0:
@@ -273,6 +299,8 @@ def track_sequence(
                     colors_cam=color_curr,
                     img_rendered=None,
                     img_diffuse=diffuse_curr_u8,
+                    img_reflected=reflected_u8,
+                    env_hwc=slf_env_np,
                 )
 
         else:
@@ -345,6 +373,8 @@ def track_sequence(
                     colors_cam=color_curr,
                     img_rendered=img_r.cpu().numpy(),
                     img_diffuse=diffuse_curr_u8,
+                    img_reflected=reflected_u8,
+                    env_hwc=slf_env_np,
                 )
 
         # ── save env map ──────────────────────────────────────────────────────
@@ -389,49 +419,62 @@ if __name__ == "__main__":
     loftr = LoftrRunner()
     rng = np.random.default_rng(seed=42)
 
-    for REFLECTIVITY in REFLECTIVITIES:
-        alpha = 1.0 - float(REFLECTIVITY)
-        split_dir = f"{DATASET_ROOT}/objects_{REFLECTIVITY}"
-        results_folder = f"{EXP_NAME}_{REFLECTIVITY}/spectrack"
-        os.makedirs(results_folder, exist_ok=True)
-
-        if not os.path.isdir(split_dir):
-            tqdm.write(f"Split not found, skipping: {split_dir}")
-            continue
-
-        all_errors = []
-        for sequence_name in sorted(os.listdir(split_dir)):
-            seq_path = os.path.join(split_dir, sequence_name)
-            if not os.path.isdir(seq_path):
-                continue
-
-            out_path = os.path.join(results_folder, f"{sequence_name}.npy")
-            if os.path.exists(out_path):
-                tqdm.write(f"  {sequence_name}: already done, skipping")
-                continue
-
-            tqdm.write(f"\n[reflectivity={REFLECTIVITY}] {sequence_name}")
-            try:
-                errors = track_sequence(
-                    path=seq_path,
-                    results_folder=results_folder,
-                    sequence_name=sequence_name,
-                    alpha=alpha,
-                    loftr=loftr,
-                    rng=rng,
-                    vis=vis,
+    for depth_source in DEPTH_SOURCES:
+        for split_prefix in SPLIT_PREFIXES:
+            for REFLECTIVITY in REFLECTIVITIES:
+                alpha = 1.0 - float(REFLECTIVITY)
+                split_dir = f"{DATASET_ROOT}/{split_prefix}_{REFLECTIVITY}"
+                results_folder = (
+                    f"{EXP_NAME}/{depth_source}/{split_prefix}_{REFLECTIVITY}"
                 )
-                all_errors.append(errors)
-            except Exception as e:
-                import traceback
+                os.makedirs(results_folder, exist_ok=True)
 
-                tqdm.write(f"  FAILED: {e}")
-                traceback.print_exc()
+                if not os.path.isdir(split_dir):
+                    tqdm.write(f"Split not found, skipping: {split_dir}")
+                    continue
 
-        if all_errors:
-            mean_rot = np.mean([e["mean_abs_rot_deg"] for e in all_errors])
-            mean_trans = np.mean([e["mean_abs_trans"] for e in all_errors])
-            print(
-                f"\n[reflectivity={REFLECTIVITY}] "
-                f"MEAN rot={mean_rot:.1f}°  trans={mean_trans*100:.1f}cm"
-            )
+                all_errors = []
+                for sequence_name in sorted(os.listdir(split_dir)):
+                    seq_path = os.path.join(split_dir, sequence_name)
+                    if not os.path.isdir(seq_path):
+                        continue
+
+                    out_path = os.path.join(results_folder, f"{sequence_name}.npy")
+                    if os.path.exists(out_path):
+                        tqdm.write(f"  {sequence_name}: already done, skipping")
+                        continue
+
+                    tqdm.write(
+                        f"\n[{depth_source}] [{split_prefix}_{REFLECTIVITY}] {sequence_name}"
+                    )
+
+                    if vis is not None:
+                        vis.new_sequence(
+                            f"{depth_source}/{split_prefix}_{REFLECTIVITY}/{sequence_name}"
+                        )
+
+                    try:
+                        errors = track_sequence(
+                            path=seq_path,
+                            results_folder=results_folder,
+                            sequence_name=sequence_name,
+                            alpha=alpha,
+                            loftr=loftr,
+                            rng=rng,
+                            depth_source=depth_source,
+                            vis=vis,
+                        )
+                        all_errors.append(errors)
+                    except Exception as e:
+                        import traceback
+
+                        tqdm.write(f"  FAILED: {e}")
+                        traceback.print_exc()
+
+                if all_errors:
+                    mean_rot = np.mean([e["mean_abs_rot_deg"] for e in all_errors])
+                    mean_trans = np.mean([e["mean_abs_trans"] for e in all_errors])
+                    print(
+                        f"\n[{depth_source}] [{split_prefix}_{REFLECTIVITY}] "
+                        f"MEAN rot={mean_rot:.1f}°  trans={mean_trans*100:.1f}cm"
+                    )

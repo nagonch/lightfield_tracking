@@ -7,7 +7,7 @@ from PIL import Image
 
 
 class LFDataset:
-    def __init__(self, folder, poses_to_opencv=True):
+    def __init__(self, folder, poses_to_opencv=True, depth_source: str = "gt"):
         if "ycbv" in folder:
             self.flip = False
         else:
@@ -44,7 +44,8 @@ class LFDataset:
         )
         self.size = len(self.frames)
         self.camera_poses_dir = os.path.join(self.folder, "camera_poses")
-        self.depth_dir = os.path.join(self.folder, "depth")
+        depth_subfolder = "depth_synth" if depth_source == "synth" else "depth"
+        self.depth_dir = os.path.join(self.folder, depth_subfolder)
         self.depth_fnames = list(sorted(os.listdir(self.depth_dir)))
 
         self.object_poses_dir = os.path.join(self.folder, "object_poses")

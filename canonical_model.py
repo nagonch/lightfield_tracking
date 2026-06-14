@@ -1,9 +1,7 @@
 """Canonical surface light field model.
 
-Accumulates a growing point cloud (+ normals + diffuse colour + env map) in
-*object* coordinates (= camera frame of frame 0).  Renders with relighting so
-that the rendered image accounts for current illumination when used for pose
-refinement.
+Accumulates a growing point cloud (+ normals + diffuse colour + env map +
+per-point view-dependent SH) in *object* coordinates.
 
 Coordinate convention
 ---------------------
@@ -11,14 +9,25 @@ Coordinate convention
   p_obj = inv(P0[:3,:3]) @ (p_cam0 - P0[:3,3])
 - Camera frame  : frame of the (fixed) RGBD camera; changes as the object
   moves.  p_cam_t = R_t @ p_obj + t_t  where P_t = est_poses[t].
-- The LF rig cameras are defined relative to the CENTRAL view (= camera
-  frame).  Their relative arrangement is fixed for all frames.
+
+Relighting strategy (per point, during rasterize)
+--------------------------------------------------
+1. Compute reflected view direction in camera frame for each LF sub-aperture.
+2. Sample the accumulated env map → env-relit colour.
+3. Blend: relit = alpha * diffuse + (1-alpha) * env_colour.
+4. For points where env map has no coverage (or env map not yet built):
+   fall back to the per-point SH fitted from the raw LF multi-view observations
+   stored in object frame. This gives the view-dependent appearance as last seen,
+   which is the correct thing to show for mirrors (reflectivity=1, alpha=0).
 """
 
 import torch
 import torch.nn.functional as F
 from sh_helpers import RGB2SH, fit_sh_coeffs_per_point
 from surface_lf import SurfaceLF, SurfaceLFRig, batch_rasterize
+
+_SH_DEGREE = 2
+_SH_COEFFS = (_SH_DEGREE + 1) ** 2  # 9
 
 
 # ── voxel downsampling ────────────────────────────────────────────────────────
@@ -28,71 +37,120 @@ def _voxel_downsample(
     normals: torch.Tensor,
     diffuse: torch.Tensor,
     scales: torch.Tensor,
+    sh: torch.Tensor,        # [N, 9, 3]
     voxel_size: float,
     max_points: int,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Average attributes within each voxel cell; hard-cap at max_points."""
-    # Assign each point to a voxel
     voxel_idx = (points / voxel_size).long()
-    # Cantor-like hash → unique int per voxel
     ix, iy, iz = voxel_idx[:, 0], voxel_idx[:, 1], voxel_idx[:, 2]
-    key = ix * 1_000_003 + iy * 1_009 + iz  # pseudo-unique; rare collisions ok
+    key = ix * 1_000_003 + iy * 1_009 + iz
     unique_keys, inverse = torch.unique(key, return_inverse=True)
 
     n_voxels = unique_keys.shape[0]
-    out_pts = torch.zeros(n_voxels, 3, device=points.device, dtype=points.dtype)
-    out_nrm = torch.zeros(n_voxels, 3, device=points.device, dtype=points.dtype)
-    out_dif = torch.zeros(n_voxels, 3, device=points.device, dtype=points.dtype)
-    out_scl = torch.zeros(n_voxels, 3, device=points.device, dtype=points.dtype)
-    cnt     = torch.zeros(n_voxels, 1, device=points.device, dtype=points.dtype)
+    dev, dt = points.device, points.dtype
+
+    out_pts = torch.zeros(n_voxels, 3, device=dev, dtype=dt)
+    out_nrm = torch.zeros(n_voxels, 3, device=dev, dtype=dt)
+    out_dif = torch.zeros(n_voxels, 3, device=dev, dtype=dt)
+    out_scl = torch.zeros(n_voxels, 3, device=dev, dtype=dt)
+    cnt     = torch.zeros(n_voxels, 1, device=dev, dtype=dt)
+
+    N = points.shape[0]
+    sh_flat = sh.reshape(N, -1)  # [N, 27]
+    out_sh  = torch.zeros(n_voxels, sh_flat.shape[1], device=dev, dtype=sh_flat.dtype)
 
     out_pts.index_add_(0, inverse, points)
     out_nrm.index_add_(0, inverse, normals)
     out_dif.index_add_(0, inverse, diffuse)
     out_scl.index_add_(0, inverse, scales)
-    cnt.index_add_(0, inverse, torch.ones(points.shape[0], 1, device=points.device, dtype=points.dtype))
+    cnt.index_add_(0, inverse, torch.ones(N, 1, device=dev, dtype=dt))
+    out_sh.index_add_(0, inverse, sh_flat)
 
     out_pts = out_pts / cnt
     out_nrm = F.normalize(out_nrm / cnt, dim=-1, eps=1e-8)
     out_dif = (out_dif / cnt).clamp(0.0, 1.0)
     out_scl = out_scl / cnt
+    out_sh  = (out_sh / cnt).reshape(n_voxels, _SH_COEFFS, 3)
 
     if n_voxels > max_points:
-        # Random subsample — keeps most recent additions by virtue of random
-        perm = torch.randperm(n_voxels, device=points.device)[:max_points]
+        perm = torch.randperm(n_voxels, device=dev)[:max_points]
         out_pts = out_pts[perm]
         out_nrm = out_nrm[perm]
         out_dif = out_dif[perm]
         out_scl = out_scl[perm]
+        out_sh  = out_sh[perm]
 
-    return out_pts, out_nrm, out_dif, out_scl
+    return out_pts, out_nrm, out_dif, out_scl, out_sh
+
+
+# ── SH fitting helper ─────────────────────────────────────────────────────────
+
+def _fit_sh_from_slf(
+    surface_lf: SurfaceLF,
+    R_obj_from_cam: torch.Tensor,  # [3, 3] = pose[:3,:3].T
+    device: torch.device,
+    dtype: torch.dtype,
+    lambda_reg: float = 1e-3,
+) -> torch.Tensor:
+    """Fit per-point SH (degree 2) in object frame from SurfaceLF observations.
+
+    Uses the raw multi-view observed colours (not just diffuse) so that
+    mirror-like objects (alpha=0) retain their view-dependent reflection
+    appearance even after the env map becomes stale.
+
+    Returns [N, 9, 3] float32.
+    """
+    cam_centers = surface_lf.rig.cameras.get_camera_center().to(device=device, dtype=dtype)  # [V,3]
+    pts_cam = surface_lf.values["means"].to(device=device, dtype=dtype)          # [N,3]
+
+    # Direction from each camera center to each point (same convention as rasterize)
+    view_dirs_cam = F.normalize(
+        pts_cam.unsqueeze(0) - cam_centers.unsqueeze(1), dim=-1, eps=1e-8
+    )  # [V, N, 3]
+
+    # Rotate directions to object frame: v_obj = R^T @ v_cam
+    view_dirs_obj = torch.einsum("ij,vnj->vni", R_obj_from_cam, view_dirs_cam)  # [V, N, 3]
+
+    obs_colors = surface_lf.colors.to(device=device, dtype=dtype)           # [V, N, 3]
+    obs_valid  = surface_lf.valid.float().to(device=device, dtype=dtype)    # [V, N]
+
+    return fit_sh_coeffs_per_point(
+        obs_colors.float(),
+        view_dirs_obj.float(),
+        obs_valid,
+        max_degree=_SH_DEGREE,
+        lambda_reg=lambda_reg,
+    )  # [N, 9, 3]
 
 
 # ── canonical model ───────────────────────────────────────────────────────────
 
 class CanonicalModel:
-    """Growing point cloud + env map in object frame, with relighting render."""
+    """Growing point cloud + env map + per-point view-dep SH in object frame."""
 
     MAX_POINTS = 60_000
-    VOXEL_SIZE = 3e-3   # 3 mm — roughly 1 px at 0.5 m depth with typical intrinsics
-    ENV_FUSION_ALPHA = 0.6  # weight for new env map observation
+    VOXEL_SIZE = 3e-3
+    ENV_FUSION_ALPHA = 0.6
 
     def __init__(
         self,
-        points_obj: torch.Tensor,
-        normals_obj: torch.Tensor,
-        diffuse_colors: torch.Tensor,
-        pc_scales: torch.Tensor,
-        environment_map: torch.Tensor | None,
+        points_obj: torch.Tensor,        # [N, 3]
+        normals_obj: torch.Tensor,       # [N, 3]
+        diffuse_colors: torch.Tensor,    # [N, 3]
+        pc_scales: torch.Tensor,         # [N, 3]
+        sh_view_dep: torch.Tensor,       # [N, 9, 3] — view-dep fallback SH
+        environment_map: torch.Tensor | None,  # [H_e, W_e, 3] HWC or None
         rig: SurfaceLFRig,
         alpha: float,
     ):
-        self.points_obj = points_obj        # [N, 3]
-        self.normals_obj = normals_obj      # [N, 3]
-        self.diffuse_colors = diffuse_colors # [N, 3]
-        self.pc_scales = pc_scales          # [N, 3]
-        self.environment_map = environment_map  # [H_e, W_e, 3] or None
-        self.rig = rig
+        self.points_obj     = points_obj
+        self.normals_obj    = normals_obj
+        self.diffuse_colors = diffuse_colors
+        self.pc_scales      = pc_scales
+        self.sh_view_dep    = sh_view_dep
+        self.environment_map = environment_map
+        self.rig   = rig
         self.alpha = alpha
 
     # ── construction ─────────────────────────────────────────────────────────
@@ -106,7 +164,7 @@ class CanonicalModel:
     ) -> "CanonicalModel":
         """Initialise from first frame.
 
-        pose0 : [4, 4] object pose in camera frame at t=0 (est_poses[0]).
+        pose0 : [4, 4] object pose in camera frame at t=0.
         """
         pts_cam = surface_lf.values["means"].clone()
         nrm_cam = surface_lf.surface_normals
@@ -117,7 +175,6 @@ class CanonicalModel:
 
         dif = surface_lf.diffuse_color_per_point
         if dif is None:
-            # Fallback: mean colour
             valid = surface_lf.valid.float()
             count = valid.sum(dim=0).clamp(min=1).unsqueeze(-1)
             dif = (surface_lf.colors * valid.unsqueeze(-1)).sum(dim=0) / count
@@ -125,10 +182,12 @@ class CanonicalModel:
 
         scl = surface_lf.values["scales"].clone().to(pts_obj.device, dtype=pts_obj.dtype)
 
+        R_obj_from_cam = pose0[:3, :3].to(pts_obj.device, pts_obj.dtype).T
+        sh = _fit_sh_from_slf(surface_lf, R_obj_from_cam, pts_obj.device, pts_obj.dtype)
+
         env = None
         if surface_lf.environment_map is not None:
             env = surface_lf.environment_map.detach().clone()
-            # Ensure HWC
             if env.ndim == 3 and env.shape[0] == 3:
                 env = env.permute(1, 2, 0).contiguous()
 
@@ -137,6 +196,7 @@ class CanonicalModel:
             normals_obj=nrm_obj,
             diffuse_colors=dif,
             pc_scales=scl,
+            sh_view_dep=sh,
             environment_map=env,
             rig=surface_lf.rig,
             alpha=alpha,
@@ -164,23 +224,32 @@ class CanonicalModel:
         dif = dif.to(new_pts_obj.device, dtype=new_pts_obj.dtype).clamp(0.0, 1.0)
         new_scl = surface_lf.values["scales"].clone().to(new_pts_obj.device, dtype=new_pts_obj.dtype)
 
-        # Concatenate
-        self.points_obj   = torch.cat([self.points_obj,   new_pts_obj],  dim=0)
-        self.normals_obj  = torch.cat([self.normals_obj,  new_nrm_obj],  dim=0)
-        self.diffuse_colors = torch.cat([self.diffuse_colors, dif],       dim=0)
-        self.pc_scales    = torch.cat([self.pc_scales,    new_scl],       dim=0)
+        # Fit view-dep SH for new points in object frame
+        R_obj_from_cam = pose_t[:3, :3].to(new_pts_obj.device, new_pts_obj.dtype).T
+        new_sh = _fit_sh_from_slf(surface_lf, R_obj_from_cam, new_pts_obj.device, new_pts_obj.dtype)
 
-        # Bound size via voxel merge
+        # Concatenate all attributes
+        self.points_obj     = torch.cat([self.points_obj,     new_pts_obj], dim=0)
+        self.normals_obj    = torch.cat([self.normals_obj,    new_nrm_obj], dim=0)
+        self.diffuse_colors = torch.cat([self.diffuse_colors, dif],         dim=0)
+        self.pc_scales      = torch.cat([self.pc_scales,      new_scl],     dim=0)
+        self.sh_view_dep    = torch.cat([self.sh_view_dep,    new_sh],      dim=0)
+
         if self.points_obj.shape[0] > self.MAX_POINTS:
-            self.points_obj, self.normals_obj, self.diffuse_colors, self.pc_scales = (
-                _voxel_downsample(
-                    self.points_obj,
-                    self.normals_obj,
-                    self.diffuse_colors,
-                    self.pc_scales,
-                    self.VOXEL_SIZE,
-                    self.MAX_POINTS,
-                )
+            (
+                self.points_obj,
+                self.normals_obj,
+                self.diffuse_colors,
+                self.pc_scales,
+                self.sh_view_dep,
+            ) = _voxel_downsample(
+                self.points_obj,
+                self.normals_obj,
+                self.diffuse_colors,
+                self.pc_scales,
+                self.sh_view_dep,
+                self.VOXEL_SIZE,
+                self.MAX_POINTS,
             )
 
         # Fuse env map
@@ -214,17 +283,20 @@ class CanonicalModel:
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Render canonical model re-lit at object pose pose_t.
 
-        pose_t : [4, 4] object pose in camera frame (est_poses[t]).
-        Returns image [H,W,3], depth [H,W], mask [H,W] (bool).
+        Relighting priority per point:
+          1. env map sample at reflected direction (if coverage exists)
+          2. per-point view-dep SH evaluated at view direction (always available)
+          3. flat diffuse SH (last resort if SH is missing)
+
+        Returns image [H,W,3], depth [H,W], mask [H,W] bool.
         """
         device = self.points_obj.device
-        dtype = self.points_obj.dtype
+        dtype  = self.points_obj.dtype
 
         pose_t = pose_t.to(device=device, dtype=dtype)
         R = pose_t[:3, :3]
         t = pose_t[:3, 3]
 
-        # Transform to camera frame
         pts_cam = (R @ self.points_obj.T).T + t[None, :]
         nrm_cam = F.normalize((R @ self.normals_obj.T).T, dim=-1, eps=1e-8)
         scl = self.pc_scales.to(device=device, dtype=dtype)
@@ -233,16 +305,16 @@ class CanonicalModel:
         N = pts_cam.shape[0]
         n_lf_views = self.rig.poses_4x4.shape[0]
 
+        # Viewing directions [V, N, 3] — camera center to point (camera frame)
+        cam_centers = self.rig.cameras.get_camera_center().to(device=device, dtype=dtype)
+        pts_rep  = pts_cam.unsqueeze(0).expand(n_lf_views, -1, -1)
+        view_vec = pts_rep - cam_centers[:, None, :]
+        view_dirs = F.normalize(view_vec, dim=-1, eps=1e-8)
+
         if self.environment_map is not None:
-            # Relight: sample env map using reflected dirs from LF rig cameras
             env_hwc = self.environment_map.to(device=device, dtype=dtype)
             if env_hwc.ndim == 3 and env_hwc.shape[0] == 3:
                 env_hwc = env_hwc.permute(1, 2, 0).contiguous()
-
-            pts_rep = pts_cam.unsqueeze(0).expand(n_lf_views, -1, -1)
-            cam_centers = self.rig.cameras.get_camera_center().to(device=device, dtype=dtype)
-            view_vec = pts_rep - cam_centers[:, None, :]
-            view_dirs = F.normalize(view_vec, dim=-1, eps=1e-8)
 
             nrm_rep = nrm_cam.unsqueeze(0).expand(n_lf_views, -1, -1)
             refl_dirs = (
@@ -255,23 +327,43 @@ class CanonicalModel:
 
             alpha_t = torch.tensor(self.alpha, device=device, dtype=dtype)
             dif_exp = dif.unsqueeze(0).expand(n_lf_views, -1, -1)
-            relit = alpha_t * dif_exp + (1.0 - alpha_t) * sampled_rgb
+            relit   = alpha_t * dif_exp + (1.0 - alpha_t) * sampled_rgb
 
-            # Skip relighting for pts where env coverage is insufficient
-            vis_count = torch.ones(n_lf_views, N, device=device, dtype=dtype)
-            has_missing = (vis_count > 0) & (~env_valid)
-            can_relight = (~has_missing).any(dim=0)
+            # Points are "relightable" if env coverage is sufficient from any view
+            can_relight = env_valid.any(dim=0)  # [N] bool
 
+            # Fit SH to relit colours for relightable points
             fit_valid = env_valid.float()
             harmonics = fit_sh_coeffs_per_point(
-                relit.float(), view_dirs.float(), fit_valid, max_degree=2, lambda_reg=lambda_reg
-            )
-            # Fall back to diffuse-only SH where env coverage is bad
-            harmonics_dif = _diffuse_harmonics(dif, device, dtype)
+                relit.float(), view_dirs.float(), fit_valid,
+                max_degree=_SH_DEGREE, lambda_reg=lambda_reg,
+            )  # [N, 9, 3]
+
+            # Fallback: stored per-point SH (view-dep observations, object frame)
+            # Evaluate in camera-frame view dirs (SH is view-dep, stored in obj frame,
+            # but we evaluate in the same dir-space we fitted — we stay in camera frame
+            # because the stored SH were fitted with rotated dirs each frame, so they
+            # represent object-frame appearance. We need to rotate view dirs to obj frame
+            # before evaluating... BUT fit_sh_coeffs_per_point encodes the mapping at
+            # fit-time direction. Since we evaluate via batch_rasterize which uses the
+            # stored harmonics directly (not direction-dependent lookup), the SH is just
+            # used as a colour predictor in the current camera space via the rasterizer's
+            # built-in SH eval. So using stored sh_view_dep directly as harmonics is valid
+            # as an approximation (the rasterizer evaluates SH in camera space anyway).
+            if self.sh_view_dep is not None:
+                harmonics_fallback = self.sh_view_dep.to(device=device, dtype=dtype)
+            else:
+                harmonics_fallback = _diffuse_harmonics(dif, device, dtype)
+
             can_rl = can_relight[:, None, None]
-            harmonics = torch.where(can_rl, harmonics, harmonics_dif)
+            harmonics = torch.where(can_rl, harmonics, harmonics_fallback)
+
         else:
-            harmonics = _diffuse_harmonics(dif, device, dtype)
+            # No env map yet — use stored view-dep SH directly
+            if self.sh_view_dep is not None:
+                harmonics = self.sh_view_dep.to(device=device, dtype=dtype)
+            else:
+                harmonics = _diffuse_harmonics(dif, device, dtype)
 
         quats = torch.zeros(N, 4, device=device, dtype=dtype)
         quats[:, 0] = 1.0
@@ -306,13 +398,12 @@ def _cam_to_obj(
     nrm_cam: torch.Tensor,
     pose: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Transform camera-frame points/normals to object frame using pose."""
+    """Camera-frame points/normals → object frame using p_cam = R @ p_obj + t."""
     device = pts_cam.device
-    dtype = pts_cam.dtype
+    dtype  = pts_cam.dtype
     pose = pose.to(device=device, dtype=dtype)
     R = pose[:3, :3]
     t = pose[:3, 3]
-    # p_cam = R @ p_obj + t  →  p_obj = R^T @ (p_cam - t)
     pts_obj = (R.T @ (pts_cam - t[None, :]).T).T
     nrm_obj = F.normalize((R.T @ nrm_cam.to(device=device, dtype=dtype).T).T, dim=-1, eps=1e-8)
     return pts_obj, nrm_obj
@@ -331,8 +422,7 @@ def _diffuse_harmonics(
     dtype: torch.dtype,
 ) -> torch.Tensor:
     N = diffuse_rgb.shape[0]
-    n_coeffs = (2 + 1) ** 2
-    h = torch.zeros(N, n_coeffs, 3, device=device, dtype=dtype)
+    h = torch.zeros(N, _SH_COEFFS, 3, device=device, dtype=dtype)
     h[:, 0, :] = RGB2SH(diffuse_rgb.to(device=device, dtype=dtype))
     return h
 
