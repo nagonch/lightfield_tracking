@@ -43,11 +43,13 @@ from src.slf_refinement_viewer import SurfaceLFRefinementViewer
 # ── configuration ─────────────────────────────────────────────────────────────
 
 DATASET_ROOT = "/home/ngoncharov/SpecTrack_dataset"
-EXP_NAME = "results_loftr_only"
+EXP_NAME = "results_loftr_diffuse"
 USE_GT_MASK = True
 ENABLE_VIS = False
 
-DEPTH_SOURCES = ["gt", "synth"]
+DEPTH_SOURCES = [
+    "synth",
+]
 SPLIT_PREFIXES = ["objects", "cube"]
 REFLECTIVITIES = ["0.0", "0.5", "0.7", "1.0"]
 
