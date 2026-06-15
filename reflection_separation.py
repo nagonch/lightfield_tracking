@@ -240,8 +240,9 @@ def separate_reflection(
 if __name__ == "__main__":
     sequence_name = "bleach0"
 
-    MIDDLE_REFLECTIVITY = 0.7
+    MIDDLE_REFLECTIVITY = 0.5
     ALPHA = 1 - MIDDLE_REFLECTIVITY
+    N_ITERS = 200
 
     vis_reflective_folder = f"vis_reflective_{MIDDLE_REFLECTIVITY}"
     vis_diffuse_folder = f"vis_diffuse_{MIDDLE_REFLECTIVITY}"
@@ -305,7 +306,7 @@ if __name__ == "__main__":
             mask=object_mask,
             normal_map=normal_map,
             depth_map=depth_map,
-            iterations=200,
+            iterations=N_ITERS,
         )
 
         mid_subview = (
@@ -321,9 +322,13 @@ if __name__ == "__main__":
         reflective_vis = (
             reflective[:, :, mid_subview[0], mid_subview[1], :].cpu().numpy() * 255
         ).astype(np.uint8)
+        orig_vis = (lf.cpu().numpy() * 255).astype(np.uint8)
 
         Image.fromarray(diffuse_vis).save(
             f"{vis_diffuse_folder}/diffuse_estimate_{str(i).zfill(4)}.png"
+        )
+        Image.fromarray(orig_vis).save(
+            f"{vis_diffuse_folder}/orig_image_{str(i).zfill(4)}.png"
         )
         Image.fromarray(reflective_vis).save(
             f"{vis_reflective_folder}/reflective_estimate_{str(i).zfill(4)}.png"
