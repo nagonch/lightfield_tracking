@@ -48,6 +48,8 @@ def compute_diffuse(
     ``alpha == 1`` (no reflection) short-circuits inside ``separate_reflection``.
     ``previous_environment_map`` warm-starts/anchors the env map for multi-frame
     accumulation as the object reorients in the (static) camera frame.
+    The diffuse is decorrelated from the back-projected reflection inside
+    ``separate_reflection`` as its last step.
     """
     # Pack the per-point surface light field as [P, M, *] for the point-based solver.
     colors = slf.colors.permute(1, 0, 2)  # [P, M, 3]
@@ -69,12 +71,13 @@ def compute_diffuse(
         valid=valid,
         view_dirs=view_dirs,
         normals=normals,
+        mask=slf.mask,
         previous_environment_map=previous_environment_map,
         iterations=iterations,
         verbose=verbose,
     )
 
-    # Scatter the per-point diffuse back to the central-view image grid.
+    # Scatter the per-point diffuse (already decorrelated) to the central-view grid.
     diffuse_img = torch.zeros(slf.H, slf.W, 3, device=diffuse_point.device)
     diffuse_img[slf.mask] = diffuse_point
     diffuse_img = linear_to_srgb(diffuse_img)
