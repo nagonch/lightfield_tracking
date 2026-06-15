@@ -238,9 +238,9 @@ def separate_reflection(
 
 
 if __name__ == "__main__":
-    sequence_name = "bleach0"
+    sequence_name = "cracker_box_reorient"
 
-    MIDDLE_REFLECTIVITY = 0.5
+    MIDDLE_REFLECTIVITY = 0.7
     ALPHA = 1 - MIDDLE_REFLECTIVITY
     N_ITERS = 200
 
@@ -249,11 +249,9 @@ if __name__ == "__main__":
     os.makedirs(vis_reflective_folder, exist_ok=True)
     os.makedirs(vis_diffuse_folder, exist_ok=True)
 
-    path_diffuse = f"/home/ngoncharov/SpecTrack_dataset/cube_0.0/{sequence_name}"
-    path_reflective = f"/home/ngoncharov/SpecTrack_dataset/cube_1.0/{sequence_name}"
-    path_middle = (
-        f"/home/ngoncharov/SpecTrack_dataset/cube_{MIDDLE_REFLECTIVITY}/{sequence_name}"
-    )
+    path_diffuse = f"/home/ngoncharov/SpecTrack_dataset/objects_0.0/{sequence_name}"
+    path_reflective = f"/home/ngoncharov/SpecTrack_dataset/objects_1.0/{sequence_name}"
+    path_middle = f"/home/ngoncharov/SpecTrack_dataset/objects_{MIDDLE_REFLECTIVITY}/{sequence_name}"
 
     dataset = LFDataset(path_middle)
     for i in range(len(dataset)):
