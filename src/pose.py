@@ -13,7 +13,7 @@ are set to None, forcing geometry-only alignment.
 from __future__ import annotations
 
 import numpy as np
-
+from utils import linear_to_srgb
 from loftr_baseline import (
     _backproject,
     _filter_depth_percentile,
@@ -93,30 +93,55 @@ def _mat_to_quat(R: np.ndarray) -> np.ndarray:
     t = m[0, 0] + m[1, 1] + m[2, 2]
     if t > 0:
         s = 0.5 / np.sqrt(t + 1.0)
-        return np.array([
-            (m[2, 1] - m[1, 2]) * s,
-            (m[0, 2] - m[2, 0]) * s,
-            (m[1, 0] - m[0, 1]) * s,
-            0.25 / s,
-        ])
+        return np.array(
+            [
+                (m[2, 1] - m[1, 2]) * s,
+                (m[0, 2] - m[2, 0]) * s,
+                (m[1, 0] - m[0, 1]) * s,
+                0.25 / s,
+            ]
+        )
     if m[0, 0] > m[1, 1] and m[0, 0] > m[2, 2]:
         s = 2.0 * np.sqrt(1.0 + m[0, 0] - m[1, 1] - m[2, 2])
-        return np.array([0.25 * s, (m[0, 1] + m[1, 0]) / s, (m[0, 2] + m[2, 0]) / s, (m[2, 1] - m[1, 2]) / s])
+        return np.array(
+            [
+                0.25 * s,
+                (m[0, 1] + m[1, 0]) / s,
+                (m[0, 2] + m[2, 0]) / s,
+                (m[2, 1] - m[1, 2]) / s,
+            ]
+        )
     if m[1, 1] > m[2, 2]:
         s = 2.0 * np.sqrt(1.0 + m[1, 1] - m[0, 0] - m[2, 2])
-        return np.array([(m[0, 1] + m[1, 0]) / s, 0.25 * s, (m[1, 2] + m[2, 1]) / s, (m[0, 2] - m[2, 0]) / s])
+        return np.array(
+            [
+                (m[0, 1] + m[1, 0]) / s,
+                0.25 * s,
+                (m[1, 2] + m[2, 1]) / s,
+                (m[0, 2] - m[2, 0]) / s,
+            ]
+        )
     s = 2.0 * np.sqrt(1.0 + m[2, 2] - m[0, 0] - m[1, 1])
-    return np.array([(m[0, 2] + m[2, 0]) / s, (m[1, 2] + m[2, 1]) / s, 0.25 * s, (m[1, 0] - m[0, 1]) / s])
+    return np.array(
+        [
+            (m[0, 2] + m[2, 0]) / s,
+            (m[1, 2] + m[2, 1]) / s,
+            0.25 * s,
+            (m[1, 0] - m[0, 1]) / s,
+        ]
+    )
 
 
 def _quat_to_mat(q: np.ndarray) -> np.ndarray:
     """Unit quaternion [x, y, z, w] → rotation matrix."""
     x, y, z, w = q / np.linalg.norm(q)
-    return np.array([
-        [1 - 2*(y*y + z*z),   2*(x*y - z*w),     2*(x*z + y*w)],
-        [2*(x*y + z*w),       1 - 2*(x*x + z*z), 2*(y*z - x*w)],
-        [2*(x*z - y*w),       2*(y*z + x*w),     1 - 2*(x*x + y*y)],
-    ])
+    return np.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+        ]
+    )
 
 
 def _slerp(q_a: np.ndarray, q_b: np.ndarray, t: float) -> np.ndarray:
@@ -170,19 +195,21 @@ def track_pose(
     fail, holds the previous pose.
     """
     reflectivity = 1.0 - alpha
-    icp_has_inputs = (
-        pc_prev is not None
-        and pc_curr is not None
-    )
+    icp_has_inputs = pc_prev is not None and pc_curr is not None
 
     # ── LoFTR branch ──────────────────────────────────────────────────────────
     pose_loftr: np.ndarray | None = None
     if reflectivity < 1.0:
         T_rel, n_inliers = loftr_relative_pose(
-            diffuse_prev, diffuse_curr,
-            depth_prev, depth_curr,
-            mask_prev, mask_curr,
-            K, loftr, rng,
+            diffuse_prev,
+            diffuse_curr,
+            depth_prev,
+            depth_curr,
+            mask_prev,
+            mask_curr,
+            K,
+            loftr,
+            rng,
         )
         if T_rel is not None and n_inliers >= MIN_INLIERS:
             pose_loftr = T_rel @ abs_pose_prev
@@ -195,8 +222,10 @@ def track_pose(
         icp_colors_curr = None if reflectivity == 1.0 else color_curr
         try:
             pose_icp = _icp_abs_pose(
-                pc_prev, pc_curr,
-                icp_colors_prev, icp_colors_curr,
+                pc_prev,
+                pc_curr,
+                icp_colors_prev,
+                icp_colors_curr,
                 abs_pose_prev,
             )
         except Exception:

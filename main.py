@@ -33,23 +33,23 @@ logging.basicConfig(
 
 # ── configuration ──────────────────────────────────────────────────────────────
 DATASET_ROOT = "/home/ngoncharov/SpecTrack_dataset"
-EXP_NAME = "results_ours_refinement"
+EXP_NAME = "results_ours_separation2"
 CACHE_ROOT = "cache/diffuse"
 SEPARATION_ITERS = 300
-USE_REFLECTION_SEPARATION = True  # False → LoFTR on the raw central view
-USE_PHOTOMETRIC_REFINE = True  # True → photometric pose refinement after coarse
+USE_REFLECTION_SEPARATION = False  # False → LoFTR on the raw central view
+USE_PHOTOMETRIC_REFINE = False  # True → photometric pose refinement after coarse
 ENABLE_VIS = True  # True → open viser viewer during refinement
 PHOTOMETRIC_ITERS = 100
 
 
 def _build_pc(depth: np.ndarray, mask: np.ndarray, rgb: np.ndarray, K: np.ndarray):
-    """Backproject all masked pixels into camera-space points + RGB colors."""
+    """Backproject all masked pixels into camera-space points + linear RGB colors."""
     H, W = depth.shape
     ys, xs = np.where(mask & (depth > DEPTH_ZNEAR) & (depth < DEPTH_ZFAR))
     d = depth[ys, xs]
     fx, fy, cx, cy = K[0, 0], K[1, 1], K[0, 2], K[1, 2]
     pts = np.stack([(xs - cx) * d / fx, (ys - cy) * d / fy, d], axis=1)
-    colors = rgb[ys, xs].astype(np.float32) / 255.0
+    colors = rgb[ys, xs].astype(np.float32)  # already linear [0, 1]
     return pts, colors
 
 
@@ -113,8 +113,6 @@ def track_sequence(
             mask_np = (mask > 0).cpu().numpy()
             K_np = frame["camera_matrix"].cpu().numpy().astype(np.float64)
             pc, color = _build_pc(depth_np, mask_np, view, K_np)
-            # Raw central view (with reflections) — used as photometric target.
-            raw_curr_f = frame["LF"][s_size // 2, t_size // 2].cpu().numpy()
 
             if i == 0:
                 est_poses.append(gt_poses[0])
@@ -145,8 +143,10 @@ def track_sequence(
                     refined_pose, _ = refine_pose_photometric(
                         points_prev=prev[3],
                         diffuse_prev=prev[4],
-                        env_map_prev=prev[5],  # env map from prev frame (may be None)
-                        target_img=raw_curr_f,  # raw view: diffuse + reflections
+                        env_map_prev=prev[5],
+                        points_curr=pc,
+                        diffuse_curr=color,
+                        env_map_curr=env_curr,
                         K=K_np,
                         abs_pose_prev=est_poses[-1],
                         pose_coarse=coarse_pose,
@@ -155,6 +155,7 @@ def track_sequence(
                         mask_curr=mask_np,
                         num_iters=PHOTOMETRIC_ITERS,
                         viewer=viewer,
+                        gt_pose_curr=gt_poses[i],
                     )
                     est_poses.append(refined_pose)
                 else:

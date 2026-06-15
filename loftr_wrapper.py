@@ -44,14 +44,16 @@ class LoftrRunner:
         -------
         list of N arrays, each (M_i, 5): [x0, y0, x1, y1, conf]
         """
-        image0 = torch.from_numpy(rgbAs).permute(0, 3, 1, 2).float().cuda()
-        image1 = torch.from_numpy(rgbBs).permute(0, 3, 1, 2).float().cuda()
-        # LoFTR expects grayscale
+        image0 = torch.from_numpy(rgbAs.astype(np.float32)).permute(0, 3, 1, 2).cuda()
+        image1 = torch.from_numpy(rgbBs.astype(np.float32)).permute(0, 3, 1, 2).cuda()
+        # LoFTR expects grayscale in [0, 1]
         if image0.shape[1] == 3:
             image0 = torchvision.transforms.functional.rgb_to_grayscale(image0)
             image1 = torchvision.transforms.functional.rgb_to_grayscale(image1)
-        image0 = image0 / 255.0
-        image1 = image1 / 255.0
+        # Accept both uint8 [0, 255] and float [0, 1] inputs
+        if image0.max() > 2.0:
+            image0 = image0 / 255.0
+            image1 = image1 / 255.0
 
         ret_keys = ["mkpts0_f", "mkpts1_f", "mconf", "m_bids"]
         acc: dict = {}

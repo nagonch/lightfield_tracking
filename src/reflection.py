@@ -19,16 +19,16 @@ from PIL import Image
 
 from reflection_separation import separate_reflection
 from src.surface_light_field import SurfaceLightField
-from utils import linear_to_srgb, srgb_to_linear
+from utils import linear_to_srgb
 
 
 def central_view(frame: dict, s_size: int, t_size: int) -> np.ndarray:
-    """Raw central sub-aperture view → [H, W, 3] uint8.
+    """Raw central sub-aperture view → [H, W, 3] float32 linear [0, 1].
 
     The LoFTR fallback used when reflection separation is disabled.
+    LF is already in linear space (converted in dataset.__getitem__).
     """
-    img = frame["LF"][s_size // 2, t_size // 2].cpu().numpy()
-    return (img * 255).clip(0, 255).astype(np.uint8)
+    return frame["LF"][s_size // 2, t_size // 2].cpu().numpy().astype(np.float32)
 
 
 def _env_cache_path(cache_path: str) -> str:
@@ -44,15 +44,12 @@ def compute_diffuse(
 ) -> tuple[np.ndarray, torch.Tensor]:
     """Separate ``slf`` into a diffuse central view + a reflected environment map.
 
-    Returns ``(diffuse_uint8 [H, W, 3], environment_map [env_h, env_w, 3])``.
-    ``alpha == 1`` (no reflection) short-circuits inside ``separate_reflection``.
-    ``previous_environment_map`` warm-starts/anchors the env map for multi-frame
-    accumulation as the object reorients in the (static) camera frame.
-    The diffuse is decorrelated from the back-projected reflection inside
-    ``separate_reflection`` as its last step.
+    Returns ``(diffuse_linear [H, W, 3] float32 [0,1], environment_map [env_h, env_w, 3])``.
+    LF colors are already in linear space (converted at dataset load time), so no
+    sRGB conversion is applied here.  The env map stays linear throughout.
     """
     # Pack the per-point surface light field as [P, M, *] for the point-based solver.
-    colors = slf.colors.permute(1, 0, 2)  # [P, M, 3]
+    colors = slf.colors.permute(1, 0, 2)  # [P, M, 3]  — already linear
     view_dirs = slf.view_dirs.permute(1, 0, 2)  # [P, M, 3]
     valid = slf.valid.permute(1, 0)  # [P, M]
     normals = slf.normals.float()  # [P, 3]
@@ -65,7 +62,7 @@ def compute_diffuse(
     )
 
     diffuse_point, environment_map, _ = separate_reflection(
-        colors=srgb_to_linear(colors),
+        colors=colors,  # already linear — no srgb_to_linear needed
         alpha=alpha,
         reflected_dirs=reflected_dirs,
         valid=valid,
@@ -77,12 +74,16 @@ def compute_diffuse(
         verbose=verbose,
     )
 
-    # Scatter the per-point diffuse (already decorrelated) to the central-view grid.
+    # Scatter the per-point diffuse to the central-view grid; keep in linear.
     diffuse_img = torch.zeros(slf.H, slf.W, 3, device=diffuse_point.device)
     diffuse_img[slf.mask] = diffuse_point
-    diffuse_img = linear_to_srgb(diffuse_img)
-    diffuse_u8 = (diffuse_img.cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
-    return diffuse_u8, environment_map
+    diffuse_linear = diffuse_img.clamp(0.0, 1.0).cpu().numpy().astype(np.float32)
+    return diffuse_linear, environment_map
+
+
+def _diffuse_npy_path(cache_path: str) -> str:
+    """Derive the .npy cache path for the linear diffuse image."""
+    return os.path.splitext(cache_path)[0] + ".npy"
 
 
 def frame_diffuse(
@@ -99,18 +100,17 @@ def frame_diffuse(
 ) -> tuple[np.ndarray, torch.Tensor | None]:
     """Diffuse central view + env map for one frame, with disk caching.
 
-    Returns ``(diffuse_uint8, environment_map)``.  On a cache hit the surface
-    light field is never built and separation is skipped; the env map is loaded
-    alongside the diffuse image (``None`` if it was never cached) so multi-frame
-    accumulation survives resumed runs.
+    Returns ``(diffuse_linear [H,W,3] float32 [0,1], environment_map)``.
+    Cache is stored as a float32 .npy file (linear, no gamma encoding).
+    Old .png caches are silently ignored and regenerated as .npy.
     """
-    if cache_path is not None and os.path.exists(cache_path):
-        diffuse = np.array(Image.open(cache_path))
-        env_path = _env_cache_path(cache_path)
-        env = None
-        if os.path.exists(env_path):
-            env = torch.from_numpy(np.load(env_path)).cuda()
-        return diffuse, env
+    if cache_path is not None:
+        npy_path = _diffuse_npy_path(cache_path)
+        if os.path.exists(npy_path):
+            diffuse = np.load(npy_path)
+            env_path = _env_cache_path(cache_path)
+            env = torch.from_numpy(np.load(env_path)).cuda() if os.path.exists(env_path) else None
+            return diffuse, env
 
     slf = SurfaceLightField.from_frame(frame, mask, depth, s_size, t_size)
     diffuse, environment_map = compute_diffuse(
@@ -123,6 +123,6 @@ def frame_diffuse(
 
     if cache_path is not None:
         os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-        Image.fromarray(diffuse).save(cache_path)
+        np.save(_diffuse_npy_path(cache_path), diffuse)
         np.save(_env_cache_path(cache_path), environment_map.detach().cpu().numpy())
     return diffuse, environment_map

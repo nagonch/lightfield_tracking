@@ -4,6 +4,7 @@ import numpy as np
 import json
 import trimesh
 from PIL import Image
+from utils import srgb_to_linear
 
 
 class LFDataset:
@@ -93,6 +94,7 @@ class LFDataset:
             self.metadata["n_views"][0], self.metadata["n_views"][1], *imgs[0].shape
         )
         LF /= LF.max()
+        LF = srgb_to_linear(LF)
         s_mid, t_mid = LF.shape[0] // 2, LF.shape[1] // 2
         depth = np.array(
             Image.open(os.path.join(self.depth_dir, self.depth_fnames[idx]))
