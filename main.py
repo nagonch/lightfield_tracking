@@ -16,6 +16,7 @@ Assumptions (to relax later):
 
 import logging
 import os
+import cv2
 from collections.abc import Callable
 import numpy as np
 import torch
@@ -33,7 +34,9 @@ from src.dataset import LFDataset
 from src.utilities import backproject_depth_to_pointcloud
 from surface_lf import SurfaceLF, SurfaceLFRig
 from canonical_model import CanonicalModel
-from diffuse_view import diffuse_midview_uint8, rasterize_diffuse
+from diffuse_view import rasterize_diffuse
+from reflection_separation import separate_reflection
+from utils import srgb_to_linear, linear_to_srgb
 from coarse_pose import mixed_coarse_pose, icp_relative_pose
 from loftr_wrapper import LoftrRunner
 from loss import rotation_6d_to_matrix, matrix_to_rotation_6d, simple_loss
@@ -48,10 +51,10 @@ USE_GT_MASK = True
 ENABLE_VIS = False
 
 DEPTH_SOURCES = [
-    "synth",
+    "gt",
 ]
-SPLIT_PREFIXES = ["objects", "cube"]
-REFLECTIVITIES = ["0.0", "0.5", "0.7", "1.0"]
+SPLIT_PREFIXES = ["cube"]
+REFLECTIVITIES = ["0.5", "0.7"]
 
 # ── ablation knobs (sequential: each level requires the ones above) ─────────
 # L2  USE_LOFTR              – coarse pose via LoFTR; False → ICP only
@@ -59,7 +62,7 @@ REFLECTIVITIES = ["0.0", "0.5", "0.7", "1.0"]
 # L4  USE_CANONICAL_REFINE   – photometric refinement against canonical model
 # L5  USE_CANONICAL_ACCUM    – fuse frames into canonical over time
 USE_LOFTR = True
-USE_DIFFUSE_FOR_LOFTR = False
+USE_DIFFUSE_FOR_LOFTR = True
 USE_CANONICAL_REFINE = False
 USE_CANONICAL_ACCUM = False
 
@@ -214,6 +217,55 @@ def refine_pose_canonical(
     return best_pose_np, best_loss
 
 
+# ── pixel-space diffuse (matches reflection_separation.py output) ─────────────
+
+
+def _diffuse_pixel_space_uint8(
+    surface_lf: SurfaceLF,
+    mask: torch.Tensor,
+    depth: torch.Tensor,
+    alpha: float,
+    s_size: int,
+    t_size: int,
+) -> np.ndarray:
+    """Run pixel-space reflection separation and return [H, W, 3] uint8.
+
+    Replicates the standalone reflection_separation.py path: scatter per-point
+    colors to [H, W, S, T, 3], convert to linear, run separate_reflection with
+    spatial TV, then convert back to sRGB.  This gives the same clean diffuse
+    image as the bottom of reflection_separation.py.
+    """
+    H, W = surface_lf.H, surface_lf.W
+    mask_cpu = (mask > 0).cpu()
+
+    # [N_views, N_points, 3] → [N_points, N_views, 3] → scatter to [H, W, N_views, 3]
+    colors = surface_lf.colors.permute(1, 0, 2).cpu()
+    explicit_lf = torch.zeros(H, W, colors.shape[1], 3)
+    explicit_lf[mask_cpu] = colors
+    explicit_lf = srgb_to_linear(explicit_lf)
+    explicit_lf = explicit_lf.reshape(H, W, s_size, t_size, 3)
+
+    normal_map = torch.zeros(H, W, 3)
+    if surface_lf.surface_normals is not None:
+        normal_map[mask_cpu] = surface_lf.surface_normals.cpu().float()
+
+    depth_map = depth.cpu().clone().float()
+    depth_map[~mask_cpu] = 0.0
+
+    diffuse, _ = separate_reflection(
+        explicit_surface_lf=explicit_lf,
+        alpha=alpha,
+        mask=mask_cpu.float(),
+        normal_map=normal_map,
+        depth_map=depth_map,
+        iterations=200,
+        verbose=True,
+    )
+
+    diffuse = linear_to_srgb(diffuse)
+    return (diffuse.cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
+
+
 # ── per-sequence tracker ──────────────────────────────────────────────────────
 
 
@@ -284,7 +336,17 @@ def track_sequence(
             )
 
             # ── diffuse + reflected middle views ──────────────────────────────
-            diffuse_curr_u8 = diffuse_midview_uint8(surface_lf)
+            diffuse_curr_u8 = _diffuse_pixel_space_uint8(
+                surface_lf, mask, depth, alpha, s_size, t_size
+            )
+
+            # TEMP: save diffuse frames for inspection
+            _dbg_dir = os.path.join(os.path.dirname(__file__), "_debug_diffuse")
+            os.makedirs(_dbg_dir, exist_ok=True)
+            cv2.imwrite(
+                os.path.join(_dbg_dir, f"diffuse_{i:04d}.png"),
+                cv2.cvtColor(diffuse_curr_u8, cv2.COLOR_RGB2BGR),
+            )
             raw_mid_np = frame["LF"][s_size // 2, t_size // 2].cpu().numpy()
             reflected_u8 = _reflected_image(raw_mid_np, diffuse_curr_u8)
 
@@ -305,6 +367,10 @@ def track_sequence(
                     slf_env_np = _env.cpu().numpy()
 
             raw_curr_u8 = (raw_mid_np * 255).clip(0, 255).astype(np.uint8)
+            cv2.imwrite(
+                os.path.join(_dbg_dir, f"raw_{i:04d}.png"),
+                cv2.cvtColor(raw_curr_u8, cv2.COLOR_RGB2BGR),
+            )
 
             # ── frame 0: initialise ───────────────────────────────────────────
             if i == 0:
