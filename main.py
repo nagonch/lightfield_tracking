@@ -32,7 +32,7 @@ logging.basicConfig(
 
 # ── configuration ──────────────────────────────────────────────────────────────
 DATASET_ROOT = "/home/ngoncharov/SpecTrack_dataset"
-EXP_NAME = "results_loftr_ours"
+EXP_NAME = "results_ours_no_separation"
 CACHE_ROOT = "cache/diffuse"
 SEPARATION_ITERS = 200
 USE_REFLECTION_SEPARATION = False  # False → LoFTR on the raw central view
