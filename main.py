@@ -32,10 +32,10 @@ logging.basicConfig(
 
 # ── configuration ──────────────────────────────────────────────────────────────
 DATASET_ROOT = "/home/ngoncharov/SpecTrack_dataset"
-EXP_NAME = "results_ours_no_separation"
+EXP_NAME = "results_ours_separation"
 CACHE_ROOT = "cache/diffuse"
-SEPARATION_ITERS = 200
-USE_REFLECTION_SEPARATION = False  # False → LoFTR on the raw central view
+SEPARATION_ITERS = 300
+USE_REFLECTION_SEPARATION = True  # False → LoFTR on the raw central view
 
 
 def _build_pc(depth: np.ndarray, mask: np.ndarray, rgb: np.ndarray, K: np.ndarray):
@@ -71,6 +71,7 @@ def track_sequence(
     gt_poses: list[np.ndarray] = []
     est_poses: list[np.ndarray] = []
     prev = None  # (view, depth, mask, pc, color)
+    prev_env = None  # accumulated reflected environment map (per sequence)
 
     with tqdm(
         dataset, desc="  frames", unit="fr", leave=False, dynamic_ncols=True
@@ -83,7 +84,7 @@ def track_sequence(
 
             if separate:
                 bar.set_postfix(fr=i, stage="separate")
-                view = frame_diffuse(
+                view, prev_env = frame_diffuse(
                     frame=frame,
                     mask=mask,
                     depth=depth,
@@ -93,6 +94,7 @@ def track_sequence(
                     cache_path=os.path.join(cache_dir, f"diffuse_{i:04d}.png"),
                     iterations=SEPARATION_ITERS,
                     verbose=True,
+                    previous_environment_map=prev_env,
                 )
             else:
                 view = central_view(frame, s_size, t_size)

@@ -86,16 +86,18 @@ def _estimate_normals(points: torch.Tensor, k_neighbors: int = 32) -> torch.Tens
 class SurfaceLightField:
     """Per-surface-point appearance across the sub-aperture views of one frame.
 
-    points  : [N, 3]    surface points in the central-camera frame
-    colors  : [V, N, 3] colour of each point in each view (0 where not visible)
-    normals : [N, 3]    surface normals
-    valid   : [V, N]    bool visibility mask
-    mask    : [H, W]    bool object mask of the central view
+    points    : [N, 3]    surface points in the central-camera frame
+    colors    : [V, N, 3] colour of each point in each view (0 where not visible)
+    normals   : [N, 3]    surface normals
+    view_dirs : [V, N, 3] unit view direction (camera→point) per point and view
+    valid     : [V, N]    bool visibility mask
+    mask      : [H, W]    bool object mask of the central view
     """
 
     points: torch.Tensor
     colors: torch.Tensor
     normals: torch.Tensor
+    view_dirs: torch.Tensor
     valid: torch.Tensor
     mask: torch.Tensor
     s_size: int
@@ -141,10 +143,16 @@ class SurfaceLightField:
         colors = sampled.squeeze(-1).permute(0, 2, 1).contiguous()
         colors = colors * valid.unsqueeze(-1).to(colors.dtype)
 
+        cam_centers = cameras.get_camera_center()  # [N, 3]
+        view_dirs = F.normalize(
+            points_rep - cam_centers[:, None, :], dim=-1, eps=1e-8
+        )
+
         return cls(
             points=points,
             colors=colors,
             normals=_estimate_normals(points),
+            view_dirs=view_dirs,
             valid=valid,
             mask=mask_bool,
             s_size=s_size,
