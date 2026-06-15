@@ -18,6 +18,7 @@ import torch
 from tqdm import tqdm
 
 from icp import rebase_poses
+from loftr_baseline import DEPTH_ZNEAR, DEPTH_ZFAR
 from loftr_wrapper import LoftrRunner
 from src.dataset import LFDataset
 from src.pose import track_pose
@@ -31,10 +32,22 @@ logging.basicConfig(
 
 # ── configuration ──────────────────────────────────────────────────────────────
 DATASET_ROOT = "/home/ngoncharov/SpecTrack_dataset"
-EXP_NAME = "results_loftr"
+EXP_NAME = "results_loftr_ours"
 CACHE_ROOT = "cache/diffuse"
 SEPARATION_ITERS = 200
 USE_REFLECTION_SEPARATION = False  # False → LoFTR on the raw central view
+
+
+def _build_pc(depth: np.ndarray, mask: np.ndarray, rgb: np.ndarray, K: np.ndarray):
+    """Backproject all masked pixels into camera-space points + RGB colors."""
+    H, W = depth.shape
+    ys, xs = np.where(mask & (depth > DEPTH_ZNEAR) & (depth < DEPTH_ZFAR))
+    d = depth[ys, xs]
+    fx, fy, cx, cy = K[0, 0], K[1, 1], K[0, 2], K[1, 2]
+    pts = np.stack([(xs - cx) * d / fx, (ys - cy) * d / fy, d], axis=1)
+    colors = rgb[ys, xs].astype(np.float32) / 255.0
+    return pts, colors
+
 
 DEPTH_SOURCES = ["gt"]  # "gt" | "synth"
 SPLIT_PREFIXES = ["cube", "objects"]
@@ -57,7 +70,7 @@ def track_sequence(
 
     gt_poses: list[np.ndarray] = []
     est_poses: list[np.ndarray] = []
-    prev = None  # (view, depth, mask)
+    prev = None  # (view, depth, mask, pc, color)
 
     with tqdm(
         dataset, desc="  frames", unit="fr", leave=False, dynamic_ncols=True
@@ -87,6 +100,7 @@ def track_sequence(
             depth_np = depth.cpu().numpy()
             mask_np = (mask > 0).cpu().numpy()
             K_np = frame["camera_matrix"].cpu().numpy().astype(np.float64)
+            pc, color = _build_pc(depth_np, mask_np, view, K_np)
 
             if i == 0:
                 est_poses.append(gt_poses[0])
@@ -103,11 +117,16 @@ def track_sequence(
                         mask_curr=mask_np,
                         K=K_np,
                         loftr=loftr,
+                        alpha=alpha,
+                        pc_prev=prev[3],
+                        pc_curr=pc,
+                        color_prev=prev[4],
+                        color_curr=color,
                         rng=rng,
                     )
                 )
 
-            prev = (view, depth_np, mask_np)
+            prev = (view, depth_np, mask_np, pc, color)
 
     est = rebase_poses(np.stack(gt_poses), np.stack(est_poses))
     out_path = os.path.join(results_dir, f"{sequence_name}.npy")
