@@ -33,12 +33,12 @@ logging.basicConfig(
 
 # ── configuration ──────────────────────────────────────────────────────────────
 DATASET_ROOT = "/home/ngoncharov/SpecTrack_dataset"
-EXP_NAME = "results_ours_new_loss"
+EXP_NAME = "results_ours_new_loss_early_stop"
 CACHE_ROOT = "cache/diffuse"
 SEPARATION_ITERS = 300
 USE_REFLECTION_SEPARATION = True  # False → LoFTR on the raw central view
 USE_PHOTOMETRIC_REFINE = True  # True → photometric pose refinement after coarse
-ENABLE_VIS = True  # True → open viser viewer during refinement
+ENABLE_VIS = False  # True → open viser viewer during refinement
 PHOTOMETRIC_ITERS = 100  # per coarse-to-fine level (early-stops on saturation)
 
 
@@ -175,8 +175,6 @@ def track_sequence(
                     est_poses.append(refined_pose)
 
                     # ── per-frame metrics: does refine beat the LoFTR coarse? ──
-                    print(coarse_pose[:3, 3])  # --- IGNORE ---
-                    print(refined_pose[:3, 3])  # --- IGNORE ---
                     cr, ct = _pose_err(coarse_pose, gt_poses[i])
                     rr, rt = _pose_err(refined_pose, gt_poses[i])
                     coarse_errs.append((cr, ct))

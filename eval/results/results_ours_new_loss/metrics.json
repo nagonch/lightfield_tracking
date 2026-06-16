@@ -3,11 +3,60 @@
     "cube_gt": {
       "cube_0.0": {
         "bleach0": {
-          "add_auc": 0.4445454545454545,
-          "adds_auc": 0.4446464646464646,
-          "ate_rmse": 0.06198447611916828,
-          "mean_abs_rot_deg": 4.289934333537334,
+          "add_auc": 0.6971717171717171,
+          "adds_auc": 0.6971717171717171,
+          "ate_rmse": 0.02170827800301715,
+          "mean_abs_rot_deg": 9.901261356609254,
           "n_frames": 50
+        },
+        "bleach_hard_00_03_chaitanya": {
+          "add_auc": 0.9644115574348132,
+          "adds_auc": 0.9644115574348132,
+          "ate_rmse": 0.0019781671150860825,
+          "mean_abs_rot_deg": 1.2567839039426614,
+          "n_frames": 43
+        },
+        "cracker_box_reorient": {
+          "add_auc": 0.9651515151515151,
+          "adds_auc": 0.9651515151515151,
+          "ate_rmse": 0.003345902828470251,
+          "mean_abs_rot_deg": 0.8516800429916176,
+          "n_frames": 20
+        },
+        "cracker_box_yalehand0": {
+          "add_auc": 0.8276669130327666,
+          "adds_auc": 0.8279132791327912,
+          "ate_rmse": 0.025064016164171466,
+          "mean_abs_rot_deg": 5.837066611465756,
+          "n_frames": 82
+        },
+        "mustard0": {
+          "add_auc": 0.8878318064364576,
+          "adds_auc": 0.8878318064364576,
+          "ate_rmse": 0.009794161376450533,
+          "mean_abs_rot_deg": 3.439018137911392,
+          "n_frames": 43
+        },
+        "mustard_easy_00_02": {
+          "add_auc": 0.9333333333333333,
+          "adds_auc": 0.9333333333333333,
+          "ate_rmse": 0.004013198447804719,
+          "mean_abs_rot_deg": 2.203192102385098,
+          "n_frames": 40
+        },
+        "sugar_box1": {
+          "add_auc": 0.88327721661055,
+          "adds_auc": 0.88327721661055,
+          "ate_rmse": 0.012314173291896697,
+          "mean_abs_rot_deg": 2.2971489770455285,
+          "n_frames": 54
+        },
+        "sugar_box_yalehand0": {
+          "add_auc": 0.952922077922078,
+          "adds_auc": 0.952922077922078,
+          "ate_rmse": 0.004829500311210063,
+          "mean_abs_rot_deg": 1.8147008104699442,
+          "n_frames": 56
         }
       }
     }
@@ -15,10 +64,10 @@
   "split_averages": {
     "cube_gt": {
       "cube_0.0": {
-        "add_auc": 0.4445454545454545,
-        "adds_auc": 0.4446464646464646,
-        "ate_rmse": 0.06198447611916828,
-        "mean_abs_rot_deg": 4.289934333537334
+        "add_auc": 0.8889707671366539,
+        "adds_auc": 0.889001562899157,
+        "ate_rmse": 0.01038092469226337,
+        "mean_abs_rot_deg": 3.450106492852657
       }
     }
   }

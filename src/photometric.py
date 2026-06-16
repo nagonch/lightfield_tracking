@@ -678,6 +678,8 @@ def refine_pose_photometric(
     scales: tuple[float, ...] = (0.25, 0.5, 1.0),
     blur_sigmas: tuple[float, ...] = (2.0, 1.5, 1.0),
     patience: int = 15,
+    patience_loss: int = 10,
+    min_rel_improve: float = 5e-3,
     tol_trans_m: float = 5e-5,
     tol_rot_deg: float = 0.02,
     viewer: PhotometricRefineViewer | None = None,
@@ -766,11 +768,12 @@ def refine_pose_photometric(
         except ValueError:
             continue
 
-        # early stop on POSE convergence, not loss: the loss is dominated by
-        # rotation/photometric and saturates while translation is still settling
-        # back from the rotation-correction transient — stopping on loss would
-        # freeze a bad translation.  Stop only once both corrections stop moving.
+        # Two early-stop criteria — whichever fires first cuts to the next level:
+        #   1. Loss plateau: no relative improvement > min_rel_improve for patience_loss steps.
+        #   2. Pose convergence: both corrections stop moving (original criterion).
         stale = 0
+        no_improve = 0
+        best_level_loss = float("inf")
         prev_dt = dt.detach().clone()
         prev_r6 = rot_6d.detach().clone()
         tol_rot6 = float(np.radians(tol_rot_deg))
@@ -787,15 +790,23 @@ def refine_pose_photometric(
             )
             loss = loss + lambda_rot * rot_corr + lambda_trans * (dt**2).sum()
 
-            loss_history.append(loss.item())
+            loss_val = loss.item()
+            loss_history.append(loss_val)
             best_pose = pose_curr.detach().cpu().numpy().astype(np.float64)
+
+            # loss-plateau check
+            if loss_val < best_level_loss * (1.0 - min_rel_improve):
+                best_level_loss = loss_val
+                no_improve = 0
+            else:
+                no_improve += 1
 
             if viewer is not None and step % update_every == 0:
                 with torch.no_grad():
                     src_blurred_hwc = aux["src_nchw"].squeeze(0).permute(1, 2, 0)
                     viewer.update(
                         iteration=len(loss_history),
-                        loss=loss_history[-1],
+                        loss=loss_val,
                         pts_curr=aux["pts_curr_t"].detach(),
                         colors_relit=aux["colors_relit"].detach(),
                         src_blurred=src_blurred_hwc,
@@ -816,7 +827,7 @@ def refine_pose_photometric(
                 prev_r6 = rot_6d.detach().clone()
             settled = d_trans < tol_trans_m and d_rot6 < tol_rot6
             stale = stale + 1 if settled else 0
-            if stale >= patience:
+            if stale >= patience or no_improve >= patience_loss:
                 break
 
     return best_pose, loss_history
