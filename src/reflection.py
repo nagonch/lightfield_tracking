@@ -74,6 +74,9 @@ def compute_diffuse(
         verbose=verbose,
     )
 
+    # Keep the per-point diffuse on the SLF for differentiable relighting.
+    slf.diffuse_colors = diffuse_point.detach().clamp(0.0, 1.0)
+
     # Scatter the per-point diffuse to the central-view grid; keep in linear.
     diffuse_img = torch.zeros(slf.H, slf.W, 3, device=diffuse_point.device)
     diffuse_img[slf.mask] = diffuse_point
@@ -97,22 +100,35 @@ def frame_diffuse(
     iterations: int = 200,
     verbose: bool = True,
     previous_environment_map: torch.Tensor | None = None,
-) -> tuple[np.ndarray, torch.Tensor | None]:
-    """Diffuse central view + env map for one frame, with disk caching.
+) -> tuple[np.ndarray, torch.Tensor | None, SurfaceLightField]:
+    """Diffuse central view + env map + the SLF for one frame, with disk caching.
 
-    Returns ``(diffuse_linear [H,W,3] float32 [0,1], environment_map)``.
+    Returns ``(diffuse_linear [H,W,3] float32 [0,1], environment_map, slf)``.
+    The :class:`SurfaceLightField` (gsplat-backed, with per-point diffuse) is
+    always rebuilt so the photometric refinement can rasterize it; only the slow
+    reflection separation is skipped on a cache hit.  The cached diffuse image
+    and the SLF share the same masked-point ordering, so the per-point diffuse is
+    reconstructed exactly from the image via ``slf.mask``.
+
     Cache is stored as a float32 .npy file (linear, no gamma encoding).
     Old .png caches are silently ignored and regenerated as .npy.
     """
+    slf = SurfaceLightField.from_frame(frame, mask, depth, s_size, t_size)
+
     if cache_path is not None:
         npy_path = _diffuse_npy_path(cache_path)
         if os.path.exists(npy_path):
             diffuse = np.load(npy_path)
             env_path = _env_cache_path(cache_path)
-            env = torch.from_numpy(np.load(env_path)).cuda() if os.path.exists(env_path) else None
-            return diffuse, env
+            env = (
+                torch.from_numpy(np.load(env_path)).cuda()
+                if os.path.exists(env_path)
+                else None
+            )
+            diffuse_t = torch.from_numpy(diffuse).to(slf.points.device)
+            slf.diffuse_colors = diffuse_t[slf.mask].clamp(0.0, 1.0)
+            return diffuse, env, slf
 
-    slf = SurfaceLightField.from_frame(frame, mask, depth, s_size, t_size)
     diffuse, environment_map = compute_diffuse(
         slf,
         alpha,
@@ -125,4 +141,4 @@ def frame_diffuse(
         os.makedirs(os.path.dirname(cache_path), exist_ok=True)
         np.save(_diffuse_npy_path(cache_path), diffuse)
         np.save(_env_cache_path(cache_path), environment_map.detach().cpu().numpy())
-    return diffuse, environment_map
+    return diffuse, environment_map, slf

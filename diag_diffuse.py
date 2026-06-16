@@ -59,16 +59,10 @@ def main() -> None:
     rng = np.random.default_rng(seed=42)
     import dataclasses as _dc
 
-    blur_fine = os.environ.get("BLUR_FINE")
-    blur_sigmas = RefineConfig().blur_sigmas
-    if blur_fine is not None:
-        blur_sigmas = blur_sigmas[:-1] + (float(blur_fine),)
     cfg = _dc.replace(
         RefineConfig(),
         lr_rot=float(os.environ.get("LR_ROT", RefineConfig().lr_rot)),
         lambda_depth=float(os.environ.get("LAMBDA_DEPTH", RefineConfig().lambda_depth)),
-        lambda_mask=float(os.environ.get("LAMBDA_MASK", RefineConfig().lambda_mask)),
-        blur_sigmas=blur_sigmas,
     )
     print(f"START_GT={START_GT}  CONFIG: {cfg}\n")
 
@@ -89,7 +83,7 @@ def main() -> None:
         gt_poses.append(gt)
         depth = frame["depth"]
         mask = frame["masks"][s_size // 2, t_size // 2]
-        view, prev_env = frame_diffuse(
+        view, prev_env, slf = frame_diffuse(
             frame=frame, mask=mask, depth=depth, alpha=ALPHA,
             s_size=s_size, t_size=t_size,
             cache_path=os.path.join(cache_dir, f"diffuse_{i:04d}.png"),
@@ -112,11 +106,9 @@ def main() -> None:
             start_pose = gt.astype(np.float64) if START_GT else coarse
             diag: list[dict] = []
             refined, _ = refine_pose_photometric(
-                points_prev=prev[3], diffuse_prev=prev[4], env_map_prev=None,
-                points_curr=pc, diffuse_curr=color, env_map_curr=None,
-                K=K_np, abs_pose_prev=est_poses[-1], pose_coarse=start_pose, alpha=ALPHA,
-                depth_curr=depth_np, mask_curr=mask_np, cfg=cfg,
-                gt_pose_curr=gt, diag=diag,
+                slf_prev=prev[6], slf_curr=slf, env_map_prev=None, env_map_curr=None,
+                abs_pose_prev=est_poses[-1], pose_coarse=start_pose, alpha=ALPHA,
+                cfg=cfg, gt_pose_curr=gt, diag=diag,
             )
             # in START_GT mode keep the trajectory on GT so each frame's bias is
             # measured independently from the previous-frame GT pose
@@ -127,7 +119,7 @@ def main() -> None:
             print(f"\n=== frame {i}: {tag}: {cr:.3f}° → {rr:.3f}° ===")
             _print_curve(diag)
 
-        prev = (view, depth_np, mask_np, pc, color, prev_env)
+        prev = (view, depth_np, mask_np, pc, color, prev_env, slf)
 
 
 if __name__ == "__main__":

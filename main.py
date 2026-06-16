@@ -28,6 +28,7 @@ from src.photometric import (
 )
 from src.pose import track_pose
 from src.reflection import central_view, frame_diffuse
+from src.surface_light_field import SurfaceLightField
 
 logging.basicConfig(
     format="%(asctime)s  %(levelname)-7s  %(message)s",
@@ -42,7 +43,7 @@ CACHE_ROOT = "cache/diffuse"
 SEPARATION_ITERS = 300
 USE_REFLECTION_SEPARATION = True  # False → LoFTR on the raw central view
 USE_PHOTOMETRIC_REFINE = True  # True → photometric pose refinement after coarse
-ENABLE_VIS = False  # True → open viser viewer during refinement
+ENABLE_VIS = True  # True → open viser viewer during refinement
 
 # All photometric-refine hyperparameters live here (see RefineConfig).
 # lr_trans=0: translation is re-anchored to LoFTR's origin in _report, so it is
@@ -78,7 +79,7 @@ def _build_pc(depth: np.ndarray, mask: np.ndarray, rgb: np.ndarray, K: np.ndarra
 
 DEPTH_SOURCES = ["gt"]  # "gt" | "synth"
 SPLIT_PREFIXES = ["cube", "objects"]
-REFLECTIVITIES = ["0.0", "0.5", "0.7", "1.0"]  # "0.0" | "0.5" | "0.7" | "1.0"
+REFLECTIVITIES = ["1.0"]  # "0.0" | "0.5" | "0.7" | "1.0"
 
 
 def track_sequence(
@@ -103,7 +104,7 @@ def track_sequence(
     est_poses: list[np.ndarray] = []
     coarse_errs: list[tuple[float, float]] = []  # (rot°, trans m) per frame
     refined_errs: list[tuple[float, float]] = []
-    prev = None  # (view, depth, mask, pc, color, env_map)
+    prev = None  # (view, depth, mask, pc, color, env_map, slf)
     prev_env = None  # accumulated env map warm-start for separation
 
     with tqdm(
@@ -119,7 +120,7 @@ def track_sequence(
 
             if separate:
                 bar.set_postfix(fr=i, stage="separate")
-                view, prev_env = frame_diffuse(
+                view, prev_env, slf = frame_diffuse(
                     frame=frame,
                     mask=mask,
                     depth=depth,
@@ -137,6 +138,7 @@ def track_sequence(
             else:
                 view = central_view(frame, s_size, t_size)
                 env_curr = None
+                slf = SurfaceLightField.from_frame(frame, mask, depth, s_size, t_size)
 
             depth_np = depth.cpu().numpy()
             mask_np = (mask > 0).cpu().numpy()
@@ -170,18 +172,13 @@ def track_sequence(
                     if viewer is not None:
                         viewer.reset_frame(i)
                     refined_pose, _ = refine_pose_photometric(
-                        points_prev=prev[3],
-                        diffuse_prev=prev[4],
+                        slf_prev=prev[6],
+                        slf_curr=slf,
                         env_map_prev=prev[5],
-                        points_curr=pc,
-                        diffuse_curr=color,
                         env_map_curr=env_curr,
-                        K=K_np,
                         abs_pose_prev=est_poses[-1],
                         pose_coarse=coarse_pose,
                         alpha=alpha,
-                        depth_curr=depth_np,
-                        mask_curr=mask_np,
                         cfg=refine_cfg,
                         viewer=viewer,
                         gt_pose_curr=gt_poses[i],
@@ -207,7 +204,7 @@ def track_sequence(
                 else:
                     est_poses.append(coarse_pose)
 
-            prev = (view, depth_np, mask_np, pc, color, env_curr)
+            prev = (view, depth_np, mask_np, pc, color, env_curr, slf)
 
     if refined_errs:
         c = np.array(coarse_errs)

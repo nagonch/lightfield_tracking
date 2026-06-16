@@ -20,9 +20,10 @@ import torch
 from loftr_wrapper import LoftrRunner
 from main import _build_pc
 from src.dataset import LFDataset
-from src.photometric import refine_pose_photometric
+from src.photometric import RefineConfig, refine_pose_photometric
 from src.pose import track_pose
 from src.reflection import central_view
+from src.surface_light_field import SurfaceLightField
 from analyze_photometric import _perturb_rot, _perturb_trans
 
 # ── configuration ────────────────────────────────────────────────────────────
@@ -46,7 +47,6 @@ REFINE_KW = dict(
     lr_rot=5e-3,
     lr_trans=1e-3,
     lambda_depth=0.1,
-    lambda_mask=0.05,
     lambda_rot=0.0,
     lambda_trans=0.0,
     scales=(0.25, 0.5, 1.0),
@@ -81,7 +81,12 @@ def _load(dataset, idx, s_size, t_size):
     view = central_view(f, s_size, t_size)
     pc, color = _build_pc(depth, mask, view, K)
     gt = f["object_pose"].cpu().numpy().astype(np.float64)
-    return dict(depth=depth, mask=mask, K=K, view=view, pc=pc, color=color, gt=gt)
+    slf = SurfaceLightField.from_frame(
+        f, f["masks"][s_size // 2, t_size // 2], f["depth"], s_size, t_size
+    )
+    return dict(
+        depth=depth, mask=mask, K=K, view=view, pc=pc, color=color, gt=gt, slf=slf
+    )
 
 
 def _perturbed_init(gt: np.ndarray, rng: np.random.Generator) -> np.ndarray:
@@ -132,19 +137,14 @@ def main():
             coarse = _perturbed_init(curr["gt"], rng)
 
         refined, _ = refine_pose_photometric(
-            points_prev=prev["pc"],
-            diffuse_prev=prev["color"],
+            slf_prev=prev["slf"],
+            slf_curr=curr["slf"],
             env_map_prev=None,
-            points_curr=curr["pc"],
-            diffuse_curr=curr["color"],
             env_map_curr=None,
-            K=curr["K"],
             abs_pose_prev=prev["gt"],
             pose_coarse=coarse,
             alpha=ALPHA,
-            depth_curr=curr["depth"],
-            mask_curr=curr["mask"],
-            **REFINE_KW,
+            cfg=RefineConfig(**REFINE_KW),
         )
 
         cr, ct = _errs(coarse, curr["gt"])

@@ -52,10 +52,10 @@ CONFIGS: dict[str, RefineConfig] = {
     # current defaults (3-level pyramid 0.25/0.5/1.0, finest-level cosine decay)
     "baseline": _cfg(),
     # pyramid choices: drop the harmful coarsest 0.25 level
-    "two_level": _cfg(scales=(0.5, 1.0), blur_sigmas=(2.0, 1.5)),
-    "one_level": _cfg(scales=(1.0,), blur_sigmas=(1.5,)),
+    "two_level": _cfg(scales=(0.5, 1.0)),
+    "one_level": _cfg(scales=(1.0,)),
     # two-level + gentler LR (smoother settle)
-    "two_lvl_lr2e3": _cfg(scales=(0.5, 1.0), blur_sigmas=(2.0, 1.5), lr_rot=2e-3),
+    "two_lvl_lr2e3": _cfg(scales=(0.5, 1.0), lr_rot=2e-3),
 }
 
 

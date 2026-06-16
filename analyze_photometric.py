@@ -35,14 +35,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from main import _build_pc
 from src.dataset import LFDataset
 from src.photometric import (
     _to_display_u8,
     build_photometric_context,
     photometric_forward,
 )
-from src.reflection import central_view
+from src.surface_light_field import SurfaceLightField
 
 # ── configuration ────────────────────────────────────────────────────────────
 DATASET_ROOT = "/home/ngoncharov/SpecTrack_dataset"
@@ -56,7 +55,6 @@ TRANS_MAX_M = 0.03
 N_SAMPLES = 61
 
 LAMBDA_DEPTH = 0.1
-LAMBDA_MASK = 0.05
 
 OUT_DIR = "analysis_out"
 
@@ -105,15 +103,11 @@ def _eval(ctx, pose_np: np.ndarray) -> tuple[float, dict[str, float]]:
 
 def _load_frame(dataset: LFDataset, idx: int, s_size: int, t_size: int):
     frame = dataset[idx]
-    depth_np = frame["depth"].cpu().numpy()
-    mask_np = (frame["masks"][s_size // 2, t_size // 2] > 0).cpu().numpy()
-    K_np = frame["camera_matrix"].cpu().numpy().astype(np.float64)
-    view = central_view(frame, s_size, t_size)
-    pc, color = _build_pc(depth_np, mask_np, view, K_np)
     gt_pose = frame["object_pose"].cpu().numpy().astype(np.float64)
-    return dict(
-        depth=depth_np, mask=mask_np, K=K_np, pc=pc, color=color, gt_pose=gt_pose
+    slf = SurfaceLightField.from_frame(
+        frame, frame["masks"][s_size // 2, t_size // 2], frame["depth"], s_size, t_size
     )
+    return dict(gt_pose=gt_pose, slf=slf)
 
 
 def _sweep(ctx, gt_pose, center_cam, mode: str, amax_native: float):
@@ -147,22 +141,16 @@ def analyze_frame(dataset, idx, s_size, t_size):
     prev = _load_frame(dataset, idx - 1, s_size, t_size)
     curr = _load_frame(dataset, idx, s_size, t_size)
 
-    # Context: freeze visible set + anchor at GT; disable reg to see raw landscape.
+    # Context: anchor at GT; disable reg to see the raw photometric landscape.
     ctx, tgt_rendered = build_photometric_context(
-        points_prev=prev["pc"],
-        diffuse_prev=prev["color"],
+        slf_prev=prev["slf"],
+        slf_curr=curr["slf"],
         env_map_prev=None,
-        points_curr=curr["pc"],
-        diffuse_curr=curr["color"],
         env_map_curr=None,
-        K=curr["K"],
         abs_pose_prev=prev["gt_pose"],
-        pose_coarse=curr["gt_pose"],  # freeze visible set at the correct answer
+        pose_coarse=curr["gt_pose"],  # anchor reg at the correct answer
         alpha=ALPHA,
-        depth_curr=curr["depth"],
-        mask_curr=curr["mask"],
         lambda_depth=LAMBDA_DEPTH,
-        lambda_mask=LAMBDA_MASK,
         lambda_rot=0.0,
         lambda_trans=0.0,
     )
@@ -172,7 +160,8 @@ def analyze_frame(dataset, idx, s_size, t_size):
         T_rel = (
             torch.from_numpy(curr["gt_pose"]).float().cuda() @ ctx.inv_pose_prev
         )
-        pts_gt = (T_rel[:3, :3] @ ctx.pts_v.T).T + T_rel[:3, 3]
+        pts = ctx.slf_prev.points.float()
+        pts_gt = (T_rel[:3, :3] @ pts.T).T + T_rel[:3, 3]
         center_cam = pts_gt.mean(0).cpu().numpy().astype(np.float64)
 
     rot_xs, rot_res = _sweep(ctx, curr["gt_pose"], center_cam, "rot", ROT_MAX_DEG)
@@ -211,8 +200,6 @@ def _weighted(comp_curves: dict[str, list[float]]) -> dict[str, np.ndarray]:
     out = {"photo": np.array(comp_curves["photo"])}
     if "depth" in comp_curves:
         out["depth (×%.2g)" % LAMBDA_DEPTH] = LAMBDA_DEPTH * np.array(comp_curves["depth"])
-    if "mask" in comp_curves:
-        out["mask (×%.2g)" % LAMBDA_MASK] = LAMBDA_MASK * np.array(comp_curves["mask"])
     return out
 
 
@@ -264,7 +251,7 @@ def _plot_alignment(idx, ctx, gt_pose, tgt_rendered):
     with torch.no_grad():
         pose_t = torch.from_numpy(gt_pose).float().cuda()
         _, _, aux = photometric_forward(ctx, pose_t)
-        src_hwc = aux["src_nchw"].squeeze(0).permute(1, 2, 0)
+        src_hwc = aux["src_img"]
 
     src_u8 = _to_display_u8(src_hwc)
     tgt_u8 = _to_display_u8(tgt_rendered)

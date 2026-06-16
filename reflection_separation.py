@@ -1,54 +1,10 @@
 import torch
 import numpy as np
-from PIL import Image
-from src.dataset import LFDataset
-from src.utilities import backproject_depth_to_pointcloud
-from surface_lf import SurfaceLF, SurfaceLFRig
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import os
 from utils import srgb_to_linear, linear_to_srgb
 from tqdm import tqdm
-
-
-def build_surface_lf(frame, s_size, t_size):
-    mask = frame["masks"][s_size // 2, t_size // 2]
-    depth = frame["depth"]
-    camera_matrix = frame["camera_matrix"]
-
-    pc, pc_scales = backproject_depth_to_pointcloud(
-        pixel_indices=None,
-        depths=depth,
-        camera_matrix=camera_matrix,
-        return_scales=True,
-    )
-    pc = pc[(mask > 0).reshape(-1)]
-    pc_scales = pc_scales[(mask > 0).reshape(-1)]
-
-    surface_lf_rig = SurfaceLFRig.build(
-        K=frame["camera_matrix"],
-        poses_4x4=frame["camera_poses_rel"].reshape(-1, 4, 4),
-        image_size_hw=(
-            frame["LF"].shape[2],
-            frame["LF"].shape[3],
-        ),
-    )
-
-    surface_lf = SurfaceLF(
-        surface_lf_rig,
-        pc,
-        frame["LF"]
-        .reshape(-1, frame["LF"].shape[2], frame["LF"].shape[3], 3)
-        .permute(0, 3, 1, 2),
-        pc_scales,
-        previous_environment_map=None,
-        # We only need geometry (colors / view_dirs / normals / valid) out of the
-        # rig here; the naive path avoids invoking the (now changed) reflection
-        # separation internally.
-        use_naive_relight=True,
-    )
-    return surface_lf
 
 
 # ---------------------------------------------------------------------------
@@ -452,76 +408,3 @@ def refine_diffuse_decorrelate(
     refined = torch.where(mf > 0, cur, D)
     return refined[0].permute(1, 2, 0)
 
-
-if __name__ == "__main__":
-    sequence_name = "bleach0"
-
-    MIDDLE_REFLECTIVITY = 0.7
-    ALPHA = 1 - MIDDLE_REFLECTIVITY
-    N_ITERS = 300
-
-    out_folder = f"vis_env_{MIDDLE_REFLECTIVITY}"
-    os.makedirs(out_folder, exist_ok=True)
-
-    path_middle = f"/home/ngoncharov/SpecTrack_dataset/objects_{MIDDLE_REFLECTIVITY}/{sequence_name}"
-    dataset = LFDataset(path_middle)
-    s_size, t_size = dataset.metadata["n_views"]
-
-    previous_environment_map = None
-
-    for i in range(len(dataset)):
-        frame = dataset[i]
-        mask = frame["masks"][s_size // 2, t_size // 2]
-
-        # Middle-view image for reference output.
-        lf = frame["LF"][s_size // 2, t_size // 2].clone()
-        lf[mask == 0] = 0
-
-        surface_lf = build_surface_lf(frame, s_size, t_size)
-
-        # Geometry from the rig is per-point: [M, P, *] with M = s_size * t_size.
-        # Transpose to [P, M, *] for the point-based separation.
-        colors_pt = surface_lf.colors.permute(1, 0, 2)  # [P, M, 3]
-        view_dirs_pt = surface_lf.view_dirs.permute(1, 0, 2)  # [P, M, 3]
-        valid_pt = surface_lf.valid.permute(1, 0)  # [P, M]
-        normals_pt = surface_lf.surface_normals.float()  # [P, 3]
-
-        normals_rep = normals_pt[:, None, :].expand_as(view_dirs_pt)
-        reflected_pt = (
-            view_dirs_pt
-            - 2.0 * (view_dirs_pt * normals_rep).sum(dim=-1, keepdim=True) * normals_rep
-        )
-        reflected_pt = F.normalize(reflected_pt, dim=-1)  # [P, M, 3]
-
-        mask_bool = mask > 0
-        diffuse_point, environment_map, _ = separate_reflection(
-            colors=srgb_to_linear(colors_pt),
-            alpha=ALPHA,
-            reflected_dirs=reflected_pt,
-            valid=valid_pt,
-            view_dirs=view_dirs_pt,
-            normals=normals_pt,
-            mask=mask_bool,
-            previous_environment_map=previous_environment_map,
-            iterations=N_ITERS,
-            verbose=True,
-        )
-        previous_environment_map = environment_map.detach()
-
-        # Scatter the per-point diffuse (already decorrelated) to the image grid.
-        diffuse_img = torch.zeros((*mask.shape, 3), device=diffuse_point.device)
-        diffuse_img[mask_bool] = diffuse_point
-
-        # ---- Save: original middle view, rendered diffuse, environment map ----
-        diffuse_vis = (
-            linear_to_srgb(diffuse_img).clamp(0, 1).cpu().numpy() * 255
-        ).astype(np.uint8)
-        env_vis = (
-            linear_to_srgb(environment_map).clamp(0, 1).cpu().numpy() * 255
-        ).astype(np.uint8)
-        orig_vis = (lf.cpu().numpy() * 255).astype(np.uint8)
-
-        idx = str(i).zfill(4)
-        Image.fromarray(orig_vis).save(f"{out_folder}/orig_{idx}.png")
-        Image.fromarray(diffuse_vis).save(f"{out_folder}/diffuse_{idx}.png")
-        Image.fromarray(env_vis).save(f"{out_folder}/env_{idx}.png")

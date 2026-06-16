@@ -17,8 +17,56 @@ from gsplat import rasterization
 from pytorch3d.ops import knn_points
 from pytorch3d.renderer.cameras import PerspectiveCameras
 
-from sh_helpers import fit_sh_coeffs_per_point
+from sh_helpers import fit_sh_coeffs_per_point, get_sh_bases_torch
 from src.utilities import backproject_depth_to_pointcloud
+
+
+# ── differentiable equirect env-map sampling ─────────────────────────────────
+
+def sample_env_equirect(env_map_hwc: torch.Tensor, dirs: torch.Tensor) -> torch.Tensor:
+    """Bilinear equirect lookup (flip_u=True, flip_v=True), fully differentiable.
+
+    env_map_hwc : [H, W, 3]  linear float [0, 1]
+    dirs        : [N, 3]     unit directions (grad flows through here)
+    returns     : [N, 3]
+    """
+    dirs = F.normalize(dirs.float(), dim=-1, eps=1e-8)
+    x, y, z = dirs[:, 0], dirs[:, 1], dirs[:, 2]
+    env_h, env_w = env_map_hwc.shape[:2]
+
+    lon = torch.atan2(x, z)
+    lat = torch.asin(torch.clamp(y, -1.0 + 1e-6, 1.0 - 1e-6))
+    u_px = (lon / (2.0 * torch.pi) + 0.5) * (env_w - 1)
+    u_px = (env_w - 1) - u_px
+    v_px = (0.5 + lat / torch.pi) * (env_h - 1)
+
+    u_n = u_px / (env_w - 1) * 2.0 - 1.0
+    v_n = v_px / (env_h - 1) * 2.0 - 1.0
+    grid = torch.stack([u_n, v_n], dim=-1).reshape(1, 1, -1, 2)
+
+    img = env_map_hwc.permute(2, 0, 1).unsqueeze(0).float()
+    out = F.grid_sample(
+        img, grid, mode="bilinear", padding_mode="border", align_corners=True
+    )
+    return out.squeeze(0).squeeze(1).T  # [N, 3]
+
+
+def eval_sh_rgb(
+    harmonics: torch.Tensor, dirs: torch.Tensor, sh_degree: int = 2
+) -> torch.Tensor:
+    """Evaluate per-point SH colour at ``dirs`` (matches gsplat / the fitting basis).
+
+    harmonics : [N, K, 3]  K = (sh_degree+1)^2
+    dirs      : [N, 3]     view directions in the SH (object) frame
+    returns   : [N, 3]     linear RGB, clamped [0, 1]
+
+    The fitting convention (sh_helpers) guarantees ``bases · H = rgb - 0.5``, so
+    this reproduces gsplat's own SH evaluation while staying differentiable.
+    """
+    bases = get_sh_bases_torch(dirs.unsqueeze(0), max_degree=sh_degree)  # [1, N, K]
+    K = (sh_degree + 1) ** 2
+    rgb = torch.einsum("bnk,nkc->bnc", bases, harmonics[:, :K].float())[0] + 0.5
+    return rgb.clamp(0.0, 1.0)
 
 
 # ── SH rotation (Wigner-D via e3nn) ──────────────────────────────────────────
@@ -86,6 +134,50 @@ def _gs_rasterize(
 
     alpha = alphas[0, 0, ..., -1]          # [H, W]
     frame = rendered[0, 0]                  # [H, W, 4]
+    image = frame[..., :3].clamp(0.0, 1.0)
+    depth = frame[..., 3]
+    return image, depth, alpha > 0.98
+
+
+def _gs_rasterize_direct(
+    means: torch.Tensor,       # [N, 3] camera space (grad ok)
+    quats: torch.Tensor,       # [N, 4]
+    scales: torch.Tensor,      # [N, 3]
+    opacities: torch.Tensor,   # [N]
+    colors: torch.Tensor,      # [N, 3] precomputed per-Gaussian RGB (grad ok)
+    K_mat: torch.Tensor,       # [3, 3]
+    H: int,
+    W: int,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Rasterize Gaussians with *precomputed* per-point colours (no SH eval).
+
+    Differentiable w.r.t. both ``means`` and ``colors`` — the path used by the
+    photometric refinement, where colours are evaluated/relit analytically so
+    pose gradient flows through geometry *and* appearance.
+
+    Returns (image [H,W,3], depth [H,W], mask [H,W] bool).
+    """
+    device, dtype = means.device, means.dtype
+    identity = torch.eye(4, device=device, dtype=dtype)
+    poses = identity.unsqueeze(0)
+
+    rendered, alphas, _ = rasterization(
+        means=means.unsqueeze(0),
+        quats=quats.unsqueeze(0),
+        scales=scales.unsqueeze(0),
+        opacities=opacities.unsqueeze(0),
+        colors=colors.unsqueeze(0),                       # [1, N, 3] → direct colours
+        viewmats=torch.linalg.inv(poses).unsqueeze(0),
+        Ks=torch.stack([K_mat]).unsqueeze(0),
+        width=W,
+        height=H,
+        sh_degree=None,
+        packed=False,
+        render_mode="RGB+D",
+    )
+
+    alpha = alphas[0, 0, ..., -1]
+    frame = rendered[0, 0]
     image = frame[..., :3].clamp(0.0, 1.0)
     depth = frame[..., 3]
     return image, depth, alpha > 0.98
@@ -200,6 +292,9 @@ class SurfaceLightField:
     scales: torch.Tensor
     opacities: torch.Tensor
     K: torch.Tensor
+    # Per-point separated diffuse colour [N, 3] linear (set by reflection
+    # separation).  Used by ``render_relit``; ``None`` falls back to SH ambient.
+    diffuse_colors: torch.Tensor | None = None
 
     @classmethod
     def from_frame(
@@ -324,4 +419,93 @@ class SurfaceLightField:
             H=self.H,
             W=self.W,
             sh_degree=sh_degree,
+        )
+
+    def render_relit(
+        self,
+        rel_pose: torch.Tensor | None = None,
+        env_map: torch.Tensor | None = None,
+        alpha: float = 1.0,
+        sh_degree: int = 2,
+        scale: float = 1.0,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Differentiable single central-view render with optional relighting.
+
+        Computes a *precomputed* per-Gaussian RGB and splats it via gsplat, so
+        the pose gradient flows through both the Gaussian means (geometry) and
+        the analytically-evaluated colours (appearance) — no Wigner-D rotation
+        and no per-step SH refit.
+
+        rel_pose : [4, 4] rigid transform applied to the Gaussians (object →
+                   current camera).  ``None`` renders the canonical view.
+        env_map  : [H, W, 3] (or [3, H, W]) linear equirect env map.  When given
+                   and ``alpha < 1`` the colour is
+                   ``alpha * diffuse + (1 - alpha) * env[reflect(view, normal)]``;
+                   otherwise the stored SH appearance is used.
+
+        Returns  : (image [H,W,3], depth [H,W], mask [H,W] bool), differentiable.
+        """
+        device = self.points.device
+        dtype = torch.float32
+
+        pts = self.points.to(dtype)
+        normals = self.normals.to(dtype)
+        if rel_pose is not None:
+            rel_pose = rel_pose.to(device=device, dtype=dtype)
+            R = rel_pose[:3, :3]
+            t = rel_pose[:3, 3]
+            means = (R @ pts.T).T + t
+            normals_cur = F.normalize((R @ normals.T).T, dim=-1, eps=1e-8)
+        else:
+            R = torch.eye(3, device=device, dtype=dtype)
+            means = pts
+            normals_cur = F.normalize(normals, dim=-1, eps=1e-8)
+
+        # Camera is at the origin in camera space, so the view direction to each
+        # Gaussian is just the (normalised) camera-space mean.
+        view_dirs = F.normalize(means, dim=-1, eps=1e-8)
+
+        relit = env_map is not None and alpha < 0.999
+        if relit:
+            env_hwc = env_map.to(device=device, dtype=dtype)
+            if env_hwc.ndim == 3 and env_hwc.shape[0] == 3:
+                env_hwc = env_hwc.permute(1, 2, 0)
+            reflected = F.normalize(
+                view_dirs
+                - 2.0 * (view_dirs * normals_cur).sum(-1, keepdim=True) * normals_cur,
+                dim=-1,
+                eps=1e-8,
+            )
+            specular = sample_env_equirect(env_hwc, reflected)
+            if self.diffuse_colors is not None:
+                diffuse = self.diffuse_colors.to(device=device, dtype=dtype)
+            else:  # SH ambient (degree-0) fallback
+                diffuse = (self.harmonics[:, 0].float() + 0.5).clamp(0.0, 1.0)
+            colors = (alpha * diffuse + (1.0 - alpha) * specular).clamp(0.0, 1.0)
+        else:
+            # View-dependent SH appearance: evaluate the stored (object-frame)
+            # coefficients at the view direction expressed in the object frame.
+            dirs_obj = (R.T @ view_dirs.T).T
+            colors = eval_sh_rgb(self.harmonics, dirs_obj, sh_degree=sh_degree)
+
+        H, W, K_mat = self.H, self.W, self.K.float()
+        if scale != 1.0:
+            H = max(1, round(self.H * scale))
+            W = max(1, round(self.W * scale))
+            sx, sy = W / self.W, H / self.H
+            K_mat = K_mat.clone()
+            K_mat[0, 0] *= sx
+            K_mat[0, 2] *= sx
+            K_mat[1, 1] *= sy
+            K_mat[1, 2] *= sy
+
+        return _gs_rasterize_direct(
+            means=means,
+            quats=self.quats.float(),
+            scales=self.scales.float(),
+            opacities=self.opacities.float(),
+            colors=colors,
+            K_mat=K_mat,
+            H=H,
+            W=W,
         )
