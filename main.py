@@ -33,13 +33,26 @@ logging.basicConfig(
 
 # ── configuration ──────────────────────────────────────────────────────────────
 DATASET_ROOT = "/home/ngoncharov/SpecTrack_dataset"
-EXP_NAME = "results_ours_separation2"
+EXP_NAME = "results_ours_new_loss"
 CACHE_ROOT = "cache/diffuse"
 SEPARATION_ITERS = 300
-USE_REFLECTION_SEPARATION = False  # False → LoFTR on the raw central view
-USE_PHOTOMETRIC_REFINE = False  # True → photometric pose refinement after coarse
+USE_REFLECTION_SEPARATION = True  # False → LoFTR on the raw central view
+USE_PHOTOMETRIC_REFINE = True  # True → photometric pose refinement after coarse
 ENABLE_VIS = True  # True → open viser viewer during refinement
-PHOTOMETRIC_ITERS = 100
+PHOTOMETRIC_ITERS = 100  # per coarse-to-fine level (early-stops on saturation)
+
+
+def _rot_err_deg(Ra: np.ndarray, Rb: np.ndarray) -> float:
+    R = Ra @ Rb.T
+    c = np.clip((np.trace(R) - 1.0) / 2.0, -1.0, 1.0)
+    return float(np.degrees(np.arccos(c)))
+
+
+def _pose_err(pose: np.ndarray, gt: np.ndarray) -> tuple[float, float]:
+    """(rotation error °, translation error m) of an absolute pose vs GT."""
+    return _rot_err_deg(pose[:3, :3], gt[:3, :3]), float(
+        np.linalg.norm(pose[:3, 3] - gt[:3, 3])
+    )
 
 
 def _build_pc(depth: np.ndarray, mask: np.ndarray, rgb: np.ndarray, K: np.ndarray):
@@ -76,6 +89,8 @@ def track_sequence(
 
     gt_poses: list[np.ndarray] = []
     est_poses: list[np.ndarray] = []
+    coarse_errs: list[tuple[float, float]] = []  # (rot°, trans m) per frame
+    refined_errs: list[tuple[float, float]] = []
     prev = None  # (view, depth, mask, pc, color, env_map)
     prev_env = None  # accumulated env map warm-start for separation
 
@@ -158,10 +173,46 @@ def track_sequence(
                         gt_pose_curr=gt_poses[i],
                     )
                     est_poses.append(refined_pose)
+
+                    # ── per-frame metrics: does refine beat the LoFTR coarse? ──
+                    print(coarse_pose[:3, 3])  # --- IGNORE ---
+                    print(refined_pose[:3, 3])  # --- IGNORE ---
+                    cr, ct = _pose_err(coarse_pose, gt_poses[i])
+                    rr, rt = _pose_err(refined_pose, gt_poses[i])
+                    coarse_errs.append((cr, ct))
+                    refined_errs.append((rr, rt))
+                    mc = np.mean(coarse_errs, axis=0)
+                    mr = np.mean(refined_errs, axis=0)
+                    flag = ("↑rot" if rr > cr + 1e-6 else "") + (
+                        " ↑trans" if rt > ct + 1e-6 else ""
+                    )
+                    bar.write(
+                        f"  f{i:3d}: loftr {cr:5.2f}° {ct * 1000:6.2f}mm "
+                        f"→ refined {rr:5.2f}° {rt * 1000:6.2f}mm  "
+                        f"| mean loftr {mc[0]:.2f}°/{mc[1] * 1000:.1f}mm "
+                        f"refined {mr[0]:.2f}°/{mr[1] * 1000:.1f}mm  {flag}"
+                    )
                 else:
                     est_poses.append(coarse_pose)
 
             prev = (view, depth_np, mask_np, pc, color, env_curr)
+
+    if refined_errs:
+        c = np.array(coarse_errs)
+        r = np.array(refined_errs)
+        win_r = float((r[:, 0] < c[:, 0]).mean() * 100)
+        win_t = float((r[:, 1] < c[:, 1]).mean() * 100)
+        logging.info(
+            "%s: refine vs loftr — rot %.2f°→%.2f° (better %.0f%%)  "
+            "trans %.2f→%.2fmm (better %.0f%%)",
+            sequence_name,
+            c[:, 0].mean(),
+            r[:, 0].mean(),
+            win_r,
+            c[:, 1].mean() * 1000,
+            r[:, 1].mean() * 1000,
+            win_t,
+        )
 
     est = rebase_poses(np.stack(gt_poses), np.stack(est_poses))
     out_path = os.path.join(results_dir, f"{sequence_name}.npy")

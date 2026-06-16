@@ -1,0 +1,25 @@
+{
+  "per_sequence": {
+    "cube_gt": {
+      "cube_0.0": {
+        "bleach0": {
+          "add_auc": 0.4445454545454545,
+          "adds_auc": 0.4446464646464646,
+          "ate_rmse": 0.06198447611916828,
+          "mean_abs_rot_deg": 4.289934333537334,
+          "n_frames": 50
+        }
+      }
+    }
+  },
+  "split_averages": {
+    "cube_gt": {
+      "cube_0.0": {
+        "add_auc": 0.4445454545454545,
+        "adds_auc": 0.4446464646464646,
+        "ate_rmse": 0.06198447611916828,
+        "mean_abs_rot_deg": 4.289934333537334
+      }
+    }
+  }
+}
