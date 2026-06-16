@@ -132,10 +132,9 @@ def _uv_to_px(uv_n: torch.Tensor, H: int, W: int) -> torch.Tensor:
 # ── anti-aliasing: Gaussian blur ────────────────────────────────────────────────
 
 
-def _gaussian_blur(
-    img_hwc: torch.Tensor, kernel_size: int = 9, sigma: float = 2.0
-) -> torch.Tensor:
+def _gaussian_blur(img_hwc: torch.Tensor, sigma: float = 2.0) -> torch.Tensor:
     """Isotropic Gaussian blur on [H, W, C] float tensor."""
+    kernel_size = max(3, 2 * int(3.0 * sigma + 0.5) + 1)  # covers 3σ, always odd
     C = img_hwc.shape[2]
     k = (
         torch.arange(kernel_size, dtype=torch.float32, device=img_hwc.device)
@@ -171,12 +170,12 @@ def _scatter_to_tensor(
 
 
 def _scatter_blur_nchw(
-    uv_n: torch.Tensor, colors: torch.Tensor, H: int, W: int
+    uv_n: torch.Tensor, colors: torch.Tensor, H: int, W: int, sigma: float = 2.0
 ) -> torch.Tensor:
     """Scatter → Gaussian blur → [1, 3, H, W] (no grad through scatter, used as grid_sample input)."""
     with torch.no_grad():
         scattered = _scatter_to_tensor(uv_n, colors, H, W)
-        blurred = _gaussian_blur(scattered).clamp(0.0, 1.0)
+        blurred = _gaussian_blur(scattered, sigma=sigma).clamp(0.0, 1.0)
     return blurred.permute(2, 0, 1).unsqueeze(0)  # [1, 3, H, W]
 
 
@@ -414,6 +413,7 @@ class PhotometricContext:
     depth_t: torch.Tensor | None  # [1, 1, H, W]
     mask_dt_t: torch.Tensor | None  # [1, 1, H, W] silhouette distance field (px)
     mask_fg_px: torch.Tensor | None  # [P, 2] subsampled target-fg pixel coords
+    blur_sigma: float  # Gaussian sigma used for both source and target scatter renders
     R0_T: torch.Tensor  # [3, 3] anchor rotation^T for pose reg
     t0: torch.Tensor  # [3] anchor translation for pose reg
     lambda_depth: float
@@ -444,34 +444,28 @@ def photometric_forward(
     uv_n = _project_uv_norm(pts_curr_t, ctx.K_t, ctx.H, ctx.W)  # grad through pose
     grid = uv_n.reshape(1, 1, -1, 2)
 
-    # ── photometric residual (Lucas-Kanade style) ──────────────────────────────
-    # Compare each source point's own colour against the *blurred target image*
-    # sampled where that point projects.  Gradient flows uv→pose through the
-    # target's image gradient — a correct descent direction.  (Sampling a source
-    # render at its own scatter location would give a spurious self-referential
-    # gradient, so we do NOT do that here.)
-    sampled_tgt = (
-        F.grid_sample(
-            ctx.tgt_nchw,
-            grid,
-            mode="bilinear",
-            padding_mode="border",
-            align_corners=True,
+    # ── photometric residual (Lucas-Kanade style, both sides dealiased) ────────
+    # Scatter+blur the source with the same sigma as the target so both images
+    # are in the same spatial-frequency domain (equal aliasing cancels).
+    # sampled_src is detached so gradient flows only through the target's image
+    # gradient — the correct LK descent direction.
+    src_nchw = _scatter_blur_nchw(uv_n, colors_relit, ctx.H, ctx.W, sigma=ctx.blur_sigma)
+
+    def _sample(nchw: torch.Tensor) -> torch.Tensor:
+        return (
+            F.grid_sample(nchw, grid, mode="bilinear", padding_mode="border", align_corners=True)
+            .squeeze(0).squeeze(1).T
         )
-        .squeeze(0)
-        .squeeze(1)
-        .T
-    )
+
+    sampled_src = _sample(src_nchw).detach()
+    sampled_tgt = _sample(ctx.tgt_nchw)
 
     in_front = (pts_curr_t[:, 2] > 1e-3).float().detach()
     n_valid = in_front.sum().clamp(min=1.0)
 
-    photo = ((colors_relit - sampled_tgt) ** 2 * in_front.unsqueeze(-1)).sum() / n_valid
+    photo = ((sampled_src - sampled_tgt) ** 2 * in_front.unsqueeze(-1)).sum() / n_valid
     components: dict[str, torch.Tensor] = {"photo": photo}
     loss = photo
-
-    # source render (detached) — for visualisation only, not for the loss
-    src_nchw = _scatter_blur_nchw(uv_n, colors_relit, ctx.H, ctx.W)
 
     if ctx.depth_t is not None and ctx.lambda_depth > 0.0:
         sampled_depth = F.grid_sample(
@@ -642,6 +636,7 @@ def build_photometric_context(
         depth_t=depth_t,
         mask_dt_t=mask_dt_t,
         mask_fg_px=mask_fg_px,
+        blur_sigma=blur_sigma,
         R0_T=pose_init[:3, :3].T.detach(),
         t0=pose_init[:3, 3].detach(),
         lambda_depth=lambda_depth,
@@ -676,7 +671,7 @@ def refine_pose_photometric(
     lambda_rot: float = 0.0,
     lambda_trans: float = 0.0,
     scales: tuple[float, ...] = (0.25, 0.5, 1.0),
-    blur_sigmas: tuple[float, ...] = (2.0, 1.5, 1.0),
+    blur_sigmas: tuple[float, ...] = (3.0, 2.0, 1.5),
     patience: int = 15,
     patience_loss: int = 10,
     min_rel_improve: float = 5e-3,
