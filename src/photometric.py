@@ -88,6 +88,12 @@ def _relight(
 # ── geometry helpers ────────────────────────────────────────────────────────────
 
 
+def _rot_err_deg_np(Ra: np.ndarray, Rb: np.ndarray) -> float:
+    """Geodesic rotation error (degrees) between two 3x3 matrices."""
+    c = np.clip((np.trace(Ra @ Rb.T) - 1.0) / 2.0, -1.0, 1.0)
+    return float(np.degrees(np.arccos(c)))
+
+
 def _transform_points(pts: torch.Tensor, T: torch.Tensor) -> torch.Tensor:
     pts_h = torch.cat([pts, pts.new_ones(len(pts), 1)], dim=-1)
     return (T.float() @ pts_h.T).T[:, :3]
@@ -449,12 +455,18 @@ def photometric_forward(
     # are in the same spatial-frequency domain (equal aliasing cancels).
     # sampled_src is detached so gradient flows only through the target's image
     # gradient — the correct LK descent direction.
-    src_nchw = _scatter_blur_nchw(uv_n, colors_relit, ctx.H, ctx.W, sigma=ctx.blur_sigma)
+    src_nchw = _scatter_blur_nchw(
+        uv_n, colors_relit, ctx.H, ctx.W, sigma=ctx.blur_sigma
+    )
 
     def _sample(nchw: torch.Tensor) -> torch.Tensor:
         return (
-            F.grid_sample(nchw, grid, mode="bilinear", padding_mode="border", align_corners=True)
-            .squeeze(0).squeeze(1).T
+            F.grid_sample(
+                nchw, grid, mode="bilinear", padding_mode="border", align_corners=True
+            )
+            .squeeze(0)
+            .squeeze(1)
+            .T
         )
 
     sampled_src = _sample(src_nchw).detach()
@@ -650,6 +662,42 @@ def build_photometric_context(
 # ── main refinement ─────────────────────────────────────────────────────────────
 
 
+@dataclass
+class RefineConfig:
+    """Every hyperparameter governing photometric pose refinement.
+
+    Built once and threaded through :func:`refine_pose_photometric` so all
+    experiments tweak exactly the same set of knobs.  Defaults reproduce the
+    historical behaviour (rotation-only refine, translation frozen at LoFTR).
+    """
+
+    # optimisation
+    num_iters: int = 100  # max Adam steps *per* pyramid level
+    lr_rot: float = 5e-3  # learning rate for the rotation correction (6-D)
+    lr_trans: float = 0.0  # learning rate for the translation correction dt (m)
+    cosine_decay: bool = True  # cosine-anneal each level's LR to 0 over its steps
+
+    # composite-loss weights
+    lambda_depth: float = 0.1  # L1 z vs target depth
+    lambda_mask: float = 0.05  # silhouette distance-field chamfer
+    lambda_rot: float = 0.0  # ‖rotation correction‖ regulariser (anchor = coarse)
+    lambda_trans: float = 0.0  # ‖dt‖² regulariser (anchor = coarse)
+
+    # coarse-to-fine pyramid
+    scales: tuple[float, ...] = (0.25, 0.5, 1.0)
+    blur_sigmas: tuple[float, ...] = (3.0, 2.0, 1.5)
+
+    # early stopping
+    patience: int = 15  # steps of settled pose before cutting a level
+    patience_loss: int = 10  # steps of no loss improvement before cutting a level
+    min_rel_improve: float = 5e-3  # relative loss drop that counts as "improvement"
+    tol_trans_m: float = 5e-5  # |Δdt| under this counts as settled
+    tol_rot_deg: float = 0.02  # |Δrot6| (deg) under this counts as settled
+
+    # viewer
+    update_every: int = 1
+
+
 def refine_pose_photometric(
     points_prev: np.ndarray,  # [N, 3] camera-space points, prev frame
     diffuse_prev: np.ndarray,  # [N, 3] linear float [0, 1]
@@ -663,23 +711,10 @@ def refine_pose_photometric(
     alpha: float,
     depth_curr: np.ndarray | None = None,
     mask_curr: np.ndarray | None = None,
-    num_iters: int = 120,
-    lr_rot: float = 5e-3,
-    lr_trans: float = 0.0,  # rotation-only refine (translation kept at LoFTR coarse)
-    lambda_depth: float = 0.1,
-    lambda_mask: float = 0.05,
-    lambda_rot: float = 0.0,
-    lambda_trans: float = 0.0,
-    scales: tuple[float, ...] = (0.25, 0.5, 1.0),
-    blur_sigmas: tuple[float, ...] = (3.0, 2.0, 1.5),
-    patience: int = 15,
-    patience_loss: int = 10,
-    min_rel_improve: float = 5e-3,
-    tol_trans_m: float = 5e-5,
-    tol_rot_deg: float = 0.02,
+    cfg: RefineConfig | None = None,
     viewer: PhotometricRefineViewer | None = None,
-    update_every: int = 1,
     gt_pose_curr: np.ndarray | None = None,
+    diag: list[dict] | None = None,
 ) -> tuple[np.ndarray, list[float]]:
     """Gradient-based photometric pose refinement (coarse-to-fine).
 
@@ -699,45 +734,79 @@ def refine_pose_photometric(
     advances to the finer level sooner.  Coarser levels have wider, smoother
     basins; finer levels sharpen.
 
-    Parameterisation: the candidate pose is the coarse pose plus a rotation
-    correction *about the object centroid* and a pure translation correction
-    ``dt``.  Rotating about the centroid keeps rotation from injecting
-    translation (the lever-arm coupling that otherwise drifts the centre), and
-    makes ``lambda_trans * ‖dt‖²`` a clean penalty on the translation
-    correction.  A cosine LR decay within each level removes the coarse-level
-    overshoot.  Returns ``(refined_abs_pose [4,4] float64, loss_history)``.
+    Parameterisation (decoupled pivots — the key to improving rotation without
+    hurting translation):
+
+    * The **optimization** pose (`_compose`) rotates about the centroid of the
+      *current observed* point cloud (camera space).  Pinning that point makes a
+      rotation produce pure rotational optical flow — rotation is decoupled from
+      translation in the image, so the optimizer gets a clean, well-conditioned
+      rotation gradient.  (Rotating about the off-centre object origin instead
+      swings the whole cloud sideways, contaminating the rotation signal — that
+      is why the origin pivot gives a worse `dR`.)
+    * The **reported** pose (`_report`) keeps that well-conditioned orientation
+      `dR @ R_coarse` but re-anchors translation to LoFTR's object origin,
+      `t = t_coarse + dt`, *stripping* the lever-arm translation
+      `(dR - I)(t_coarse - centroid)`.  The lever arm is used only internally to
+      precondition the rotation; it never reaches the output.  With
+      ``lr_trans = 0`` the reported translation equals LoFTR's exactly (the old
+      centroid pivot reported the lever arm, which made translation diverge).
+
+    A cosine LR decay within each level removes the coarse-level overshoot.
+    Returns ``(refined_abs_pose [4,4] float64, loss_history)``.
     """
     device = "cuda"
+    cfg = cfg or RefineConfig()
 
     pose_coarse_t = torch.from_numpy(pose_coarse).float().to(device)
     R_coarse = pose_coarse_t[:3, :3].detach()
     t_coarse = pose_coarse_t[:3, 3].detach()
 
-    # object centroid in current-camera space at the coarse pose = rotation pivot
-    inv_prev = torch.linalg.inv(torch.from_numpy(abs_pose_prev).float().to(device))
-    pts_all = torch.from_numpy(points_prev).float().to(device)
-    T_rel0 = pose_coarse_t @ inv_prev
-    centroid = ((T_rel0[:3, :3] @ pts_all.T).T + T_rel0[:3, 3]).mean(0).detach()
+    # Rotation pivot = centroid of the CURRENT observed geometry in camera space
+    # ("where the object is right now").  Pinning this point during the rotation
+    # decouples rotation from translation in image space, so the optimizer gets a
+    # clean rotation gradient.  It is observation-derived (drift-free), unlike the
+    # object origin t_coarse which carries LoFTR's accumulated translation drift.
+    center = torch.from_numpy(points_curr.mean(axis=0)).float().to(device).detach()
 
     eye3 = torch.eye(3, device=device)
     rot_6d = matrix_to_rotation_6d(eye3).clone().detach().requires_grad_(True)
     dt = torch.zeros(3, device=device, requires_grad=True)
     optimizer = torch.optim.Adam(
-        [{"params": [rot_6d], "lr": lr_rot}, {"params": [dt], "lr": lr_trans}]
+        [
+            {"params": [rot_6d], "lr": cfg.lr_rot},
+            {"params": [dt], "lr": cfg.lr_trans},
+        ]
     )
 
     def _compose() -> torch.Tensor:
+        # OPTIMIZATION pose: rotate about the observed centroid so the rotation
+        # produces pure rotational optical flow (centroid pinned in the image).
+        # The lever-arm translation (dR-I)(t_coarse-center) lands in t here only
+        # to give a well-conditioned rotation gradient; it is stripped from the
+        # reported pose (see _report) so it never corrupts translation.
         dR = rotation_6d_to_matrix(rot_6d)
         pose = torch.eye(4, device=device)
         pose[:3, :3] = dR @ R_coarse
-        pose[:3, 3] = dR @ (t_coarse - centroid) + centroid + dt
+        pose[:3, 3] = dR @ (t_coarse - center) + center + dt
+        return pose
+
+    def _report(pose_opt: torch.Tensor) -> torch.Tensor:
+        # REPORTED pose: keep the well-conditioned orientation from _compose, but
+        # re-anchor translation to LoFTR's object origin (drop the lever arm).
+        # dt is the only translation correction; with lr_trans=0 → t = t_coarse.
+        pose = pose_opt.clone()
+        pose[:3, 3] = t_coarse + dt
         return pose
 
     best_pose: np.ndarray = pose_coarse.copy()
     loss_history: list[float] = []
 
-    for li, scale in enumerate(scales):
-        blur_sigma = blur_sigmas[li] if li < len(blur_sigmas) else 2.0
+    base_lrs = [g["lr"] for g in optimizer.param_groups]
+
+    for li, scale in enumerate(cfg.scales):
+        is_final_level = li == len(cfg.scales) - 1
+        blur_sigma = cfg.blur_sigmas[li] if li < len(cfg.blur_sigmas) else 2.0
         try:
             ctx, tgt_rendered = build_photometric_context(
                 points_prev=points_prev,
@@ -752,8 +821,8 @@ def refine_pose_photometric(
                 alpha=alpha,
                 depth_curr=depth_curr,
                 mask_curr=mask_curr,
-                lambda_depth=lambda_depth,
-                lambda_mask=lambda_mask,
+                lambda_depth=cfg.lambda_depth,
+                lambda_mask=cfg.lambda_mask,
                 lambda_rot=0.0,  # reg applied below on the corrections directly
                 lambda_trans=0.0,
                 scale=scale,
@@ -771,9 +840,18 @@ def refine_pose_photometric(
         best_level_loss = float("inf")
         prev_dt = dt.detach().clone()
         prev_r6 = rot_6d.detach().clone()
-        tol_rot6 = float(np.radians(tol_rot_deg))
-        for step in range(num_iters):
+        tol_rot6 = float(np.radians(cfg.tol_rot_deg))
+        for step in range(cfg.num_iters):
             optimizer.zero_grad()
+
+            # LR schedule: coarse levels explore at constant base LR (and
+            # plateau-stop); the finest level cosine-decays base → 0 over its
+            # own steps so the pose settles smoothly into the near-flat loss
+            # valley instead of wandering / overshooting at high LR.
+            if cfg.cosine_decay and is_final_level and cfg.num_iters > 1:
+                decay = 0.5 * (1.0 + np.cos(np.pi * step / (cfg.num_iters - 1)))
+                for g, base in zip(optimizer.param_groups, base_lrs):
+                    g["lr"] = base * float(decay)
 
             pose_curr = _compose()
             loss, _components, aux = photometric_forward(ctx, pose_curr)
@@ -783,20 +861,36 @@ def refine_pose_photometric(
             rot_corr = 1.0 - (((dR[0, 0] + dR[1, 1] + dR[2, 2]) - 1.0) / 2.0).clamp(
                 -1.0, 1.0
             )
-            loss = loss + lambda_rot * rot_corr + lambda_trans * (dt**2).sum()
+            loss = loss + cfg.lambda_rot * rot_corr + cfg.lambda_trans * (dt**2).sum()
 
             loss_val = loss.item()
             loss_history.append(loss_val)
-            best_pose = pose_curr.detach().cpu().numpy().astype(np.float64)
+            pose_report = _report(pose_curr)
+            best_pose = pose_report.detach().cpu().numpy().astype(np.float64)
+
+            if diag is not None and gt_pose_curr is not None:
+                rot_e = _rot_err_deg_np(best_pose[:3, :3], gt_pose_curr[:3, :3])
+                trans_e = float(np.linalg.norm(best_pose[:3, 3] - gt_pose_curr[:3, 3]))
+                diag.append(
+                    {
+                        "level": li,
+                        "scale": scale,
+                        "step": step,
+                        "lr": optimizer.param_groups[0]["lr"],
+                        "loss": loss_val,
+                        "rot_deg": rot_e,
+                        "trans_mm": trans_e * 1000.0,
+                    }
+                )
 
             # loss-plateau check
-            if loss_val < best_level_loss * (1.0 - min_rel_improve):
+            if loss_val < best_level_loss * (1.0 - cfg.min_rel_improve):
                 best_level_loss = loss_val
                 no_improve = 0
             else:
                 no_improve += 1
 
-            if viewer is not None and step % update_every == 0:
+            if viewer is not None and step % cfg.update_every == 0:
                 with torch.no_grad():
                     src_blurred_hwc = aux["src_nchw"].squeeze(0).permute(1, 2, 0)
                     viewer.update(
@@ -820,9 +914,14 @@ def refine_pose_photometric(
                 d_rot6 = (rot_6d - prev_r6).norm().item()
                 prev_dt = dt.detach().clone()
                 prev_r6 = rot_6d.detach().clone()
-            settled = d_trans < tol_trans_m and d_rot6 < tol_rot6
+            settled = d_trans < cfg.tol_trans_m and d_rot6 < tol_rot6
             stale = stale + 1 if settled else 0
-            if stale >= patience or no_improve >= patience_loss:
+            # On the finest level let the global cosine decay run to ~0 so the
+            # pose settles smoothly in the loss valley; the loss-plateau cut is
+            # only used to advance the *coarse* levels sooner.  The pose-settle
+            # cut still applies everywhere (nothing left to gain once it stops).
+            plateau_stop = (not is_final_level) and no_improve >= cfg.patience_loss
+            if stale >= cfg.patience or plateau_stop:
                 break
 
     return best_pose, loss_history

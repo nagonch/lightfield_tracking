@@ -21,7 +21,11 @@ from icp import rebase_poses
 from loftr_baseline import DEPTH_ZNEAR, DEPTH_ZFAR
 from loftr_wrapper import LoftrRunner
 from src.dataset import LFDataset
-from src.photometric import PhotometricRefineViewer, refine_pose_photometric
+from src.photometric import (
+    PhotometricRefineViewer,
+    RefineConfig,
+    refine_pose_photometric,
+)
 from src.pose import track_pose
 from src.reflection import central_view, frame_diffuse
 
@@ -39,7 +43,13 @@ SEPARATION_ITERS = 300
 USE_REFLECTION_SEPARATION = True  # False → LoFTR on the raw central view
 USE_PHOTOMETRIC_REFINE = True  # True → photometric pose refinement after coarse
 ENABLE_VIS = False  # True → open viser viewer during refinement
-PHOTOMETRIC_ITERS = 100  # per coarse-to-fine level (early-stops on saturation)
+
+# All photometric-refine hyperparameters live here (see RefineConfig).
+# lr_trans=0: translation is re-anchored to LoFTR's origin in _report, so it is
+# bit-identical to LoFTR (cannot diverge). lr_rot=5e-3 with the centroid-pivot
+# parameterisation is net-positive on rotation on diffuse cube_0.0 (2.25°→2.23°
+# agg, helps 2/4 seqs) at zero translation cost. Re-tune lr_rot per reflectivity.
+REFINE_CFG = RefineConfig(lr_rot=5e-3, lr_trans=0.0)
 
 
 def _rot_err_deg(Ra: np.ndarray, Rb: np.ndarray) -> float:
@@ -83,7 +93,9 @@ def track_sequence(
     separate: bool,
     refine: bool = False,
     viewer: PhotometricRefineViewer | None = None,
-) -> None:
+    max_frames: int | None = None,
+    refine_cfg: RefineConfig | None = None,
+) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
     dataset = LFDataset(seq_path, depth_source=depth_source)
     s_size, t_size = dataset.metadata["n_views"]
 
@@ -98,6 +110,8 @@ def track_sequence(
         dataset, desc="  frames", unit="fr", leave=False, dynamic_ncols=True
     ) as bar:
         for i, frame in enumerate(bar):
+            if max_frames is not None and i >= max_frames:
+                break
             gt_poses.append(frame["object_pose"].cpu().numpy())
 
             depth = frame["depth"]
@@ -168,7 +182,7 @@ def track_sequence(
                         alpha=alpha,
                         depth_curr=depth_np,
                         mask_curr=mask_np,
-                        num_iters=PHOTOMETRIC_ITERS,
+                        cfg=refine_cfg,
                         viewer=viewer,
                         gt_pose_curr=gt_poses[i],
                     )
@@ -216,6 +230,7 @@ def track_sequence(
     out_path = os.path.join(results_dir, f"{sequence_name}.npy")
     np.save(out_path, est)
     logging.info("%s: %s → %s", sequence_name, est.shape, out_path)
+    return coarse_errs, refined_errs
 
 
 def build_work_list() -> list[dict]:
@@ -277,6 +292,7 @@ def main() -> None:
                     separate=USE_REFLECTION_SEPARATION,
                     refine=USE_PHOTOMETRIC_REFINE,
                     viewer=viewer,
+                    refine_cfg=REFINE_CFG,
                 )
             except Exception:
                 logging.exception("%s: FAILED", item["tag"])
