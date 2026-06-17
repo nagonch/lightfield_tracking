@@ -12,6 +12,7 @@ the estimated trajectory to the GT frame-0 pose, and saves it as <sequence>.npy.
 
 import logging
 import os
+from dataclasses import replace
 
 import numpy as np
 import torch
@@ -43,7 +44,7 @@ CACHE_ROOT = "cache/diffuse"
 SEPARATION_ITERS = 300
 USE_REFLECTION_SEPARATION = True  # False → LoFTR on the raw central view
 USE_PHOTOMETRIC_REFINE = True  # True → photometric pose refinement after coarse
-ENABLE_VIS = True  # True → open viser viewer during refinement (manual inspection)
+ENABLE_VIS = False  # True → open viser viewer during refinement (manual inspection)
 # Relighting only turns on once the estimated alpha has settled: two consecutive
 # per-frame estimates within this tolerance ⇒ "stable". Until then we track as
 # pure diffuse and discard the (still-unreliable) env map.
@@ -56,11 +57,49 @@ ALPHA_STABLE_TOL = 0.01
 # the estimator stays available (PIN_ALPHA=False) as an ablation. See [[alpha-estimation]].
 PIN_ALPHA = True
 
-# All photometric-refine hyperparameters live here (see RefineConfig). The
-# refinement is a per-frame OVERLAY (not fed forward), so free translation is safe
-# and lets rotation stay well-conditioned. Two stages: diffuse (fine) then relight
-# (final, reflective frames only).
-REFINE_CFG = RefineConfig()
+# ── GT-refine experiment: THE single toggle for ground-truth dependence ──────────
+# True  → feed the photometric refinement GROUND TRUTH appearance to measure the
+#         optimiser's ceiling: per-point diffuse from the fully-diffuse (0.0) render,
+#         reflection from the GT env map (env2.jpg), and GT alpha (= 1 - reflectivity).
+#         gt_refine=True in track_sequence gates EVERY GT injection. The coarse stage
+#         is untouched — reflection separation still decomposes the SLF alpha-free and
+#         LoFTR matches the separated diffuse, so the coarse pose must fight the
+#         reflection; the question is how much GT-appearance refinement beats it.
+# False → production: the separator's own diffuse/env map + alpha (estimated, or
+#         pinned to the dataset reflectivity via PIN_ALPHA). No ground truth anywhere.
+#
+# NEXT STEP — remove GT dependence: set this False. The optimiser config below
+# (REFINE_CFG / REFINE_FEED_FORWARD) is GT-independent and stays put; only the
+# appearance source swaps decomposed-for-GT. The separated diffuse/env path then
+# needs its own validation (it is noisier than GT — expect to retune the relight
+# gate and the drift thresholds for it).
+GT_REFINE_EXPERIMENT = True
+GT_ENV_PATH = "/home/ngoncharov/cvpr2026/ycbv-eoat-lf/env2.jpg"
+GT_REFINE_SAVE_VIS = True  # save per-frame [coarse|refined|target|err] relit triplets
+
+# ── Pose-refinement optimiser config (GT-INDEPENDENT) ────────────────────────────
+# The verified-good refinement settings — the landed "2.0", see
+# [[feedforward-and-rollback]]. Feed the refined pose FORWARD into the tracking
+# backbone (not a per-frame overlay): big win — cube_1.0 ATE 30.8→17.6mm, rot
+# 8.4→4.7° vs LoFTR; cube_0.0 9.8→8.3mm. The alpha-gated drift guard
+# (RefineConfig.drift_reset_*) keeps an independent pure-LoFTR reference and resets
+# the backbone to it when a long sequence accumulates too much drift — on DIFFUSE
+# frames only, so the reflective feed-forward gains are untouched. Two refine
+# stages: diffuse (fine) then relight (final, reflective frames only).
+REFINE_FEED_FORWARD = True
+REFINE_CFG = RefineConfig(
+    relight=True,
+    drift_reset_deg=10.0,  # feed-forward drift guard (diffuse only, see alpha gate)
+    drift_reset_trans=0.015,
+)
+
+# GT-only overrides: the experiment knows the true alpha and has an accurate env map.
+if GT_REFINE_EXPERIMENT:
+    EXP_NAME = "results_gt_refine_experiment_"
+    PIN_ALPHA = False  # the separator must ESTIMATE alpha — LoFTR fights reflection
+    # The GT env map is accurate, so keep every valid relight correction (the
+    # noise-floor revert gate that protects the *separated* env is not wanted here).
+    REFINE_CFG = replace(REFINE_CFG, relight_min_correction_deg=0.0)
 
 
 def _rot_err_deg(Ra: np.ndarray, Rb: np.ndarray) -> float:
@@ -87,9 +126,92 @@ def _build_pc(depth: np.ndarray, mask: np.ndarray, rgb: np.ndarray, K: np.ndarra
     return pts, colors
 
 
+# ── GT-refine helpers ────────────────────────────────────────────────────────────
+
+
+def _load_env_linear(path: str) -> torch.Tensor:
+    """env2.jpg → [H, W, 3] LINEAR (srgb_to_linear of the raw jpg, the same space the
+    cube_1.0 reflection lives in once the dataset loader linearises it)."""
+    from PIL import Image
+    from utils import srgb_to_linear
+
+    raw = np.asarray(Image.open(path).convert("RGB")).astype(np.float32) / 255.0
+    return srgb_to_linear(torch.from_numpy(raw)).cuda().float()
+
+
+def _gt_diffuse_points(gt_ds, idx: int, mask_bool: torch.Tensor) -> torch.Tensor:
+    """Per-point GT diffuse (fully-diffuse 0.0 render) at the SLF's masked points.
+
+    Frame-aligned across reflectivities (identical depth/masks), so the central view
+    of the 0.0 split sampled at the row-major masked pixels is the GT diffuse colour
+    for each surface point — no reflection separation needed.
+    """
+    s, t = gt_ds.metadata["n_views"]
+    central = gt_ds[idx]["LF"][s // 2, t // 2].cuda().float()  # [H, W, 3] linear
+    return central.reshape(-1, 3)[mask_bool.reshape(-1)].clone()
+
+
+@torch.no_grad()
+def _save_refine_vis(
+    save_dir,
+    i,
+    slf_prev,
+    slf_curr,
+    env,
+    alpha,
+    abs_pose_prev,
+    coarse_pose,
+    refined_pose,
+    gt_pose,
+):
+    """Save a [src@coarse | src@refined | target | |err| ] relit triplet for one frame."""
+    from PIL import Image, ImageDraw
+
+    from src.photometric import _to_display_u8
+
+    os.makedirs(save_dir, exist_ok=True)
+    inv_prev = np.linalg.inv(abs_pose_prev)
+
+    def _render(pose):
+        T = torch.from_numpy(pose @ inv_prev).float().cuda()
+        img, _, _ = slf_prev.render_relit(
+            rel_pose=T, env_map=env, alpha=alpha, mode="relit"
+        )
+        return img
+
+    src_c, src_r = _render(coarse_pose), _render(refined_pose)
+    tgt, _, _ = slf_curr.render_relit(
+        rel_pose=None, env_map=env, alpha=alpha, mode="relit"
+    )
+    err = (src_r - tgt).abs()
+    cols = [
+        _to_display_u8(src_c),
+        _to_display_u8(src_r),
+        _to_display_u8(tgt),
+        _to_display_u8((err * 6).clamp(0, 1)),
+    ]
+    H = cols[0].shape[0]
+    gap = np.full((H, 5, 3), 255, np.uint8)
+    strip = np.concatenate([cols[0], gap, cols[1], gap, cols[2], gap, cols[3]], axis=1)
+    cr = _rot_err_deg(coarse_pose[:3, :3], gt_pose[:3, :3])
+    rr = _rot_err_deg(refined_pose[:3, :3], gt_pose[:3, :3])
+    im = Image.fromarray(strip)
+    ImageDraw.Draw(im).text(
+        (4, 4),
+        f"f{i}  coarse {cr:.2f}deg -> refined {rr:.2f}deg   [coarse | refined | target | err]",
+        fill=(255, 255, 0),
+    )
+    im.save(os.path.join(save_dir, f"frame_{i:04d}.png"))
+
+
 DEPTH_SOURCES = ["gt"]  # "gt" | "synth"
 SPLIT_PREFIXES = ["cube", "objects"]
-REFLECTIVITIES = ["0.0", "0.5", "0.7", "1.0"]
+# LoFTR must fight the reflection → reflective splits only for the GT-refine study.
+REFLECTIVITIES = (
+    ["0.0", "0.5", "0.7", "1.0"]
+    if GT_REFINE_EXPERIMENT
+    else ["0.0", "0.5", "0.7", "1.0"]
+)
 
 
 def track_sequence(
@@ -106,13 +228,28 @@ def track_sequence(
     viewer: PhotometricRefineViewer | None = None,
     max_frames: int | None = None,
     refine_cfg: RefineConfig | None = None,
+    gt_refine: bool = False,
+    gt0_seq_path: str | None = None,
+    reflectivity: float = 0.0,
+    gt_env: torch.Tensor | None = None,
+    feed_forward: bool = False,
+    collect: dict | None = None,
 ) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
     dataset = LFDataset(seq_path, depth_source=depth_source)
     s_size, t_size = dataset.metadata["n_views"]
 
+    # GT-refine: fully-diffuse (0.0) render gives GT per-point diffuse; GT alpha is the
+    # known diffuse fraction. The separator still runs alpha-free for the coarse stage.
+    gt_ds0 = LFDataset(gt0_seq_path, depth_source=depth_source) if gt_refine else None
+    gt_alpha = 1.0 - reflectivity
+    vis_dir = os.path.join(results_dir, "vis", sequence_name)
+
     gt_poses: list[np.ndarray] = []
     est_poses: list[np.ndarray] = []  # reported trajectory (refined when refine=True)
-    coarse_poses: list[np.ndarray] = []  # tracking backbone, FED FORWARD (drift-safe)
+    coarse_poses: list[np.ndarray] = []  # tracking backbone (refined when feed_forward)
+    # Independent pure-LoFTR backbone (never refined) used only as a drift reference:
+    # if the fed-forward pose diverges from it by more than the cfg drift caps, reset.
+    loftr_ref_poses: list[np.ndarray] = []
     coarse_errs: list[tuple[float, float]] = []  # (rot°, trans m) per frame
     refined_errs: list[tuple[float, float]] = []
     prev = None  # (view, depth, mask, pc, color, env_map, slf)
@@ -179,6 +316,15 @@ def track_sequence(
                 alpha_i = 1.0 if alpha is None else alpha
                 alpha_eff = alpha_i
                 alpha_stable = True
+
+            # GT-refine override: replace the *decomposed* SLF appearance/env that feed
+            # the photometric refinement with ground truth — GT per-point diffuse from
+            # the 0.0 render and the GT env map. The coarse stage above (LoFTR on the
+            # separated diffuse, estimated alpha) is untouched.
+            if gt_refine:
+                slf.diffuse_colors = _gt_diffuse_points(gt_ds0, i, mask > 0)
+                env_curr = gt_env
+
             depth_np = depth.cpu().numpy()
             mask_np = (mask > 0).cpu().numpy()
             K_np = frame["camera_matrix"].cpu().numpy().astype(np.float64)
@@ -187,13 +333,14 @@ def track_sequence(
             if i == 0:
                 est_poses.append(gt_poses[0])
                 coarse_poses.append(gt_poses[0])
+                loftr_ref_poses.append(gt_poses[0])
             else:
                 bar.set_postfix(fr=i, stage="loftr")
-                # Tracking backbone is fed forward from the COARSE pose, never the
-                # refined one: a per-frame photometric correction has a small
-                # systematic bias that compounds geometrically if recycled as the
-                # next frame's anchor (observed: 0.9°→6.7° over a diffuse seq).
-                # Refinement is therefore an overlay on the *reported* pose only.
+                # The backbone anchor is coarse_poses[-1] — the refined pose when
+                # feed_forward (so the next LoFTR match / SLF geometry builds on the
+                # improvement), else the pure LoFTR pose. The inter-frame LoFTR motion
+                # is anchor-independent, so we also propagate an independent pure-LoFTR
+                # reference (loftr_ref_poses) for the drift guard below.
                 coarse_pose = track_pose(
                     abs_pose_prev=coarse_poses[-1],
                     diffuse_prev=prev[0],
@@ -212,6 +359,10 @@ def track_sequence(
                     rng=rng,
                 )
 
+                # Propagate the independent pure-LoFTR reference with this frame's
+                # inter-frame motion (rel = coarse_pose · anchor⁻¹, anchor-independent).
+                rel = coarse_pose @ np.linalg.inv(coarse_poses[-1])
+                loftr_ref_poses.append(rel @ loftr_ref_poses[-1])
                 coarse_poses.append(coarse_pose)
 
                 if refine:
@@ -228,26 +379,90 @@ def track_sequence(
                         env_map_curr=env_curr,
                         abs_pose_prev=coarse_poses[-2],
                         pose_coarse=coarse_pose,
-                        alpha=alpha_eff,
+                        alpha=(gt_alpha if gt_refine else alpha_eff),
                         cfg=refine_cfg,
                         viewer=viewer,
                         gt_pose_curr=gt_poses[i],
                     )
                     est_poses.append(refined_pose)
 
-                    # Feed the relit pose forward into the backbone (drift-correcting
-                    # on reflective frames); diffuse refine stays an overlay only.
+                    if gt_refine and GT_REFINE_SAVE_VIS and prev[5] is not None:
+                        _save_refine_vis(
+                            vis_dir,
+                            i,
+                            prev[6],
+                            slf,
+                            gt_env,
+                            gt_alpha,
+                            coarse_poses[-2],
+                            coarse_pose,
+                            refined_pose,
+                            gt_poses[i],
+                        )
+
+                    # Feed the refined pose forward into the backbone so the next
+                    # LoFTR match (and SLF geometry anchor) builds on the improved
+                    # pose. DRIFT GUARD: feeding forward lets a small systematic
+                    # per-frame bias accumulate over a long sequence (cube
+                    # tomato_soup_can_yalehand0, 108 frames: 7.7→29mm). So if the
+                    # fed-forward pose has wandered too far from the INDEPENDENT
+                    # pure-LoFTR reference, reset both the reported pose and the
+                    # backbone to that reference and move on — bounding the drift.
                     relight_ran = (
                         refine_cfg.relight
                         and prev[5] is not None
                         and alpha_eff < refine_cfg.relight_alpha_max
                     )
-                    if relight_ran and refine_cfg.relight_feed_forward:
+                    drift_reset = False
+                    if feed_forward or (
+                        relight_ran and refine_cfg.relight_feed_forward
+                    ):
+                        # The guard falls back to the pure-LoFTR pose, so only apply it
+                        # where LoFTR is trustworthy (diffuse / high alpha). On reflective
+                        # frames LoFTR is what relight is beating — falling back reverts
+                        # the gains, so the guard is disabled there.
+                        alpha_guard = gt_alpha if gt_refine else alpha_eff
+                        if alpha_guard >= refine_cfg.drift_reset_alpha_min:
+                            lref = loftr_ref_poses[-1]
+                            d_deg = _rot_err_deg(refined_pose[:3, :3], lref[:3, :3])
+                            d_mm = (
+                                float(np.linalg.norm(refined_pose[:3, 3] - lref[:3, 3]))
+                                * 1000
+                            )
+                            if (
+                                d_deg > refine_cfg.drift_reset_deg
+                                or d_mm > refine_cfg.drift_reset_trans * 1000
+                            ):
+                                refined_pose = lref.astype(np.float64).copy()
+                                est_poses[-1] = refined_pose
+                                drift_reset = True
                         coarse_poses[-1] = refined_pose
 
                     # ── per-frame metrics: does refine beat the LoFTR coarse? ──
                     cr, ct = _pose_err(coarse_pose, gt_poses[i])
                     rr, rt = _pose_err(refined_pose, gt_poses[i])
+                    if collect is not None:
+                        corr_deg = _rot_err_deg(
+                            refined_pose[:3, :3], coarse_pose[:3, :3]
+                        )
+                        corr_mm = (
+                            float(
+                                np.linalg.norm(refined_pose[:3, 3] - coarse_pose[:3, 3])
+                            )
+                            * 1000
+                        )
+                        collect.setdefault("frames", []).append(
+                            {
+                                "i": i,
+                                "coarse_rot": cr,
+                                "coarse_mm": ct * 1000,
+                                "refined_rot": rr,
+                                "refined_mm": rt * 1000,
+                                "corr_deg": corr_deg,
+                                "corr_mm": corr_mm,
+                                "drift_reset": drift_reset,
+                            }
+                        )
                     coarse_errs.append((cr, ct))
                     refined_errs.append((rr, rt))
                     mc = np.mean(coarse_errs, axis=0)
@@ -287,6 +502,10 @@ def track_sequence(
     out_path = os.path.join(results_dir, f"{sequence_name}.npy")
     np.save(out_path, est)
     logging.info("%s: %s → %s", sequence_name, est.shape, out_path)
+    if collect is not None:
+        collect["gt_poses"] = np.stack(gt_poses)
+        collect["est_poses"] = np.stack(est_poses)
+        collect["coarse_poses"] = np.stack(coarse_poses)
     return coarse_errs, refined_errs
 
 
@@ -309,6 +528,9 @@ def build_work_list() -> list[dict]:
                                 "reflectivity": reflectivity,
                                 "sequence_name": sequence_name,
                                 "seq_path": seq_path,
+                                # fully-diffuse (0.0) version of the same sequence —
+                                # the GT diffuse appearance source for the experiment.
+                                "gt0_seq_path": f"{DATASET_ROOT}/{split_prefix}_0.0/{sequence_name}",
                                 "results_dir": f"{EXP_NAME}/{tag}",
                                 "cache_dir": f"{CACHE_ROOT}/{tag}/{sequence_name}",
                                 "tag": f"{tag}/{sequence_name}",
@@ -321,6 +543,15 @@ def main() -> None:
     loftr = LoftrRunner()
     rng = np.random.default_rng(seed=42)
     work = build_work_list()
+
+    gt_env = _load_env_linear(GT_ENV_PATH) if GT_REFINE_EXPERIMENT else None
+    if GT_REFINE_EXPERIMENT:
+        logging.info(
+            "GT-REFINE experiment: coarse=LoFTR(separated, alpha estimated) | "
+            "refine=GT diffuse(0.0)+GT env+GT alpha | splits %s → %s",
+            REFLECTIVITIES,
+            EXP_NAME,
+        )
 
     viewer = None
     if USE_PHOTOMETRIC_REFINE and ENABLE_VIS:
@@ -350,6 +581,11 @@ def main() -> None:
                     refine=USE_PHOTOMETRIC_REFINE,
                     viewer=viewer,
                     refine_cfg=REFINE_CFG,
+                    gt_refine=GT_REFINE_EXPERIMENT,
+                    gt0_seq_path=item.get("gt0_seq_path"),
+                    reflectivity=float(item["reflectivity"]),
+                    gt_env=gt_env,
+                    feed_forward=REFINE_FEED_FORWARD,
                 )
             except Exception:
                 logging.exception("%s: FAILED", item["tag"])

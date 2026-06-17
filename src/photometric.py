@@ -500,18 +500,37 @@ class RefineConfig:
     """
 
     # optimisation (per pyramid level)
-    num_iters: int = 60  # max Adam steps per pyramid level
+    num_iters: int = 60  # max Adam steps per level
     lr_rot: float = 5e-3  # learning rate for the rotation correction (6-D)
-    lr_trans: float = 2e-4  # learning rate for the translation correction dt (m).
-    #   Non-zero: a free dt lets the optimiser place the object so the rotation
-    #   gradient stays pure rotation (otherwise rotation absorbs the coarse pose's
-    #   translation error). Safe now that refinement is a per-frame OVERLAY and is
-    #   NOT fed forward into the tracking backbone (see main.track_sequence), so a
-    #   small per-frame translation wobble can no longer compound over the sequence.
-    cosine_decay: bool = True  # cosine-anneal the finest level's LR to 0
+    lr_trans: float = 1e-4  # learning rate for the translation correction dt (m).
+    #   A free dt lets the optimiser place the object so the rotation gradient stays
+    #   pure rotation (otherwise rotation absorbs the coarse pose's translation error;
+    #   measured: freezing dt worsens rotation 1.15°→1.34° on sugar_box1). But a free
+    #   dt also drifts: the photometric loss minimum in translation sits ~1 mm off GT
+    #   (splat-aliasing floor), so dt slides the object there. Halved from 2e-4 to damp
+    #   the residual oscillation; the depth anchor below is what actually pins it.
+    cosine_decay: bool = False  # OFF — tuning showed it's inert on the (now single)
+    #   level: rotation converges in <30 iters regardless and the per-iter curves are
+    #   unchanged with/without the anneal. Kept as a knob for the relight basin.
 
-    # composite-loss weight
-    lambda_depth: float = 0.1  # L1 z vs target depth (anchors translation-Z)
+    # composite-loss weight. lambda_depth pins TRANSLATION to the GT-depth surface.
+    # This is the dominant translation knob: at the old 0.1 the free dt drifted up
+    # (~0.7 mm → ~1.5 mm over a fit) and refinement REGRESSED translation vs LoFTR on
+    # 53% of cube_0.0 frames; at 3.0 the drift is anchored out (regressions → 40%,
+    # mean 2.51 → 2.43 mm) with no rotation cost. (Photo-only, lambda_depth=0, is
+    # worst — translation has no anchor.) Higher (10) shaves a little more but starts
+    # diluting rotation on near-symmetric objects (a cylinder's depth is rotation-
+    # invariant about its axis), so 3.0 is the balance.
+    lambda_depth: float = 3.0
+
+    # Diffuse appearance model for the fine stage. "diffuse_shaded" recovers the
+    # intrinsic albedo (un-shades the separated diffuse with the dataset's SoftPhong
+    # model, see src.shading) and RE-shades it at each candidate pose, so a rotation
+    # re-shades the surface like the original renderer instead of rigidly carrying a
+    # frozen shaded colour. On real data this matches a rotated frame far better than
+    # the bake (objects 45° pair: on-data MSE 2.4e-2→9.0e-3) and never worse near GT;
+    # it round-trips exactly at the canonical pose. "diffuse" = legacy frozen bake.
+    diffuse_mode: str = "diffuse_shaded"
 
     # the diffuse stage is skipped on reflective frames (alpha ≤ this): a mirror
     # has no view-independent diffuse signal, so the separated diffuse colour is
@@ -519,10 +538,13 @@ class RefineConfig:
     # frames are refined by the relight stage instead.
     diffuse_alpha_min: float = 0.2
 
-    # coarse-to-fine pyramid (render scales, coarse → fine). Dropped the 0.25 level
-    # (prior ablation: harmful/inert on diffuse, and it mixes blurred reflections
-    # into the diffuse stage — exactly the cross-scale inconsistency to avoid).
-    scales: tuple[float, ...] = (0.5, 1.0)
+    # Render-scale pyramid (coarse → fine). Single scale by default: A/B tuning
+    # showed the 0.5 coarse level is INERT on the diffuse stage (C0 pyramid ≈ C1
+    # single-scale on every sequence) — it just adds a blurry pass that can pull the
+    # pose off the LoFTR init for no gain, while the LoFTR coarse is already inside
+    # the single-scale capture basin (convex to ±15°). Kept as a knob (e.g. (0.5, 1.0)
+    # could still widen the relight basin for a far-off mirror coarse).
+    scales: tuple[float, ...] = (1.0,)
 
     # relight ("final") stage — only fires on reflective frames with a stable env map.
     # DEFAULT OFF: the relit loss basin is correct (bottoms ≤1.5° from GT — the
@@ -542,17 +564,43 @@ class RefineConfig:
     # basin, while still letting a LARGE correction through on a poor coarse
     # (reflective objects, coarse ≫ floor) where the signal dominates the noise.
     relight_min_correction_deg: float = 3.0
-    # Relight is an OVERLAY, not fed forward. Tempting idea: the reflection is
-    # absolute w.r.t. the static env, so feeding the relit pose forward should
-    # correct drift. Measured: it DIVERGES (cube_1.0 bleach0 15°→29°) — the env/
-    # normal/alpha imperfection leaves a ~1.5° basin bias that is not a clean fixed
-    # point, so recycling it compounds. Keep refinement (both stages) as a
-    # per-frame overlay on the reported pose; the coarse tracker stays the backbone.
+    # Per-knob feed-forward of the RELIGHT stage specifically (independent of the
+    # whole-pose feed-forward in main.track_sequence). Defaults OFF: an early test
+    # with a SEPARATED env map diverged (cube_1.0 bleach0 15°→29°) because the env/
+    # normal/alpha imperfection leaves a ~1.5° basin bias that recycling compounds.
+    # The landed pipeline instead feeds the WHOLE refined pose forward (main's
+    # REFINE_FEED_FORWARD) guarded by the alpha-gated drift reset below, which makes
+    # reflective feed-forward a net win with an accurate env map — so this finer knob
+    # stays off and is kept only as an ablation lever.
     relight_feed_forward: bool = False
 
     # safety: keep a stage's result only if it lowered the photometric loss vs its
     # own init. Guarantees "refine never increases the loss it optimises".
     accept_on_loss: bool = True
+
+    # Drift rollback: a per-frame refinement should be a SMALL correction to a good
+    # coarse pose. If the total correction (refined vs the LoFTR coarse) exceeds these
+    # caps, the optimiser has almost certainly wandered into a wrong basin (occlusion,
+    # fast motion, separation/relight failure) — discard it and fall back to the coarse
+    # pose. This is the check-and-balance that makes feeding the refined pose forward
+    # safe (a bad frame can't poison the backbone) and stops the per-frame overlay from
+    # regressing a sequence. Defaults are generous (study-mode); production should set
+    # them to a few × the typical inter-frame motion.
+    max_correction_deg: float = 1e9
+    max_correction_trans: float = 1e9  # metres
+
+    # Feed-forward drift guard (main.track_sequence): when the refined pose is fed
+    # forward, a small systematic per-frame bias accumulates over a long sequence. If
+    # the fed-forward pose diverges from the independent pure-LoFTR reference by more
+    # than these, reset the backbone to that reference ("rollback to LoFTR, move on").
+    # Bounds drift while keeping the large per-frame feed-forward gains.
+    drift_reset_deg: float = 1e9
+    drift_reset_trans: float = 1e9  # metres
+    # The guard falls back to the pure-LoFTR pose, so it only makes sense where LoFTR
+    # is TRUSTWORTHY — i.e. diffuse frames. On reflective frames LoFTR is the thing
+    # the relight refine is beating (it can be ~30 mm off), so falling back to it
+    # reverts the gains. Apply the guard only when alpha ≥ this (mostly-diffuse).
+    drift_reset_alpha_min: float = 0.8
 
     # early stopping (per level)
     patience_loss: int = 10  # steps of no loss improvement before cutting a level
@@ -772,7 +820,7 @@ def refine_pose_photometric(
             abs_pose_prev,
             pose,
             alpha=1.0,
-            mode="diffuse",
+            mode=cfg.diffuse_mode,
             lr_rot=cfg.lr_rot,
             lr_trans=cfg.lr_trans,
             cfg=cfg,
@@ -809,5 +857,12 @@ def refine_pose_photometric(
             diag=diag,
             loss_history=loss_history,
         )
+
+    # Drift rollback: a refinement that has moved too far from the coarse pose is
+    # almost certainly a wrong-basin drift — discard it and keep the coarse pose.
+    corr_deg = _rot_err_deg_np(pose[:3, :3], pose_coarse[:3, :3])
+    corr_trans = float(np.linalg.norm(pose[:3, 3] - pose_coarse[:3, 3]))
+    if corr_deg > cfg.max_correction_deg or corr_trans > cfg.max_correction_trans:
+        return pose_coarse.astype(np.float64).copy(), loss_history
 
     return pose, loss_history

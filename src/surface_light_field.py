@@ -20,6 +20,12 @@ from pytorch3d.renderer.cameras import PerspectiveCameras
 from sh_helpers import fit_sh_coeffs_per_point, get_sh_bases_torch
 from src.utilities import backproject_depth_to_pointcloud
 
+# Isotropic Gaussian footprint as a multiple of the one-pixel depth footprint.
+# 1.0 (a 1-pixel std splat) visibly over-blurs the render vs the source image; 0.5
+# halves the formation error (cube 3.8e-2→1.9e-2, objects 1.0e-2→6.3e-3 MSE) while
+# keeping ≥98.6% pixel coverage — sharper splats, negligible holes. Tunable here.
+DEFAULT_FOOTPRINT_SCALE = 0.5
+
 
 # ── differentiable equirect env-map sampling ─────────────────────────────────
 
@@ -305,7 +311,7 @@ class SurfaceLightField:
         s_size: int,
         t_size: int,
         sh_degree: int = 2,
-        scale_factor: float = 1.0,
+        scale_factor: float = DEFAULT_FOOTPRINT_SCALE,
     ) -> "SurfaceLightField":
         K = frame["camera_matrix"]
         H, W = frame["LF"].shape[2], frame["LF"].shape[3]
@@ -429,6 +435,7 @@ class SurfaceLightField:
         sh_degree: int = 2,
         scale: float = 1.0,
         mode: str = "auto",
+        shade_diffuse: bool = True,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Differentiable single central-view render with optional relighting.
 
@@ -487,6 +494,16 @@ class SurfaceLightField:
                 return self.diffuse_colors.to(device=device, dtype=dtype)
             return (self.harmonics[:, 0].float() + 0.5).clamp(0.0, 1.0)  # SH ambient
 
+        def _albedo_shaded(diffuse_obs: torch.Tensor) -> torch.Tensor:
+            """Re-shaded diffuse: recover intrinsic albedo from the canonical
+            observation, then re-apply SoftPhong shading at the candidate pose so a
+            rotation re-shades the surface (matches the dataset renderer) instead of
+            transporting a frozen shaded colour.  Round-trips at rel_pose=None."""
+            from src.shading import shade_from_albedo, unshade_to_albedo
+
+            albedo = unshade_to_albedo(diffuse_obs, pts, normals)
+            return shade_from_albedo(albedo, means, normals_cur)
+
         if mode == "relit" and env_map is not None:
             env_hwc = env_map.to(device=device, dtype=dtype)
             if env_hwc.ndim == 3 and env_hwc.shape[0] == 3:
@@ -498,7 +515,17 @@ class SurfaceLightField:
                 eps=1e-8,
             )
             specular = sample_env_equirect(env_hwc, reflected)
-            colors = (alpha * _diffuse_colors() + (1.0 - alpha) * specular).clamp(0.0, 1.0)
+            # Match the dataset's generation: α·(SoftPhong-shaded diffuse) +
+            # (1-α)·env_reflection, blended in linear.  The diffuse part is re-shaded
+            # from the rotated normals at the candidate pose (shade_diffuse=True), so a
+            # rotation re-shades it instead of carrying a frozen shaded colour — the
+            # same fix as mode="diffuse_shaded", extended to the reflective channel.
+            diff = _diffuse_colors()
+            if shade_diffuse:
+                diff = _albedo_shaded(diff)
+            colors = (alpha * diff + (1.0 - alpha) * specular).clamp(0.0, 1.0)
+        elif mode == "diffuse_shaded":
+            colors = _albedo_shaded(_diffuse_colors())
         elif mode == "diffuse":
             colors = _diffuse_colors()
         else:  # "sh" — view-dependent appearance in the object frame
