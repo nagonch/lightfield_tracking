@@ -38,12 +38,12 @@ logging.basicConfig(
 
 # ── configuration ──────────────────────────────────────────────────────────────
 DATASET_ROOT = "/home/ngoncharov/SpecTrack_dataset"
-EXP_NAME = "results_ours_new_loss_early_stop"
+EXP_NAME = "results_ours_surface_lf"
 CACHE_ROOT = "cache/diffuse"
 SEPARATION_ITERS = 300
 USE_REFLECTION_SEPARATION = True  # False → LoFTR on the raw central view
 USE_PHOTOMETRIC_REFINE = True  # True → photometric pose refinement after coarse
-ENABLE_VIS = True  # True → open viser viewer during refinement
+ENABLE_VIS = False  # True → open viser viewer during refinement
 
 # All photometric-refine hyperparameters live here (see RefineConfig).
 # lr_trans=0: translation is re-anchored to LoFTR's origin in _report, so it is
@@ -79,7 +79,7 @@ def _build_pc(depth: np.ndarray, mask: np.ndarray, rgb: np.ndarray, K: np.ndarra
 
 DEPTH_SOURCES = ["gt"]  # "gt" | "synth"
 SPLIT_PREFIXES = ["cube", "objects"]
-REFLECTIVITIES = ["1.0"]  # "0.0" | "0.5" | "0.7" | "1.0"
+REFLECTIVITIES = ["0.0", "0.5", "0.7", "1.0"]  # "0.0" | "0.5" | "0.7" | "1.0"
 
 
 def track_sequence(
