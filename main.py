@@ -39,7 +39,7 @@ logging.basicConfig(
 
 # ── configuration ──────────────────────────────────────────────────────────────
 DATASET_ROOT = "/home/ngoncharov/SpecTrack_dataset"
-EXP_NAME = "results_ours_refined_"
+EXP_NAME = "results_est_refine_experiment"
 CACHE_ROOT = "cache/diffuse"
 SEPARATION_ITERS = 300
 USE_REFLECTION_SEPARATION = True  # False → LoFTR on the raw central view
@@ -55,7 +55,7 @@ ALPHA_STABLE_TOL = 0.01
 # regresses the coarse pose (cube_1.0 5.3°→14° agg). Pinning alpha to the dataset's
 # known reflectivity (as the separation baseline does) keeps the coarse strong;
 # the estimator stays available (PIN_ALPHA=False) as an ablation. See [[alpha-estimation]].
-PIN_ALPHA = True
+PIN_ALPHA = False
 
 # ── GT-refine experiment: THE single toggle for ground-truth dependence ──────────
 # True  → feed the photometric refinement GROUND TRUTH appearance to measure the
@@ -73,9 +73,9 @@ PIN_ALPHA = True
 # appearance source swaps decomposed-for-GT. The separated diffuse/env path then
 # needs its own validation (it is noisier than GT — expect to retune the relight
 # gate and the drift thresholds for it).
-GT_REFINE_EXPERIMENT = True
+GT_REFINE_EXPERIMENT = False
 GT_ENV_PATH = "/home/ngoncharov/cvpr2026/ycbv-eoat-lf/env2.jpg"
-GT_REFINE_SAVE_VIS = True  # save per-frame [coarse|refined|target|err] relit triplets
+GT_REFINE_SAVE_VIS = False  # save per-frame [coarse|refined|target|err] relit triplets
 
 # ── Pose-refinement optimiser config (GT-INDEPENDENT) ────────────────────────────
 # The verified-good refinement settings — the landed "2.0", see
@@ -207,11 +207,7 @@ def _save_refine_vis(
 DEPTH_SOURCES = ["gt"]  # "gt" | "synth"
 SPLIT_PREFIXES = ["cube", "objects"]
 # LoFTR must fight the reflection → reflective splits only for the GT-refine study.
-REFLECTIVITIES = (
-    ["0.0", "0.5", "0.7", "1.0"]
-    if GT_REFINE_EXPERIMENT
-    else ["0.0", "0.5", "0.7", "1.0"]
-)
+REFLECTIVITIES = ["0.5", "0.7", "1.0"]
 
 
 def track_sequence(

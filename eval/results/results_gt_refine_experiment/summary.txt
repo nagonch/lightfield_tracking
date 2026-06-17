@@ -43,6 +43,9 @@ cube_0.7 ── Average ── 0.8759 0.8759 0.0109 3.09
 split    sequence                                              
 cube_1.0 bleach0                     0.4337 0.4347 0.0312 17.41
          bleach_hard_00_03_chaitanya 0.9336 0.9336 0.0085  0.61
+         cracker_box_reorient        0.7702 0.7702 0.0161  6.55
+         cracker_box_yalehand0       0.8247 0.8252 0.0231  3.31
+         mustard0                    0.4650 0.4650 0.0550 10.92
 split    sequence                               
-cube_1.0 ── Average ── 0.6837 0.6842 0.0198 9.01
+cube_1.0 ── Average ── 0.6855 0.6858 0.0268 7.76
 ·······························································
