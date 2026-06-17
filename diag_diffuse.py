@@ -83,7 +83,7 @@ def main() -> None:
         gt_poses.append(gt)
         depth = frame["depth"]
         mask = frame["masks"][s_size // 2, t_size // 2]
-        view, prev_env, slf = frame_diffuse(
+        view, prev_env, slf, _alpha_i, _ = frame_diffuse(
             frame=frame, mask=mask, depth=depth, alpha=ALPHA,
             s_size=s_size, t_size=t_size,
             cache_path=os.path.join(cache_dir, f"diffuse_{i:04d}.png"),

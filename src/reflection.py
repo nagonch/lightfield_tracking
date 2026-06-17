@@ -17,7 +17,7 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 
-from reflection_separation import separate_reflection
+from reflection_separation import estimate_alpha, separate_reflection
 from src.surface_light_field import SurfaceLightField
 from utils import linear_to_srgb
 
@@ -35,18 +35,29 @@ def _env_cache_path(cache_path: str) -> str:
     return os.path.splitext(cache_path)[0] + "_env.npy"
 
 
+def _alpha_cache_path(cache_path: str) -> str:
+    return os.path.splitext(cache_path)[0] + "_alpha.npy"
+
+
 def compute_diffuse(
     slf: SurfaceLightField,
-    alpha: float,
+    alpha: float | None = None,
     iterations: int = 200,
     verbose: bool = True,
     previous_environment_map: torch.Tensor | None = None,
-) -> tuple[np.ndarray, torch.Tensor]:
+    alpha_stat_history: list[float] | None = None,
+) -> tuple[np.ndarray, torch.Tensor, float, list[float]]:
     """Separate ``slf`` into a diffuse central view + a reflected environment map.
 
-    Returns ``(diffuse_linear [H, W, 3] float32 [0,1], environment_map [env_h, env_w, 3])``.
-    LF colors are already in linear space (converted at dataset load time), so no
-    sRGB conversion is applied here.  The env map stays linear throughout.
+    ``alpha`` (diffuse fraction) is estimated on the fly from the surface light
+    field when ``None``, accumulating evidence across frames via
+    ``alpha_stat_history`` (alpha is a material constant, so the estimate sharpens
+    as more frames are seen). Pass a float to override with a fixed value.
+
+    Returns ``(diffuse_linear [H, W, 3] float32 [0,1], environment_map
+    [env_h, env_w, 3], alpha, alpha_stat_history)``.  LF colors are already in
+    linear space (converted at dataset load time), so no sRGB conversion is
+    applied here.  The env map stays linear throughout.
     """
     # Pack the per-point surface light field as [P, M, *] for the point-based solver.
     colors = slf.colors.permute(1, 0, 2)  # [P, M, 3]  — already linear
@@ -60,6 +71,14 @@ def compute_diffuse(
         - 2.0 * (view_dirs * normals_rep).sum(dim=-1, keepdim=True) * normals_rep,
         dim=-1,
     )
+
+    # Estimate the diffuse fraction from frames seen so far when not supplied; an
+    # env map is always fit (alpha is clamped away from a perfect mirror/diffuser).
+    history = list(alpha_stat_history) if alpha_stat_history else []
+    if alpha is None:
+        alpha, history = estimate_alpha(
+            colors, valid, view_dirs, normals, stat_history=history
+        )
 
     diffuse_point, environment_map, _ = separate_reflection(
         colors=colors,  # already linear — no srgb_to_linear needed
@@ -81,7 +100,7 @@ def compute_diffuse(
     diffuse_img = torch.zeros(slf.H, slf.W, 3, device=diffuse_point.device)
     diffuse_img[slf.mask] = diffuse_point
     diffuse_linear = diffuse_img.clamp(0.0, 1.0).cpu().numpy().astype(np.float32)
-    return diffuse_linear, environment_map
+    return diffuse_linear, environment_map, float(alpha), history
 
 
 def _diffuse_npy_path(cache_path: str) -> str:
@@ -93,27 +112,33 @@ def frame_diffuse(
     frame: dict,
     mask: torch.Tensor,
     depth: torch.Tensor,
-    alpha: float,
-    s_size: int,
-    t_size: int,
+    alpha: float | None = None,
+    s_size: int = 5,
+    t_size: int = 5,
     cache_path: str | None = None,
     iterations: int = 200,
     verbose: bool = True,
     previous_environment_map: torch.Tensor | None = None,
-) -> tuple[np.ndarray, torch.Tensor | None, SurfaceLightField]:
+    alpha_stat_history: list[float] | None = None,
+) -> tuple[np.ndarray, torch.Tensor | None, SurfaceLightField, float, list[float]]:
     """Diffuse central view + env map + the SLF for one frame, with disk caching.
 
-    Returns ``(diffuse_linear [H,W,3] float32 [0,1], environment_map, slf)``.
-    The :class:`SurfaceLightField` (gsplat-backed, with per-point diffuse) is
-    always rebuilt so the photometric refinement can rasterize it; only the slow
-    reflection separation is skipped on a cache hit.  The cached diffuse image
-    and the SLF share the same masked-point ordering, so the per-point diffuse is
-    reconstructed exactly from the image via ``slf.mask``.
+    ``alpha`` is estimated on the fly from the surface light field when ``None``,
+    accumulating across frames through ``alpha_stat_history`` (threaded forward by
+    the caller). Pass a float to pin it to a known value.
+
+    Returns ``(diffuse_linear [H,W,3] float32 [0,1], environment_map, slf, alpha,
+    alpha_stat_history)``.  The :class:`SurfaceLightField` (gsplat-backed, with
+    per-point diffuse) is always rebuilt so the photometric refinement can
+    rasterize it; only the slow reflection separation is skipped on a cache hit.
+    The cached diffuse image and the SLF share the same masked-point ordering, so
+    the per-point diffuse is reconstructed exactly from the image via ``slf.mask``.
 
     Cache is stored as a float32 .npy file (linear, no gamma encoding).
     Old .png caches are silently ignored and regenerated as .npy.
     """
     slf = SurfaceLightField.from_frame(frame, mask, depth, s_size, t_size)
+    history = list(alpha_stat_history) if alpha_stat_history else []
 
     if cache_path is not None:
         npy_path = _diffuse_npy_path(cache_path)
@@ -125,20 +150,38 @@ def frame_diffuse(
                 if os.path.exists(env_path)
                 else None
             )
+            alpha_path = _alpha_cache_path(cache_path)
+            if alpha is not None:
+                alpha_cached = float(alpha)
+            elif os.path.exists(alpha_path):
+                alpha_cached = float(np.load(alpha_path))
+            else:
+                # Older cache without a stored alpha: recover it from the SLF.
+                colors = slf.colors.permute(1, 0, 2)
+                alpha_cached, history = estimate_alpha(
+                    colors,
+                    slf.valid.permute(1, 0),
+                    slf.view_dirs.permute(1, 0, 2),
+                    slf.normals.float(),
+                    stat_history=history,
+                )
+                alpha_cached = float(alpha_cached)
             diffuse_t = torch.from_numpy(diffuse).to(slf.points.device)
             slf.diffuse_colors = diffuse_t[slf.mask].clamp(0.0, 1.0)
-            return diffuse, env, slf
+            return diffuse, env, slf, alpha_cached, history
 
-    diffuse, environment_map = compute_diffuse(
+    diffuse, environment_map, alpha, history = compute_diffuse(
         slf,
         alpha,
         iterations=iterations,
         verbose=verbose,
         previous_environment_map=previous_environment_map,
+        alpha_stat_history=history,
     )
 
     if cache_path is not None:
         os.makedirs(os.path.dirname(cache_path), exist_ok=True)
         np.save(_diffuse_npy_path(cache_path), diffuse)
         np.save(_env_cache_path(cache_path), environment_map.detach().cpu().numpy())
-    return diffuse, environment_map, slf
+        np.save(_alpha_cache_path(cache_path), np.asarray(alpha, dtype=np.float32))
+    return diffuse, environment_map, slf, alpha, history

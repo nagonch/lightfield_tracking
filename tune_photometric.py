@@ -47,9 +47,7 @@ REFINE_KW = dict(
     lr_rot=5e-3,
     lr_trans=1e-3,
     lambda_depth=0.1,
-    lambda_rot=0.0,
-    lambda_trans=0.0,
-    scales=(0.25, 0.5, 1.0),
+    scales=(0.5, 1.0),
 )
 
 

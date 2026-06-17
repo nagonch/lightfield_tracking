@@ -118,14 +118,156 @@ class DiffuseEnvModel(nn.Module):
         return reconstruction, diffuse, reflected
 
 
+# ---------------------------------------------------------------------------
+# Diffuse-fraction (alpha) estimation from the surface light field.
+#
+# Appearance model:  obs[p, v] = alpha * D[p] + (1 - alpha) * R[p, v], with the
+# diffuse D view-independent and the reflection R = env(reflect(view, normal))
+# view-dependent.  Hence the per-point view-std of luminance is
+#       std_v(obs) = (1 - alpha) * std_v(R).
+# Across the 5x5 sub-aperture views the reflected direction sweeps ~14 mrad
+# essentially regardless of surface curvature — it is driven by the LF baseline,
+# not the geometry — so std_v(R), and therefore the calibration below, is nearly
+# geometry-independent (verified on the flat cube vs curved YCB objects; see
+# diag_alpha.py).
+#
+# Two robustness facts drive the aggregation:
+#   * Within a frame the reflection is pervasive over the whole surface, while the
+#     diffuse floor (shading, normal-estimation error, Fresnel at grazing angles)
+#     lives in a noisy minority tail.  A LOW within-point percentile (q=0.30) of
+#     the frontal^2-weighted per-point std therefore isolates the reflective
+#     signal from that floor (frontal weighting suppresses grazing points, where
+#     Fresnel inflates view-variance even on diffuse surfaces).
+#   * Across frames a low-contrast pose UNDER-reads reflectivity (reflects a flat
+#     part of the env -> false diffuse) but never over-reads.  alpha is a material
+#     constant, so the per-frame stat is accumulated and read at an UPPER
+#     percentile (q=0.80), which recovers reflectivity from the informative poses.
+#
+# Calibration (1 - alpha) = (stat - FLOOR) / SLOPE, least-squares fit over
+# {cube,objects} x reflectivity {0,0.5,0.7,1.0}.  Per-sequence MAE ~0.06 once
+# >= ~10 frames are accumulated, ~0.14 from a single frame.  NOTE: FLOOR/SLOPE
+# bake in THIS environment's reflection contrast and the LF baseline; a different
+# env contrast rescales SLOPE (a low-contrast env makes a reflective surface look
+# diffuse — an inherent ambiguity that no single-view statistic can resolve).
+# ---------------------------------------------------------------------------
+_LUM_WEIGHTS = (0.299, 0.587, 0.114)
+
+ALPHA_MIN_VALID_VIEWS = 6  # require this many views per point to use it
+ALPHA_MIN_POINTS = 50  # below this, decline to estimate
+ALPHA_FRONTAL_POW = 2.0  # frontal^pow * viewcount weighting
+ALPHA_WITHIN_Q = 0.30  # within-frame percentile of per-point std
+ALPHA_ACROSS_Q = 0.80  # cross-frame accumulation percentile
+ALPHA_ACCUM_MIN_FRAMES = 4  # use accumulation calibration past this many frames
+# stat = FLOOR + SLOPE * (1 - alpha)
+ALPHA_CAL_SINGLE = (0.0015, 0.0196)  # one-frame estimate
+ALPHA_CAL_ACCUM = (0.0016, 0.0237)  # p80 over accumulated frames
+
+# No real surface is a perfect mirror or a perfect diffuser: even "fully diffuse"
+# materials have a faint specular sheen / ambient env contribution, and even
+# mirror-like materials retain some intrinsic albedo (the "least-harmful diffuse
+# color" case). Clamp alpha away from the unphysical 0/1 endpoints everywhere it
+# is produced or consumed, so separate_reflection always has *some* reflective
+# weight (and therefore always fits an env map) and *some* diffuse weight.
+ALPHA_CLAMP_MIN = 0.03
+ALPHA_CLAMP_MAX = 0.97
+
+
+def _weighted_quantile(values, weights, q):
+    """Weighted quantile of 1-D ``values`` (linear interpolation). Returns float."""
+    if values.numel() == 1:
+        return float(values.reshape(()))
+    v, order = torch.sort(values)
+    w = weights[order].clamp(min=0)
+    cw = torch.cumsum(w, 0) - 0.5 * w
+    cw = cw / w.sum().clamp(min=1e-8)
+    q_t = torch.as_tensor(q, device=v.device, dtype=v.dtype)
+    hi = torch.searchsorted(cw, q_t).clamp(1, v.numel() - 1)
+    lo = hi - 1
+    t = ((q_t - cw[lo]) / (cw[hi] - cw[lo]).clamp(min=1e-8)).clamp(0.0, 1.0)
+    return float(v[lo] + t * (v[hi] - v[lo]))
+
+
+def estimate_alpha_stat(colors, valid, view_dirs, normals):
+    """Per-frame robust view-variance statistic (low percentile of per-point
+    frontal-weighted luminance std).  Larger => more reflective.
+
+    colors    : [P, M, 3] linear surface light field
+    valid     : [P, M] per-observation validity
+    view_dirs : [P, M, 3] unit camera->point directions (for frontalness)
+    normals   : [P, 3]   surface normals (for frontalness); ``None`` => unweighted
+
+    Returns a float, or ``None`` when too few points are observed.
+    """
+    device = colors.device
+    valid = valid.to(device).float()
+    vc = valid.sum(1)  # [P]
+    keep = vc >= ALPHA_MIN_VALID_VIEWS
+    if int(keep.sum()) < ALPHA_MIN_POINTS:
+        return None
+    colors = colors[keep]
+    valid = valid[keep]
+    vc = vc[keep].clamp(min=1.0)
+
+    lw = torch.tensor(_LUM_WEIGHTS, device=device, dtype=colors.dtype)
+    lum = (colors * lw).sum(-1)  # [P, M]
+    mean_l = (lum * valid).sum(1) / vc
+    std_l = (((lum - mean_l[:, None]) ** 2 * valid).sum(1) / vc).clamp(min=0).sqrt()
+
+    if normals is not None and view_dirs is not None:
+        nrm = normals.to(device).float()[keep]
+        vd = view_dirs.to(device).float()[keep]
+        frontal = ((vd * nrm[:, None, :]).sum(-1).abs() * valid).sum(1) / vc
+        weight = frontal.clamp(0.0, 1.0) ** ALPHA_FRONTAL_POW * vc
+    else:
+        weight = vc
+    return _weighted_quantile(std_l, weight, ALPHA_WITHIN_Q)
+
+
+def _stat_to_alpha(stat, cal):
+    floor, slope = cal
+    raw = 1.0 - (stat - floor) / slope
+    return float(min(max(raw, ALPHA_CLAMP_MIN), ALPHA_CLAMP_MAX))
+
+
+def estimate_alpha(colors, valid, view_dirs, normals, stat_history=None):
+    """Estimate the diffuse fraction ``alpha`` in [0, 1] from one frame's SLF,
+    accumulating evidence across frames.
+
+    Pass the returned ``history`` back in on the next frame to refine the estimate
+    (alpha is a material constant; accumulation drives the per-sequence error from
+    ~0.14 single-frame down to ~0.06).  With no/short history a single-frame
+    calibration is used; once ``ALPHA_ACCUM_MIN_FRAMES`` stats are gathered the
+    cross-frame upper-percentile calibration takes over.
+
+    Returns ``(alpha, history)`` where ``history`` is the updated list of
+    per-frame stats.
+    """
+    stat = estimate_alpha_stat(colors, valid, view_dirs, normals)
+    history = list(stat_history) if stat_history else []
+    if stat is not None:
+        history.append(stat)
+    if not history:
+        return (
+            ALPHA_CLAMP_MAX,
+            history,
+        )  # no evidence -> assume near-diffuse (safe path)
+    if len(history) >= ALPHA_ACCUM_MIN_FRAMES:
+        agg = float(np.percentile(np.asarray(history), ALPHA_ACROSS_Q * 100.0))
+        alpha = _stat_to_alpha(agg, ALPHA_CAL_ACCUM)
+    else:
+        alpha = _stat_to_alpha(history[-1], ALPHA_CAL_SINGLE)
+    return alpha, history
+
+
 def separate_reflection(
     colors,
-    alpha,
-    reflected_dirs,
+    alpha=None,
+    reflected_dirs=None,
     valid=None,
     view_dirs=None,
     normals=None,
     mask=None,
+    alpha_stat_history=None,
     previous_environment_map=None,
     env_h=256,
     env_w=512,
@@ -147,11 +289,17 @@ def separate_reflection(
 
     Args:
         colors:         [P, M, 3] observed surface light field (linear).
-        alpha:          scalar diffuse fraction in [0, 1].
+        alpha:          scalar diffuse fraction in [0, 1]. ``None`` => estimate it
+            from the light field via ``estimate_alpha`` (accumulating across frames
+            through ``alpha_stat_history``).
         reflected_dirs: [P, M, 3] world-space reflected ray directions.
         valid:          [P, M] per-observation validity (defaults to all).
-        view_dirs:      [P, M, 3] optional, for grazing-angle confidence.
-        normals:        [P, 3] optional, for grazing-angle confidence.
+        view_dirs:      [P, M, 3] optional, for grazing-angle confidence and (when
+            ``alpha is None``) alpha estimation.
+        normals:        [P, 3] optional, for grazing-angle confidence and alpha
+            estimation.
+        alpha_stat_history: list of per-frame alpha stats from previous frames;
+            only used when ``alpha is None`` to refine the estimate over time.
         mask:           [H, W] bool, foreground mask of the central view. When
             provided, the final decorrelation step is run in image space to strip
             residual reflection structure from the diffuse (see
@@ -159,6 +307,10 @@ def separate_reflection(
             match ``image[mask]`` (the convention used by both callers).
         previous_environment_map: [env_h, env_w, 3] accumulated env map to warm-start
             and softly anchor the optimization (enables multi-frame accumulation).
+        env_h, env_w: env-map resolution, fixed regardless of alpha. No surface is
+            ever fully diffuse or fully mirror-like (alpha is clamped to
+            [ALPHA_CLAMP_MIN, ALPHA_CLAMP_MAX]), so an env map -- representing at
+            minimum the low-frequency ambient illumination -- is always fit.
 
     Returns:
         diffuse_point:   [P, 3]
@@ -170,18 +322,22 @@ def separate_reflection(
 
     colors = colors.to(device)
     reflected_dirs = reflected_dirs.to(device)
-    alpha_t = torch.tensor(float(alpha), device=device)
 
     if valid is None:
         valid = torch.ones((p, m), device=device)
     valid = valid.to(device).float()
 
-    # Pure-diffuse shortcut: env plays no role.
-    if torch.allclose(alpha_t, torch.ones_like(alpha_t)):
-        diffuse = colors[:, m // 2, :]
-        env = torch.zeros((env_h, env_w, 3), device=device)
-        reflective = torch.zeros_like(colors)
-        return diffuse, env, reflective
+    # Determine alpha from the surface light field when not supplied.
+    if alpha is None:
+        alpha, _ = estimate_alpha(
+            colors, valid, view_dirs, normals, stat_history=alpha_stat_history
+        )
+        if verbose:
+            print(f"[separate_reflection] estimated alpha = {alpha:.3f}")
+    # No surface is perfectly diffuse or perfectly mirror-like; clamp regardless
+    # of source (estimated or caller-supplied) so an env map is always fit.
+    alpha = float(min(max(float(alpha), ALPHA_CLAMP_MIN), ALPHA_CLAMP_MAX))
+    alpha_t = torch.tensor(alpha, device=device)
 
     # Per-observation confidence: down-weight grazing angles (unreliable reflect dirs).
     weight = valid
@@ -408,3 +564,113 @@ def refine_diffuse_decorrelate(
     refined = torch.where(mf > 0, cur, D)
     return refined[0].permute(1, 2, 0)
 
+
+# ---------------------------------------------------------------------------
+# Visualization demo: online (frame-causal) alpha estimation + separation.
+#
+# Mirrors how this module is actually driven by a tracker: for each frame, in
+# order, alpha and the environment map are estimated/refined from ONLY the
+# frames seen so far (``alpha_stat_history`` / ``previous_environment_map``
+# threaded forward), never by scanning the whole sequence first. Saves, per
+# object x reflectivity, the per-frame intrinsic (diffuse) image and the
+# accumulated environment map.
+# ---------------------------------------------------------------------------
+if __name__ == "__main__":
+    import os
+
+    from PIL import Image
+
+    from src.dataset import LFDataset
+    from src.surface_light_field import SurfaceLightField
+
+    DATASET_ROOT = "/home/ngoncharov/SpecTrack_dataset"
+    OUT_DIR = "vis_alpha_separation"
+    SPLITS = ["cube_0.0", "objects_0.0"]
+    SEQUENCES = [
+        "cracker_box_yalehand0",
+        "mustard0",
+        "tomato_soup_can_yalehand0",
+        "bleach0",
+        "sugar_box1",
+        "sugar_box_yalehand0",
+        "mustard_easy_00_02",
+        "cracker_box_reorient",
+        "bleach_hard_00_03_chaitanya",
+    ]
+    NUM_FRAMES = 12  # process this many frames online, causally
+    SAVE_EVERY = 3  # snapshot diffuse/env every this many frames
+
+    def to_u8(img_t):
+        return (linear_to_srgb(img_t.clamp(0.0, 1.0)).cpu().numpy() * 255).astype(
+            "uint8"
+        )
+
+    for split in SPLITS:
+        for seq in SEQUENCES:
+            seq_path = os.path.join(DATASET_ROOT, split, seq)
+            if not os.path.isdir(seq_path):
+                continue
+            out_dir = os.path.join(OUT_DIR, split, seq)
+            os.makedirs(out_dir, exist_ok=True)
+
+            ds = LFDataset(seq_path, depth_source="gt")
+            s_size, t_size = ds.metadata["n_views"]
+
+            alpha_history = None  # carried forward, never reset mid-sequence
+            prev_env_map = None  # accumulated env map, carried forward
+            alpha_log = []
+
+            for fi in range(min(NUM_FRAMES, len(ds))):
+                frame = ds[fi]
+                mask = frame["masks"][s_size // 2, t_size // 2]
+                slf = SurfaceLightField.from_frame(
+                    frame, mask, frame["depth"], s_size, t_size
+                )
+
+                colors = slf.colors.permute(1, 0, 2).float()  # [P, M, 3]
+                view_dirs = slf.view_dirs.permute(1, 0, 2).float()
+                valid = slf.valid.permute(1, 0)
+                normals = slf.normals.float()
+                nrep = normals[:, None, :].expand_as(view_dirs)
+                reflected_dirs = F.normalize(
+                    view_dirs - 2.0 * (view_dirs * nrep).sum(-1, keepdim=True) * nrep,
+                    dim=-1,
+                )
+
+                # Estimate alpha from frames seen SO FAR, then separate this
+                # frame with that running estimate -- this is the online,
+                # tracking-causal path (not a batch fit over the sequence).
+                alpha_now, alpha_history = estimate_alpha(
+                    colors, valid, view_dirs, normals, stat_history=alpha_history
+                )
+                diffuse_point, environment_map, _ = separate_reflection(
+                    colors=colors,
+                    alpha=alpha_now,
+                    reflected_dirs=reflected_dirs,
+                    valid=valid,
+                    view_dirs=view_dirs,
+                    normals=normals,
+                    mask=slf.mask,
+                    previous_environment_map=prev_env_map,
+                    iterations=150,
+                    verbose=False,
+                )
+                prev_env_map = environment_map.detach()
+                alpha_log.append(alpha_now)
+
+                if fi % SAVE_EVERY != 0:
+                    continue
+
+                diffuse_img = torch.zeros(slf.H, slf.W, 3, device=diffuse_point.device)
+                diffuse_img[slf.mask] = diffuse_point
+                Image.fromarray(to_u8(diffuse_img)).save(
+                    os.path.join(out_dir, f"intrinsic_f{fi:03d}_a{alpha_now:.2f}.png")
+                )
+                Image.fromarray(to_u8(environment_map)).save(
+                    os.path.join(out_dir, f"envmap_f{fi:03d}.png")
+                )
+
+            print(
+                f"{split}/{seq}: alpha trace = "
+                + " -> ".join(f"{a:.2f}" for a in alpha_log)
+            )

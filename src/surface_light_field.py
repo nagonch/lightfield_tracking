@@ -305,7 +305,7 @@ class SurfaceLightField:
         s_size: int,
         t_size: int,
         sh_degree: int = 2,
-        scale_factor: float = 0.5,
+        scale_factor: float = 1.0,
     ) -> "SurfaceLightField":
         K = frame["camera_matrix"]
         H, W = frame["LF"].shape[2], frame["LF"].shape[3]
@@ -428,6 +428,7 @@ class SurfaceLightField:
         alpha: float = 1.0,
         sh_degree: int = 2,
         scale: float = 1.0,
+        mode: str = "auto",
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Differentiable single central-view render with optional relighting.
 
@@ -438,10 +439,23 @@ class SurfaceLightField:
 
         rel_pose : [4, 4] rigid transform applied to the Gaussians (object →
                    current camera).  ``None`` renders the canonical view.
-        env_map  : [H, W, 3] (or [3, H, W]) linear equirect env map.  When given
-                   and ``alpha < 1`` the colour is
-                   ``alpha * diffuse + (1 - alpha) * env[reflect(view, normal)]``;
-                   otherwise the stored SH appearance is used.
+        env_map  : [H, W, 3] (or [3, H, W]) linear equirect env map.
+        mode     : appearance model for the per-Gaussian colour —
+                   ``"diffuse"`` → view-independent separated diffuse colour
+                       (albedo·shading), the FINE photometric-refine target. This
+                       is what a Lambertian surface looks like and is the only
+                       pose-consistent diffuse channel (no specular contamination).
+                   ``"relit"``   → ``alpha·diffuse + (1-alpha)·env[reflect]``, the
+                       FINAL relighting-refine target; the reflection moves with
+                       the pose, giving a rotation cue geometry alone can't.
+                   ``"sh"``      → view-dependent degree-2 SH (the raw observed
+                       appearance, diffuse+specular blended).
+                   ``"auto"``    → ``"relit"`` if an env map is given and alpha<1,
+                       else ``"sh"`` (legacy behaviour).
+
+        The diffuse and relit channels are split so the two refinement stages each
+        optimise against a *single, consistent* appearance model — never a mix of
+        reflection-at-coarse-scale and diffuse-at-fine-scale.
 
         Returns  : (image [H,W,3], depth [H,W], mask [H,W] bool), differentiable.
         """
@@ -465,8 +479,15 @@ class SurfaceLightField:
         # Gaussian is just the (normalised) camera-space mean.
         view_dirs = F.normalize(means, dim=-1, eps=1e-8)
 
-        relit = env_map is not None and alpha < 0.999
-        if relit:
+        if mode == "auto":
+            mode = "relit" if (env_map is not None and alpha < 0.999) else "sh"
+
+        def _diffuse_colors() -> torch.Tensor:
+            if self.diffuse_colors is not None:
+                return self.diffuse_colors.to(device=device, dtype=dtype)
+            return (self.harmonics[:, 0].float() + 0.5).clamp(0.0, 1.0)  # SH ambient
+
+        if mode == "relit" and env_map is not None:
             env_hwc = env_map.to(device=device, dtype=dtype)
             if env_hwc.ndim == 3 and env_hwc.shape[0] == 3:
                 env_hwc = env_hwc.permute(1, 2, 0)
@@ -477,14 +498,10 @@ class SurfaceLightField:
                 eps=1e-8,
             )
             specular = sample_env_equirect(env_hwc, reflected)
-            if self.diffuse_colors is not None:
-                diffuse = self.diffuse_colors.to(device=device, dtype=dtype)
-            else:  # SH ambient (degree-0) fallback
-                diffuse = (self.harmonics[:, 0].float() + 0.5).clamp(0.0, 1.0)
-            colors = (alpha * diffuse + (1.0 - alpha) * specular).clamp(0.0, 1.0)
-        else:
-            # View-dependent SH appearance: evaluate the stored (object-frame)
-            # coefficients at the view direction expressed in the object frame.
+            colors = (alpha * _diffuse_colors() + (1.0 - alpha) * specular).clamp(0.0, 1.0)
+        elif mode == "diffuse":
+            colors = _diffuse_colors()
+        else:  # "sh" — view-dependent appearance in the object frame
             dirs_obj = (R.T @ view_dirs.T).T
             colors = eval_sh_rgb(self.harmonics, dirs_obj, sh_degree=sh_degree)
 

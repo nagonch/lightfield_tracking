@@ -38,19 +38,29 @@ logging.basicConfig(
 
 # ── configuration ──────────────────────────────────────────────────────────────
 DATASET_ROOT = "/home/ngoncharov/SpecTrack_dataset"
-EXP_NAME = "results_ours_surface_lf"
+EXP_NAME = "results_ours_refined_"
 CACHE_ROOT = "cache/diffuse"
 SEPARATION_ITERS = 300
 USE_REFLECTION_SEPARATION = True  # False → LoFTR on the raw central view
 USE_PHOTOMETRIC_REFINE = True  # True → photometric pose refinement after coarse
-ENABLE_VIS = False  # True → open viser viewer during refinement
+ENABLE_VIS = True  # True → open viser viewer during refinement (manual inspection)
+# Relighting only turns on once the estimated alpha has settled: two consecutive
+# per-frame estimates within this tolerance ⇒ "stable". Until then we track as
+# pure diffuse and discard the (still-unreliable) env map.
+ALPHA_STABLE_TOL = 0.01
+# Diffuse-fraction (alpha) source. The view-variance estimator is reliable at low/
+# mid reflectivity but unstable per-sequence at the mirror extreme (sticks at ~0.5
+# for some cube_1.0 seqs), which blends LoFTR into a near-mirror's tracking and
+# regresses the coarse pose (cube_1.0 5.3°→14° agg). Pinning alpha to the dataset's
+# known reflectivity (as the separation baseline does) keeps the coarse strong;
+# the estimator stays available (PIN_ALPHA=False) as an ablation. See [[alpha-estimation]].
+PIN_ALPHA = True
 
-# All photometric-refine hyperparameters live here (see RefineConfig).
-# lr_trans=0: translation is re-anchored to LoFTR's origin in _report, so it is
-# bit-identical to LoFTR (cannot diverge). lr_rot=5e-3 with the centroid-pivot
-# parameterisation is net-positive on rotation on diffuse cube_0.0 (2.25°→2.23°
-# agg, helps 2/4 seqs) at zero translation cost. Re-tune lr_rot per reflectivity.
-REFINE_CFG = RefineConfig(lr_rot=5e-3, lr_trans=0.0)
+# All photometric-refine hyperparameters live here (see RefineConfig). The
+# refinement is a per-frame OVERLAY (not fed forward), so free translation is safe
+# and lets rotation stay well-conditioned. Two stages: diffuse (fine) then relight
+# (final, reflective frames only).
+REFINE_CFG = RefineConfig()
 
 
 def _rot_err_deg(Ra: np.ndarray, Rb: np.ndarray) -> float:
@@ -79,7 +89,7 @@ def _build_pc(depth: np.ndarray, mask: np.ndarray, rgb: np.ndarray, K: np.ndarra
 
 DEPTH_SOURCES = ["gt"]  # "gt" | "synth"
 SPLIT_PREFIXES = ["cube", "objects"]
-REFLECTIVITIES = ["0.0", "0.5", "0.7", "1.0"]  # "0.0" | "0.5" | "0.7" | "1.0"
+REFLECTIVITIES = ["0.0", "0.5", "0.7", "1.0"]
 
 
 def track_sequence(
@@ -87,7 +97,7 @@ def track_sequence(
     results_dir: str,
     cache_dir: str,
     sequence_name: str,
-    alpha: float,
+    alpha: float | None,
     depth_source: str,
     loftr: LoftrRunner,
     rng: np.random.Generator,
@@ -101,11 +111,15 @@ def track_sequence(
     s_size, t_size = dataset.metadata["n_views"]
 
     gt_poses: list[np.ndarray] = []
-    est_poses: list[np.ndarray] = []
+    est_poses: list[np.ndarray] = []  # reported trajectory (refined when refine=True)
+    coarse_poses: list[np.ndarray] = []  # tracking backbone, FED FORWARD (drift-safe)
     coarse_errs: list[tuple[float, float]] = []  # (rot°, trans m) per frame
     refined_errs: list[tuple[float, float]] = []
     prev = None  # (view, depth, mask, pc, color, env_map, slf)
     prev_env = None  # accumulated env map warm-start for separation
+    alpha_history: list[float] = []  # per-frame alpha stats, carried forward
+    alpha_stable = False  # latched: True once two alphas in a row agree
+    prev_alpha_i: float | None = None  # last frame's raw alpha estimate
 
     with tqdm(
         dataset, desc="  frames", unit="fr", leave=False, dynamic_ncols=True
@@ -120,26 +134,51 @@ def track_sequence(
 
             if separate:
                 bar.set_postfix(fr=i, stage="separate")
-                view, prev_env, slf = frame_diffuse(
+                # Alpha is trusted once it settles: two consecutive estimates within
+                # ALPHA_STABLE_TOL (a pinned alpha is trusted immediately). Until
+                # then, withhold the env map as a warm-start too, so a frame fit
+                # against an unreliable alpha never contaminates the map that
+                # accumulation resumes from once alpha does stabilize. Latched: once
+                # stable we keep relighting and accumulating the env map.
+                was_stable = alpha_stable  # stability state entering this frame
+                view, prev_env, slf, alpha_i, alpha_history = frame_diffuse(
                     frame=frame,
                     mask=mask,
                     depth=depth,
-                    alpha=alpha,
+                    alpha=alpha,  # None → estimate on the fly from the SLF
                     s_size=s_size,
                     t_size=t_size,
                     cache_path=os.path.join(cache_dir, f"diffuse_{i:04d}.png"),
                     iterations=SEPARATION_ITERS,
                     verbose=True,
-                    previous_environment_map=prev_env,
+                    previous_environment_map=prev_env if was_stable else None,
+                    alpha_stat_history=alpha_history,
                 )
-                env_curr = (
-                    prev_env  # env map for this frame (used by next frame's refine)
-                )
+                if not alpha_stable:
+                    if alpha is not None or (
+                        prev_alpha_i is not None
+                        and abs(alpha_i - prev_alpha_i) <= ALPHA_STABLE_TOL
+                    ):
+                        alpha_stable = True
+                prev_alpha_i = alpha_i
+                # Tracking ALWAYS uses the current alpha estimate: as soon as
+                # reflectivity is suspected, track_pose blends in geometry-only ICP
+                # (a near-mirror's separated diffuse is too weak for LoFTR). The
+                # alpha-stability gate governs only the env-map-dependent RELIGHTING:
+                # we withhold the env map until alpha settles so a noisy early map
+                # can't mislead the refinement. (Previously alpha_eff was forced to
+                # 1.0 until stable → pure LoFTR on a mirror → the early trajectory
+                # drifted and the feed-forward backbone inherited it.)
+                alpha_eff = alpha_i
+                env_curr = prev_env if alpha_stable else None
             else:
                 view = central_view(frame, s_size, t_size)
                 env_curr = None
                 slf = SurfaceLightField.from_frame(frame, mask, depth, s_size, t_size)
-
+                # No separation → treat as fully diffuse (LoFTR-only) unless pinned.
+                alpha_i = 1.0 if alpha is None else alpha
+                alpha_eff = alpha_i
+                alpha_stable = True
             depth_np = depth.cpu().numpy()
             mask_np = (mask > 0).cpu().numpy()
             K_np = frame["camera_matrix"].cpu().numpy().astype(np.float64)
@@ -147,10 +186,16 @@ def track_sequence(
 
             if i == 0:
                 est_poses.append(gt_poses[0])
+                coarse_poses.append(gt_poses[0])
             else:
                 bar.set_postfix(fr=i, stage="loftr")
+                # Tracking backbone is fed forward from the COARSE pose, never the
+                # refined one: a per-frame photometric correction has a small
+                # systematic bias that compounds geometrically if recycled as the
+                # next frame's anchor (observed: 0.9°→6.7° over a diffuse seq).
+                # Refinement is therefore an overlay on the *reported* pose only.
                 coarse_pose = track_pose(
-                    abs_pose_prev=est_poses[-1],
+                    abs_pose_prev=coarse_poses[-1],
                     diffuse_prev=prev[0],
                     diffuse_curr=view,
                     depth_prev=prev[1],
@@ -159,7 +204,7 @@ def track_sequence(
                     mask_curr=mask_np,
                     K=K_np,
                     loftr=loftr,
-                    alpha=alpha,
+                    alpha=alpha_eff,
                     pc_prev=prev[3],
                     pc_curr=pc,
                     color_prev=prev[4],
@@ -167,23 +212,38 @@ def track_sequence(
                     rng=rng,
                 )
 
+                coarse_poses.append(coarse_pose)
+
                 if refine:
                     bar.set_postfix(fr=i, stage="photometric")
                     if viewer is not None:
                         viewer.reset_frame(i)
+                    # Anchor the refinement at the prev backbone pose (coarse_poses[-2]),
+                    # which is where slf_prev's geometry actually lives — NOT the
+                    # reported/refined prev pose.
                     refined_pose, _ = refine_pose_photometric(
                         slf_prev=prev[6],
                         slf_curr=slf,
                         env_map_prev=prev[5],
                         env_map_curr=env_curr,
-                        abs_pose_prev=est_poses[-1],
+                        abs_pose_prev=coarse_poses[-2],
                         pose_coarse=coarse_pose,
-                        alpha=alpha,
+                        alpha=alpha_eff,
                         cfg=refine_cfg,
                         viewer=viewer,
                         gt_pose_curr=gt_poses[i],
                     )
                     est_poses.append(refined_pose)
+
+                    # Feed the relit pose forward into the backbone (drift-correcting
+                    # on reflective frames); diffuse refine stays an overlay only.
+                    relight_ran = (
+                        refine_cfg.relight
+                        and prev[5] is not None
+                        and alpha_eff < refine_cfg.relight_alpha_max
+                    )
+                    if relight_ran and refine_cfg.relight_feed_forward:
+                        coarse_poses[-1] = refined_pose
 
                     # ── per-frame metrics: does refine beat the LoFTR coarse? ──
                     cr, ct = _pose_err(coarse_pose, gt_poses[i])
@@ -282,7 +342,7 @@ def main() -> None:
                     results_dir=item["results_dir"],
                     cache_dir=item["cache_dir"],
                     sequence_name=item["sequence_name"],
-                    alpha=1.0 - float(item["reflectivity"]),
+                    alpha=(1.0 - float(item["reflectivity"])) if PIN_ALPHA else None,
                     depth_source=item["depth_source"],
                     loftr=loftr,
                     rng=rng,
