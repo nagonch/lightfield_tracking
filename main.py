@@ -73,7 +73,7 @@ PIN_ALPHA = False
 # appearance source swaps decomposed-for-GT. The separated diffuse/env path then
 # needs its own validation (it is noisier than GT — expect to retune the relight
 # gate and the drift thresholds for it).
-GT_REFINE_EXPERIMENT = False
+GT_REFINE_EXPERIMENT = True
 GT_ENV_PATH = "/home/ngoncharov/cvpr2026/ycbv-eoat-lf/env2.jpg"
 GT_REFINE_SAVE_VIS = False  # save per-frame [coarse|refined|target|err] relit triplets
 
@@ -95,7 +95,7 @@ REFINE_CFG = RefineConfig(
 
 # GT-only overrides: the experiment knows the true alpha and has an accurate env map.
 if GT_REFINE_EXPERIMENT:
-    EXP_NAME = "results_gt_refine_experiment_"
+    EXP_NAME = "results_gt_refine_experiment_again"
     PIN_ALPHA = False  # the separator must ESTIMATE alpha — LoFTR fights reflection
     # The GT env map is accurate, so keep every valid relight correction (the
     # noise-floor revert gate that protects the *separated* env is not wanted here).
@@ -207,7 +207,7 @@ def _save_refine_vis(
 DEPTH_SOURCES = ["gt"]  # "gt" | "synth"
 SPLIT_PREFIXES = ["cube", "objects"]
 # LoFTR must fight the reflection → reflective splits only for the GT-refine study.
-REFLECTIVITIES = ["0.5", "0.7", "1.0"]
+REFLECTIVITIES = ["0.0", "0.5", "0.7", "1.0"]
 
 
 def track_sequence(
