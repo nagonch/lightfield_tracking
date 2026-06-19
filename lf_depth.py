@@ -493,7 +493,7 @@ def write_sequence_depth(estimator: LFPlaneSweepDepth, seq_path: str,
     uint16 millimetres, mirroring the ``depth``/``depth_synth`` layout (same
     filenames).  ``main.py`` then consumes it via ``LFDataset(..., depth_source='lf')``."""
     from PIL import Image
-    ds = LFDataset(seq_path, depth_source="gt")
+    ds = LFDataset(seq_path, depth_source="synth")
     out_dir = os.path.join(seq_path, "depth_lf")
     os.makedirs(out_dir, exist_ok=True)
     n = len(ds) if limit is None else min(limit, len(ds))

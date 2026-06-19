@@ -64,27 +64,7 @@ ALPHA_STABLE_TOL = 0.01
 # the estimator stays available (PIN_ALPHA=False) as an ablation. See [[alpha-estimation]].
 PIN_ALPHA = False
 
-# ── GT-refine experiment: THE single toggle for ground-truth dependence ──────────
-# True  → feed the photometric refinement GROUND TRUTH appearance to measure the
-#         optimiser's ceiling: per-point diffuse from the fully-diffuse (0.0) render,
-#         reflection from the GT env map (env2.jpg), and GT alpha (= 1 - reflectivity).
-#         gt_refine=True in track_sequence gates EVERY GT injection. The coarse stage
-#         is untouched — reflection separation still decomposes the SLF alpha-free and
-#         LoFTR matches the separated diffuse, so the coarse pose must fight the
-#         reflection; the question is how much GT-appearance refinement beats it.
-# False → production: the separator's own diffuse/env map + alpha (estimated, or
-#         pinned to the dataset reflectivity via PIN_ALPHA). No ground truth anywhere.
-#
-# NEXT STEP — remove GT dependence: set this False. The optimiser config below
-# (REFINE_CFG / REFINE_FEED_FORWARD) is GT-independent and stays put; only the
-# appearance source swaps decomposed-for-GT. The separated diffuse/env path then
-# needs its own validation (it is noisier than GT — expect to retune the relight
-# gate and the drift thresholds for it).
-GT_REFINE_EXPERIMENT = True
-GT_ENV_PATH = "/home/ngoncharov/cvpr2026/ycbv-eoat-lf/env2.jpg"
-GT_REFINE_SAVE_VIS = False  # save per-frame [coarse|refined|target|err] relit triplets
-
-# ── Pose-refinement optimiser config (GT-INDEPENDENT) ────────────────────────────
+# ── Pose-refinement optimiser config ─────────────────────────────────────────────
 # The verified-good refinement settings — the landed "2.0", see
 # [[feedforward-and-rollback]]. Feed the refined pose FORWARD into the tracking
 # backbone (not a per-frame overlay): big win — cube_1.0 ATE 30.8→17.6mm, rot
@@ -98,15 +78,8 @@ REFINE_CFG = RefineConfig(
     relight=True,
     drift_reset_deg=10.0,  # feed-forward drift guard (diffuse only, see alpha gate)
     drift_reset_trans=0.015,
+    relight_min_correction_deg=0.0,
 )
-
-# GT-only overrides: the experiment knows the true alpha and has an accurate env map.
-if GT_REFINE_EXPERIMENT:
-    EXP_NAME = "results_gt_refine_experiment_again"
-    PIN_ALPHA = False  # the separator must ESTIMATE alpha — LoFTR fights reflection
-    # The GT env map is accurate, so keep every valid relight correction (the
-    # noise-floor revert gate that protects the *separated* env is not wanted here).
-    REFINE_CFG = replace(REFINE_CFG, relight_min_correction_deg=0.0)
 
 
 def _rot_err_deg(Ra: np.ndarray, Rb: np.ndarray) -> float:
@@ -158,59 +131,6 @@ def _gt_diffuse_points(gt_ds, idx: int, mask_bool: torch.Tensor) -> torch.Tensor
     return central.reshape(-1, 3)[mask_bool.reshape(-1)].clone()
 
 
-@torch.no_grad()
-def _save_refine_vis(
-    save_dir,
-    i,
-    slf_prev,
-    slf_curr,
-    env,
-    alpha,
-    abs_pose_prev,
-    coarse_pose,
-    refined_pose,
-    gt_pose,
-):
-    """Save a [src@coarse | src@refined | target | |err| ] relit triplet for one frame."""
-    from PIL import Image, ImageDraw
-
-    from src.photometric import _to_display_u8
-
-    os.makedirs(save_dir, exist_ok=True)
-    inv_prev = np.linalg.inv(abs_pose_prev)
-
-    def _render(pose):
-        T = torch.from_numpy(pose @ inv_prev).float().cuda()
-        img, _, _ = slf_prev.render_relit(
-            rel_pose=T, env_map=env, alpha=alpha, mode="relit"
-        )
-        return img
-
-    src_c, src_r = _render(coarse_pose), _render(refined_pose)
-    tgt, _, _ = slf_curr.render_relit(
-        rel_pose=None, env_map=env, alpha=alpha, mode="relit"
-    )
-    err = (src_r - tgt).abs()
-    cols = [
-        _to_display_u8(src_c),
-        _to_display_u8(src_r),
-        _to_display_u8(tgt),
-        _to_display_u8((err * 6).clamp(0, 1)),
-    ]
-    H = cols[0].shape[0]
-    gap = np.full((H, 5, 3), 255, np.uint8)
-    strip = np.concatenate([cols[0], gap, cols[1], gap, cols[2], gap, cols[3]], axis=1)
-    cr = _rot_err_deg(coarse_pose[:3, :3], gt_pose[:3, :3])
-    rr = _rot_err_deg(refined_pose[:3, :3], gt_pose[:3, :3])
-    im = Image.fromarray(strip)
-    ImageDraw.Draw(im).text(
-        (4, 4),
-        f"f{i}  coarse {cr:.2f}deg -> refined {rr:.2f}deg   [coarse | refined | target | err]",
-        fill=(255, 255, 0),
-    )
-    im.save(os.path.join(save_dir, f"frame_{i:04d}.png"))
-
-
 DEPTH_SOURCES = ["gt"]  # "gt" | "synth" | "lf" (override with main.py --depth)
 SPLIT_PREFIXES = ["cube", "objects"]
 # LoFTR must fight the reflection → reflective splits only for the GT-refine study.
@@ -248,7 +168,6 @@ def track_sequence(
     # test (an lf run does not also need depth_lf written for the 0.0 split).
     gt_ds0 = LFDataset(gt0_seq_path, depth_source="gt") if gt_refine else None
     gt_alpha = 1.0 - reflectivity
-    vis_dir = os.path.join(results_dir, "vis", sequence_name)
 
     gt_poses: list[np.ndarray] = []
     est_poses: list[np.ndarray] = []  # reported trajectory (refined when refine=True)
@@ -400,20 +319,6 @@ def track_sequence(
                         gt_pose_curr=gt_poses[i],
                     )
                     est_poses.append(refined_pose)
-
-                    if gt_refine and GT_REFINE_SAVE_VIS and prev[5] is not None:
-                        _save_refine_vis(
-                            vis_dir,
-                            i,
-                            prev[6],
-                            slf,
-                            gt_env,
-                            gt_alpha,
-                            coarse_poses[-2],
-                            coarse_pose,
-                            refined_pose,
-                            gt_poses[i],
-                        )
 
                     # Feed the refined pose forward into the backbone so the next
                     # LoFTR match (and SLF geometry anchor) builds on the improved
@@ -606,7 +511,6 @@ def main() -> None:
         exp_name = "ablation_refine_est"
     if args.depth == "lf":
         exp_name += "_depth-" + "-".join(DEPTH_SOURCES)
-
     pin_alpha = PIN_ALPHA
     refine_cfg = REFINE_CFG
     if use_gt:
@@ -619,7 +523,11 @@ def main() -> None:
     rng = np.random.default_rng(seed=42)
     work = build_work_list(exp_name)
 
-    gt_env = _load_env_linear(GT_ENV_PATH) if use_gt else None
+    gt_env = (
+        _load_env_linear("/home/ngoncharov/cvpr2026/ycbv-eoat-lf/env2.jpg")
+        if use_gt
+        else None
+    )
 
     viewer = None
     if use_refine and ENABLE_VIS:
