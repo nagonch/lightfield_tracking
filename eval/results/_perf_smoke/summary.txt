@@ -1,0 +1,23 @@
+Cube (LF depth)
+──────────────────────────────────────────────────────────────────────────
+                                     ADD↑ AUC ADD-S↑ AUC ATE↓ (m) Rot↓ (°)
+split    sequence                                                         
+cube_0.0 bleach0                       0.8281     0.8281   0.0120     5.34
+         bleach_hard_00_03_chaitanya   0.9008     0.9008   0.0055     3.31
+         cracker_box_reorient          0.8732     0.8732   0.0089     3.97
+         cracker_box_yalehand0         0.6669     0.6687   0.0398     9.06
+         mustard0                      0.8127     0.8127   0.0104     6.18
+         mustard_easy_00_02            0.8755     0.8755   0.0081     3.84
+         sugar_box1                    0.8389     0.8389   0.0116     4.90
+         sugar_box_yalehand0           0.8837     0.8837   0.0066     3.65
+split    sequence                               
+cube_0.0 ── Average ── 0.8350 0.8352 0.0129 5.03
+··········································································
+split    sequence                                             
+cube_0.5 bleach0                     0.7796 0.7796 0.0140 6.75
+         bleach_hard_00_03_chaitanya 0.8702 0.8702 0.0070 4.43
+         cracker_box_reorient        0.8773 0.8773 0.0092 3.48
+         cracker_box_yalehand0       0.7116 0.7128 0.0301 9.62
+split    sequence                               
+cube_0.5 ── Average ── 0.8097 0.8100 0.0151 6.07
+······························································
