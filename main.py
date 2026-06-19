@@ -553,8 +553,14 @@ def build_work_list(exp_name: str) -> list[dict]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="ReLiFT-6DoF ablation runner")
-    parser.add_argument("--refine", action="store_true", help="Enable photometric refinement")
-    parser.add_argument("--gt", action="store_true", help="Use GT appearance in refinement (GT-refine experiment)")
+    parser.add_argument(
+        "--refine", action="store_true", help="Enable photometric refinement"
+    )
+    parser.add_argument(
+        "--gt",
+        action="store_true",
+        help="Use GT appearance in refinement (GT-refine experiment)",
+    )
     args = parser.parse_args()
 
     use_refine = args.refine
@@ -591,6 +597,10 @@ def main() -> None:
 
     with tqdm(work, desc="sequences", unit="seq", dynamic_ncols=True) as bar:
         for item in bar:
+            if (
+                item["sequence_name"] == "tomato_soup_can_yalehand0"
+            ):  # TEMP, REMOVE LATER
+                continue
             bar.set_postfix_str(item["tag"])
             os.makedirs(item["results_dir"], exist_ok=True)
 
