@@ -31,9 +31,10 @@ BASELINES = [
     ("results_bsdf", "BSDF"),
     ("results_icp", "ICP"),
     ("results_loftr", "LoFTR"),
+    ("results_ours", "Ours"),
 ]
 
-COLORS = ["#1f77b4", "#9467bd", "#2ca02c", "#d62728", "#ff7f0e"]
+COLORS = ["#1f77b4", "#9467bd", "#2ca02c", "#d62728", "#ff7f0e", "#8c564b"]
 
 REFLECTIVITIES = [0.0, 0.5, 0.7, 1.0]
 
@@ -46,10 +47,10 @@ METRICS = [
 # (variant_key, linestyle, linewidth, alpha, marker, fill_marker)
 # Synth variants are primary (solid, full opacity); GT is supplementary (dashed, dim).
 VARIANTS = [
-    ("cube_synth",    "solid",  0.9, 1.00, "o", True),
-    ("objects_synth", "solid",  0.9, 1.00, "s", True),
-    ("cube_gt",       "dashed", 0.5, 0.40, "o", False),
-    ("objects_gt",    "dashed", 0.5, 0.40, "s", False),
+    ("cube_synth", "solid", 0.9, 1.00, "o", True),
+    ("objects_synth", "solid", 0.9, 1.00, "s", True),
+    ("cube_gt", "dashed", 0.5, 0.40, "o", False),
+    ("objects_gt", "dashed", 0.5, 0.40, "s", False),
 ]
 
 # ---------------------------------------------------------------------------
