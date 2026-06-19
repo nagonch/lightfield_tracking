@@ -1,10 +1,8 @@
-"""Production surface light field — Gaussian Splatting backed.
+"""Surface light field backed by Gaussian Splatting.
 
-A SurfaceLightField captures, for one light-field frame, the appearance of each
-object surface point across every sub-aperture view.  The representation stores
-Gaussian Splatting parameters (means, SH harmonics, quats, scales, opacities)
-and supports differentiable rasterization via gsplat, in addition to the
-per-view colour arrays consumed by the reflection separator.
+Captures per-surface-point appearance across all sub-aperture views for one frame.
+Stores GS parameters (means, SH harmonics, quats, scales, opacities) and supports
+differentiable rasterization via gsplat, plus per-view colour arrays for the separator.
 """
 
 from __future__ import annotations
@@ -20,11 +18,7 @@ from pytorch3d.renderer.cameras import PerspectiveCameras
 from sh_helpers import fit_sh_coeffs_per_point, get_sh_bases_torch
 from src.utilities import backproject_depth_to_pointcloud
 
-# Isotropic Gaussian footprint as a multiple of the one-pixel depth footprint.
-# 1.0 (a 1-pixel std splat) visibly over-blurs the render vs the source image; 0.5
-# halves the formation error (cube 3.8e-2→1.9e-2, objects 1.0e-2→6.3e-3 MSE) while
-# keeping ≥98.6% pixel coverage — sharper splats, negligible holes. Tunable here.
-DEFAULT_FOOTPRINT_SCALE = 0.5
+DEFAULT_FOOTPRINT_SCALE = 0.5  # config.yaml: slf.footprint_scale
 
 
 # ── differentiable equirect env-map sampling ─────────────────────────────────
@@ -261,25 +255,11 @@ def _build_cameras(
 
 @dataclass
 class SurfaceLightField:
-    """Per-surface-point appearance across the sub-aperture views of one frame.
+    """Per-surface-point appearance across all sub-aperture views for one LF frame.
 
-    Gaussian Splatting backed: each surface point is an isotropic Gaussian with
-    SH colour coefficients; ``rasterize()`` renders via gsplat.
-
-    Reflection-separation compatible fields (consumed by reflection.py):
-      points    : [N, 3]    surface points in the central-camera frame
-      colors    : [V, N, 3] colour of each point in each view (0 where not visible)
-      normals   : [N, 3]    PCA surface normals
-      view_dirs : [V, N, 3] unit view direction (camera→point) per view
-      valid     : [V, N]    bool visibility mask
-      mask      : [H, W]    bool object mask (central view)
-
-    GS rendering fields:
-      harmonics : [N, (deg+1)^2, 3] SH coefficients (degree 2 by default → 9 coeffs)
-      quats     : [N, 4]            unit quaternions (identity → spherical Gaussians)
-      scales    : [N, 3]            isotropic scales derived from depth footprint
-      opacities : [N]               all 1.0
-      K         : [3, 3]            camera intrinsics
+    Separation fields (reflection.py): points [N,3], colors [V,N,3], normals [N,3],
+      view_dirs [V,N,3], valid [V,N] bool, mask [H,W] bool.
+    GS rendering fields: harmonics [N,K,3], quats [N,4], scales [N,3], opacities [N], K [3,3].
     """
 
     points: torch.Tensor
@@ -298,9 +278,7 @@ class SurfaceLightField:
     scales: torch.Tensor
     opacities: torch.Tensor
     K: torch.Tensor
-    # Per-point separated diffuse colour [N, 3] linear (set by reflection
-    # separation).  Used by ``render_relit``; ``None`` falls back to SH ambient.
-    diffuse_colors: torch.Tensor | None = None
+    diffuse_colors: torch.Tensor | None = None  # [N,3] separated diffuse; None → SH ambient fallback
 
     @classmethod
     def from_frame(
@@ -349,7 +327,6 @@ class SurfaceLightField:
 
         normals = _estimate_normals(points)
 
-        # Fit SH coefficients from multi-view colour observations.
         harmonics = fit_sh_coeffs_per_point(
             colors.float(),
             view_dirs.float(),
@@ -358,16 +335,15 @@ class SurfaceLightField:
             lambda_reg=1e-3,
         )
 
-        # Isotropic Gaussian scales: one-pixel footprint at the point's depth.
         fx = K[0, 0].float()
         z_vals = points[:, 2].clamp(min=1e-4)
-        scale_iso = (z_vals / fx * scale_factor).unsqueeze(-1)   # [N, 1]
+        scale_iso = (z_vals / fx * scale_factor).unsqueeze(-1)
         scales = scale_iso.expand(-1, 3).contiguous()
 
         n_pts = points.shape[0]
         device = points.device
         quats = torch.zeros(n_pts, 4, device=device, dtype=points.dtype)
-        quats[:, 0] = 1.0                                          # [1,0,0,0] identity
+        quats[:, 0] = 1.0  # identity quaternion → spherical Gaussians
         opacities = torch.ones(n_pts, device=device, dtype=points.dtype)
 
         return cls(
@@ -437,34 +413,18 @@ class SurfaceLightField:
         mode: str = "auto",
         shade_diffuse: bool = True,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Differentiable single central-view render with optional relighting.
+        """Differentiable render with optional relighting.
 
-        Computes a *precomputed* per-Gaussian RGB and splats it via gsplat, so
-        the pose gradient flows through both the Gaussian means (geometry) and
-        the analytically-evaluated colours (appearance) — no Wigner-D rotation
-        and no per-step SH refit.
+        Evaluates per-Gaussian colours analytically (no SH refit per step), so pose
+        gradient flows through both geometry (Gaussian means) and appearance.
 
-        rel_pose : [4, 4] rigid transform applied to the Gaussians (object →
-                   current camera).  ``None`` renders the canonical view.
-        env_map  : [H, W, 3] (or [3, H, W]) linear equirect env map.
-        mode     : appearance model for the per-Gaussian colour —
-                   ``"diffuse"`` → view-independent separated diffuse colour
-                       (albedo·shading), the FINE photometric-refine target. This
-                       is what a Lambertian surface looks like and is the only
-                       pose-consistent diffuse channel (no specular contamination).
-                   ``"relit"``   → ``alpha·diffuse + (1-alpha)·env[reflect]``, the
-                       FINAL relighting-refine target; the reflection moves with
-                       the pose, giving a rotation cue geometry alone can't.
-                   ``"sh"``      → view-dependent degree-2 SH (the raw observed
-                       appearance, diffuse+specular blended).
-                   ``"auto"``    → ``"relit"`` if an env map is given and alpha<1,
-                       else ``"sh"`` (legacy behaviour).
+        mode: "diffuse" → view-independent separated diffuse.
+              "diffuse_shaded" → diffuse re-shaded at the candidate pose.
+              "relit" → alpha·diffuse + (1-alpha)·env[reflect].
+              "sh" → view-dependent SH appearance.
+              "auto" → "relit" if env_map given and alpha<1, else "sh".
 
-        The diffuse and relit channels are split so the two refinement stages each
-        optimise against a *single, consistent* appearance model — never a mix of
-        reflection-at-coarse-scale and diffuse-at-fine-scale.
-
-        Returns  : (image [H,W,3], depth [H,W], mask [H,W] bool), differentiable.
+        Returns (image [H,W,3], depth [H,W], mask [H,W] bool), differentiable.
         """
         device = self.points.device
         dtype = torch.float32
@@ -482,9 +442,7 @@ class SurfaceLightField:
             means = pts
             normals_cur = F.normalize(normals, dim=-1, eps=1e-8)
 
-        # Camera is at the origin in camera space, so the view direction to each
-        # Gaussian is just the (normalised) camera-space mean.
-        view_dirs = F.normalize(means, dim=-1, eps=1e-8)
+        view_dirs = F.normalize(means, dim=-1, eps=1e-8)  # camera at origin → view dir = normalised mean
 
         if mode == "auto":
             mode = "relit" if (env_map is not None and alpha < 0.999) else "sh"
@@ -495,10 +453,7 @@ class SurfaceLightField:
             return (self.harmonics[:, 0].float() + 0.5).clamp(0.0, 1.0)  # SH ambient
 
         def _albedo_shaded(diffuse_obs: torch.Tensor) -> torch.Tensor:
-            """Re-shaded diffuse: recover intrinsic albedo from the canonical
-            observation, then re-apply SoftPhong shading at the candidate pose so a
-            rotation re-shades the surface (matches the dataset renderer) instead of
-            transporting a frozen shaded colour.  Round-trips at rel_pose=None."""
+            """Recover albedo from canonical observation, re-shade at candidate pose."""
             from src.shading import shade_from_albedo, unshade_to_albedo
 
             albedo = unshade_to_albedo(diffuse_obs, pts, normals)
@@ -515,11 +470,6 @@ class SurfaceLightField:
                 eps=1e-8,
             )
             specular = sample_env_equirect(env_hwc, reflected)
-            # Match the dataset's generation: α·(SoftPhong-shaded diffuse) +
-            # (1-α)·env_reflection, blended in linear.  The diffuse part is re-shaded
-            # from the rotated normals at the candidate pose (shade_diffuse=True), so a
-            # rotation re-shades it instead of carrying a frozen shaded colour — the
-            # same fix as mode="diffuse_shaded", extended to the reflective channel.
             diff = _diffuse_colors()
             if shade_diffuse:
                 diff = _albedo_shaded(diff)

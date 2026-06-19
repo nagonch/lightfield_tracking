@@ -1,30 +1,10 @@
-"""SoftPhong shading that reproduces the dataset renderer (ycbv-eoat-lf/render.py).
+"""SoftPhong shading matching the dataset renderer (ycbv-eoat-lf/render.py).
 
-The cube_*/objects_* diffuse images were produced by PyTorch3D's ``SoftPhongShader``
-with a single ``PointLights`` and the default ``Materials`` (shininess 64):
-
-    observed = (ambient + diffuse·relu(n·l))·albedo + specular·relu(v·r)^shininess
-        ambient  = [0.5, 0.5,  0.5 ]      l = normalize(light_pos - point)
-        diffuse  = [0.5, 0.4,  0.25]      v = normalize(cam_pos  - point)   (cam at origin)
-        specular = [0.5, 0.45, 0.35]      r = -l + 2(n·l)n   (gated by n·l>0)
-        shininess = 64
-
-The surface light field stores per-point *intrinsic albedo* (shading removed); the
-renderer re-applies shading at the candidate pose, so a rotation re-shades the
-surface exactly like the original renderer instead of rigidly transporting a frozen
-shaded colour.
-
-Colour space: the renderer applied shading in the raw 8-bit (sRGB-encoded) space the
-PNG was written in, then we load it with ``srgb_to_linear``.  So un-/re-shading is
-done in that raw space (``linear_to_srgb`` ⇄ ``srgb_to_linear`` around the math),
-while gsplat compositing and the photometric loss stay linear.  ``shade_from_albedo``
-is the exact inverse of ``unshade_to_albedo`` at a fixed (point, normal): the central
-view round-trips bit-for-bit, and only a pose change alters the result.
-
-Frame: points/normals are in the OpenCV central-camera frame (x-right, y-down,
-z-forward), camera at the origin.  The renderer's world equals the central p3d view
-(identity central camera); OpenCV = diag(-1,-1,1)·p3d, so the world light [0,0.1,0]
-maps to [0,-0.1,0] here.
+Reproduces PyTorch3D SoftPhongShader: (ambient + diffuse·relu(n·l))·albedo + specular·relu(v·r)^64.
+Constants are in config.yaml (shading section). Shading is computed in raw sRGB space
+(as the original renderer did) and converted to/from linear for compositing.
+unshade_to_albedo and shade_from_albedo are exact inverses at a fixed pose; only a
+rotation changes the result, so the diffuse channel re-shades consistently with the renderer.
 """
 
 from __future__ import annotations

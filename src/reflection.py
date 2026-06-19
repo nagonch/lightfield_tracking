@@ -1,11 +1,7 @@
-"""Reflection separation on a surface light field.
+"""Reflection separation: SurfaceLightField → diffuse central-view image.
 
-Turns a SurfaceLightField into a diffuse central-view image (uint8 RGB) suitable
-for feature matching.  The heavy lifting lives in ``reflection_separation`` — this
-module only packs the per-point colours into the pixel grid that solver expects,
-handles sRGB/linear conversion, and caches the result to disk (separation is slow).
-
-To swap in a different separator, replace the body of ``compute_diffuse``.
+Packs per-point SLF colours into the grid the solver expects and caches results
+(separation is slow). Heavy lifting is in reflection_separation.py.
 """
 
 from __future__ import annotations
@@ -52,18 +48,10 @@ def compute_diffuse(
     previous_env_confidence: torch.Tensor | None = None,
     alpha_stat_history: list[float] | None = None,
 ) -> tuple[np.ndarray, torch.Tensor, torch.Tensor, float, list[float]]:
-    """Separate ``slf`` into a diffuse central view + a reflected environment map.
+    """Separate an SLF into a diffuse central view + reflected env map.
 
-    ``alpha`` (diffuse fraction) is estimated on the fly from the surface light
-    field when ``None``, accumulating evidence across frames via
-    ``alpha_stat_history`` (alpha is a material constant, so the estimate sharpens
-    as more frames are seen). Pass a float to override with a fixed value.
-
-    Returns ``(diffuse_linear [H, W, 3] float32 [0,1], environment_map
-    [env_h, env_w, 3], env_confidence [env_h, env_w], alpha, alpha_stat_history)``.
-    LF colors are already in linear space (converted at dataset load time), so no
-    sRGB conversion is applied here.  The env map stays linear throughout.
-    ``env_confidence`` marks observed (high) vs interpolated (low) env pixels.
+    Returns (diffuse_linear [H,W,3] float32, env_map, env_confidence, alpha, history).
+    alpha is estimated from the SLF when None; pass a float to fix it.
     """
     # Pack the per-point surface light field as [P, M, *] for the point-based solver.
     colors = slf.colors.permute(1, 0, 2)  # [P, M, 3]  — already linear
@@ -132,24 +120,12 @@ def frame_diffuse(
     np.ndarray, torch.Tensor | None, torch.Tensor | None, SurfaceLightField, float,
     list[float],
 ]:
-    """Diffuse central view + env map + the SLF for one frame, with disk caching.
+    """Separation + SLF for one frame, with disk caching.
 
-    ``alpha`` is estimated on the fly from the surface light field when ``None``,
-    accumulating across frames through ``alpha_stat_history`` (threaded forward by
-    the caller). Pass a float to pin it to a known value.
-
-    Returns ``(diffuse_linear [H,W,3] float32 [0,1], environment_map,
-    env_confidence, slf, alpha, alpha_stat_history)``.  ``env_confidence`` is the
-    [env_h, env_w] observation map (``None`` on legacy caches without it, in which
-    case the relight loss falls back to uniform weighting).  The
-    :class:`SurfaceLightField` (gsplat-backed, with
-    per-point diffuse) is always rebuilt so the photometric refinement can
-    rasterize it; only the slow reflection separation is skipped on a cache hit.
-    The cached diffuse image and the SLF share the same masked-point ordering, so
-    the per-point diffuse is reconstructed exactly from the image via ``slf.mask``.
-
-    Cache is stored as a float32 .npy file (linear, no gamma encoding).
-    Old .png caches are silently ignored and regenerated as .npy.
+    alpha is estimated from the SLF when None, accumulated via alpha_stat_history.
+    Returns (diffuse_linear [H,W,3] float32, env_map, env_confidence, slf, alpha, history).
+    SLF is always rebuilt; only the slow separation is skipped on a cache hit.
+    Cache: float32 .npy (linear). Old .png caches are silently regenerated.
     """
     slf = SurfaceLightField.from_frame(frame, mask, depth, s_size, t_size)
     history = list(alpha_stat_history) if alpha_stat_history else []
@@ -176,7 +152,7 @@ def frame_diffuse(
             elif os.path.exists(alpha_path):
                 alpha_cached = float(np.load(alpha_path))
             else:
-                # Older cache without a stored alpha: recover it from the SLF.
+                # Legacy cache without stored alpha: re-estimate from the SLF.
                 colors = slf.colors.permute(1, 0, 2)
                 alpha_cached, history = estimate_alpha(
                     colors,

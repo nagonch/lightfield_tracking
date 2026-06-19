@@ -1,54 +1,17 @@
-"""Light-field plane-sweep depth estimation for the ReLiFT-6DoF tracker.
+"""Light-field plane-sweep depth estimation (GT-free, all GPU).
 
-A feed-forward (non-trainable) classical depth estimator tailored to *this*
-dataset's light field, designed to replace the noisy RealSense-style stereo
-depth (``depth_synth``, produced by ``ycbv-eoat-lf/realsense.py``) with a dense,
-smooth, hole-free metric depth map.
+The dataset is a coplanar, co-oriented 5×5 LF grid, so warping view (s,t) onto the
+central view at depth Z is a pure global pixel shift: u' = u - fx·tx/Z, v' = v - fy·ty/Z.
+This reduces the whole plane sweep to shift-and-compare cost volumes, running in seconds.
 
-Why a plane sweep (and why it is cheap here)
---------------------------------------------
-The capture is an ideal rectified light field: a 5x5 grid of pinhole views that
-are **coplanar and share a single rotation** (verified: ``max rot diff == 0``),
-spaced 5 mm apart (2 cm aperture), all looking down +z.  For such a rig, warping
-an off-center view ``(s,t)`` onto the central view under a fronto-parallel depth
-plane is a *global image translation* — no per-pixel homography:
+Reflective surfaces are handled by a robust truncated mean over views: specular pixels
+disagree across views and are rejected, while the consistent diffuse structure wins.
 
-    a world point at depth ``Z`` (inverse depth ``rho = 1/Z``) seen by the
-    central camera at pixel ``(u, v)`` appears in view ``(s,t)`` (relative
-    centre ``t_rel = (tx, ty, tz≈0)``) at
+Pipeline: (1) luminance + gradient features per view; (2) inverse-depth cost volume with
+robust aggregation; (3) WTA + parabolic sub-pixel interpolation → metric depth;
+(4) confidence from peak margin × texture; (5) edge-aware CG smoothing → dense output.
 
-        u' = u - fx * tx * rho ,   v' = v - fy * ty * rho .
-
-So the whole plane sweep is: for each inverse-depth hypothesis ``rho``, shift
-every view by ``(-fx*tx*rho, -fy*ty*rho)`` px, measure photo-consistency against
-the centre, and aggregate.  This is the epipolar-geometry / EPI cue (all views
-agree along the correct slope) realised as a shift-and-compare cost volume, and
-it runs in a couple of seconds on a GPU.
-
-Robustness to reflections
--------------------------
-A mirror cube violates photo-consistency: the reflection is view-dependent, so a
-naive multi-view mean is dominated by the (disagreeing) specular views — exactly
-why ``depth_synth`` collapses on ``cube_1.0`` (21% coverage, ~1 m error).  We
-aggregate the per-view costs with a **robust truncated mean** (average of the
-best-agreeing fraction of views), which rejects the specular/occluded minority
-and locks onto the consistent diffuse structure.
-
-Pipeline (all GPU, all ground-truth-free)
------------------------------------------
-1. Per-view features: sRGB luminance + gradient magnitude (gradient matching is
-   robust to residual cross-view shading differences; sRGB tames bright specular
-   highlights).
-2. Cost volume over ``n_planes`` inverse-depth hypotheses: global-shift warp,
-   patch-aggregated abs-diff, robust cross-view truncated mean.
-3. Winner-take-all + parabolic sub-pixel interpolation -> metric depth.  No scale
-   alignment is ever done: the baselines are calibrated, so the depth is metric.
-4. Confidence from peak sharpness + match cost.
-5. Confidence-weighted, edge-aware least-squares smoothing (conjugate gradient on
-   inverse depth, guided by central-view edges) -> dense, smooth, hole-free.
-
-Nothing here reads the ground-truth depth; ``--mode estimate`` additionally
-*scores* the result against GT and against ``depth_synth`` so we can show it wins.
+--mode write saves depth_lf/ for main.py. --mode estimate scores vs GT and depth_synth.
 """
 
 from __future__ import annotations
@@ -72,51 +35,24 @@ from utils import linear_to_srgb
 # ──────────────────────────────────────────────────────────────────────────────
 @dataclass
 class LFDepthConfig:
-    # Inverse-depth sweep range (metres).  Fixed constants (GT-free): objects live
-    # at ~0.5-1.0 m, background out to ~7.5 m.  Uniform-in-inverse-depth sampling
-    # concentrates planes on the near (object) range where disparity — and hence
-    # matchability — is largest.
+    # All defaults mirror config.yaml; see config.yaml for comments.
     z_min: float = 0.30
     z_max: float = 6.0
     n_planes: int = 192
-
-    # Matching cost.  Gradient matching is weighted heavily over raw intensity:
-    # it is invariant to the residual cross-view shading differences these glossy
-    # surfaces show, which intensity matching would (wrongly) penalise.
-    patch: int = 7            # spatial aggregation window (odd)
-    grad_weight: float = 8.0  # weight of gradient-difference vs intensity-difference
-    robust_frac: float = 0.6  # fraction of best-agreeing views kept in the mean
+    patch: int = 7
+    grad_weight: float = 8.0
+    robust_frac: float = 0.6
     robust_min_views: int = 4
-
-    # Confidence (scale-free, robust to n_planes): a cost *margin* (how much the
-    # best plane beats the typical plane) gated by a *texture* term (matching is
-    # only trustworthy where the reference has gradient).  Low confidence regions
-    # are filled by the edge-aware smoothing from their confident neighbours.
-    tex_scale: float = 0.05   # reference gradient magnitude that maps to texture=1
-    conf_gamma: float = 1.0   # raises data confidence to this power before smoothing
-
-    # Edge-aware least-squares smoothing (on inverse depth).
-    smooth_lambda: float = 4.0   # smoothness vs data balance
-    edge_sigma: float = 0.06     # guide-gradient scale (sRGB luminance in [0,1])
-    edge_min_w: float = 0.02     # floor on edge weight (keeps the system connected)
-    cg_iters: int = 160          # CG iterations (mirror fill over big holes needs ~150)
-
-    # Mirror handling (requires an object mask).  A flat-faced mirror produces a
-    # multiview-consistent *virtual* image behind the surface, so the plane sweep
-    # confidently matches the reflected environment at far depth.  But the object
-    # physically occludes its background, so its true surface is the NEAR depth
-    # mode inside the mask: we reject masked matches farther than the near surface
-    # by a generous object-size margin and let the membrane fill from the near
-    # (higher-confidence) anchors + an image-edge-free interior.  No-op on diffuse/
-    # textured objects (their masked depth is already a single near mode).
+    tex_scale: float = 0.05
+    conf_gamma: float = 1.0
+    smooth_lambda: float = 4.0
+    edge_sigma: float = 0.06
+    edge_min_w: float = 0.02
+    cg_iters: int = 160
     mirror_reject: bool = True
-    mirror_near_pct: float = 0.10  # quantile of masked depth taken as the near surface
-    mirror_margin: float = 0.30    # metres kept beyond the near surface (object extent)
-    # The rejected region is filled as a harmonic membrane anchored by the real
-    # near-surface pixels around it (and initialised at the near surface so CG
-    # converges from the right basin).  A nonzero prior would instead flatten the
-    # fill toward a single near plane and wash out the true relief, so keep it 0.
-    mirror_prior_w: float = 0.0    # soft data weight pulling the fill toward the near surface
+    mirror_near_pct: float = 0.10
+    mirror_margin: float = 0.30
+    mirror_prior_w: float = 0.0
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -204,8 +140,7 @@ class LFPlaneSweepDepth:
         ty = centres[src_idx, 1]
         V = len(src_idx)
 
-        # Base sampling grid (normalised, align_corners=True) + a validity channel
-        # appended to the features so out-of-frame samples are detected per warp.
+        # Normalised base grid + validity channel (out-of-frame detection per warp).
         ys, xs = torch.meshgrid(
             torch.arange(H, device=self.device, dtype=torch.float32),
             torch.arange(W, device=self.device, dtype=torch.float32),
@@ -215,8 +150,7 @@ class LFPlaneSweepDepth:
         base_gy = 2.0 * ys / (H - 1) - 1.0
         src_aug = torch.cat([src_feat, torch.ones(V, 1, H, W, device=self.device)], 1)
 
-        # Uniform-in-inverse-depth planes == uniform disparity == uniform matching
-        # resolution, which concentrates planes on the near (object) range.
+        # Uniform inverse-depth = uniform disparity = finest resolution at near range.
         rhos = torch.linspace(
             1.0 / cfg.z_max, 1.0 / cfg.z_min, cfg.n_planes, device=self.device
         )                                          # ascending inverse depth (far -> near)
@@ -242,8 +176,7 @@ class LFPlaneSweepDepth:
             cost_v = (warp[:, 0] - ref_l).abs() + (warp[:, 1] - ref_g).abs()  # [V, H, W]
             cost_v = _box(cost_v, cfg.patch)
             cost_v = torch.where(valid, cost_v, cost_v.new_full((), 1e6))
-            # Robust aggregation: mean of the ``keep`` best-agreeing views.
-            sc, _ = torch.sort(cost_v, dim=0)
+            sc, _ = torch.sort(cost_v, dim=0)  # robust mean: keep best-agreeing views
             m = (rank < keep).float()
             cost_vol[p] = (sc * m).sum(0) / m.sum(0)
 
@@ -271,23 +204,15 @@ class LFPlaneSweepDepth:
         step = torch.where(delta >= 0, rho_hi - rho_at, rho_at - rho_lo)
         rho_data = (rho_at + delta * step).clamp(rhos.min(), rhos.max())
 
-        # Confidence = cost margin x texture.  Margin: how much the winning plane
-        # beats the typical (median) plane — scale-free and robust to n_planes,
-        # high only where the cost curve has a clear minimum.  Texture: matching is
-        # meaningless without reference gradient, so gate by it (this also makes the
-        # smoothing fill flat regions from their textured boundaries).
+        # Confidence = cost margin (winning vs median plane) × texture (reference gradient).
         cmed = cost_vol.median(0).values
         margin = ((cmed - minc) / (cmed + 1e-6)).clamp(0, 1)
         ref_grad = _grad_mag(ref_luma[None])[0]
         tex = (ref_grad / cfg.tex_scale).clamp(0, 1)
         conf = (margin * tex).clamp(0, 1) ** cfg.conf_gamma
 
-        # Mirror handling: inside the object mask, reject matches that fall beyond
-        # the near surface (the reflected virtual image), then fill smoothly.  The
-        # rejected pixels drop their (wrong, far) data term (conf -> mirror_prior_w,
-        # 0 by default) and are *seeded* at the near surface so the conjugate-gradient
-        # membrane — anchored by the surrounding real near-surface matches — converges
-        # to the surface instead of getting stuck near the far reflection.
+        # Mirror handling: reject masked matches beyond the near surface (virtual image),
+        # seed at the near surface so the CG membrane converges to the real surface.
         fill_region = None
         rho_solve, conf_solve = rho_data, conf
         depth_raw_m = 1.0 / rho_data.clamp_min(1e-6)
@@ -313,16 +238,9 @@ class LFPlaneSweepDepth:
         }
 
     def _edge_aware_solve(self, rho_data, conf, guide, mask=None, fill_region=None):
-        """Minimise  sum c (x - rho)^2  +  lam sum w_ij (x_i - x_j)^2  over x,
-        with per-edge weights ``w`` from central-view luminance gradients.  Solved
-        with conjugate gradient (matrix-free).  Fills holes (c≈0) by diffusion from
-        confident neighbours and smooths the surface.
-
-        With ``mask``/``fill_region`` set (mirror handling), edges are overridden:
-        the object/background boundary blocks diffusion (so the filled surface does
-        not bleed into the far background), while edges *inside* the rejected mirror
-        region are made fully smooth (so the membrane interpolates across the
-        reflection's texture instead of getting stuck on its false edges)."""
+        """CG solve: min_x sum c(x-rho)^2 + lam sum w_ij(x_i-x_j)^2.
+        Mirror mode: boundary edges block diffusion; interior mirror edges are smoothed
+        so the membrane interpolates across false specular texture."""
         cfg = self.cfg
         g = guide
         wh = torch.exp(-(g[:, 1:] - g[:, :-1]).abs() / cfg.edge_sigma).clamp_min(cfg.edge_min_w)
@@ -645,14 +563,12 @@ def main():
     refls = [r for r in args.refls.split(",") if r]
     seq_filter = set(s for s in args.seqs.split(",") if s) or None
 
-    estimator = LFPlaneSweepDepth()
+    estimator = LFPlaneSweepDepth()  # uses LFDepthConfig() defaults, which mirror config.yaml
 
     if args.mode == "write":
         for split, refl, seq, seq_path in _iter_sequences(args.dataset_root, splits, refls, seq_filter):
             out_dir = os.path.join(seq_path, "depth_lf")
-            # Resumable: skip only a COMPLETE depth_lf (file count matches the GT depth
-            # folder), so a sequence interrupted mid-write is regenerated, not left
-            # partial (a partial folder would mis-index in LFDataset).
+            # Skip only complete depth_lf (file count = GT depth folder); partial writes are regenerated.
             n_expected = len(os.listdir(os.path.join(seq_path, "depth")))
             if (args.limit is None and os.path.isdir(out_dir)
                     and len(os.listdir(out_dir)) >= n_expected and not args.overwrite):

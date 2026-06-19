@@ -1,13 +1,86 @@
-dataset-path: "data/jug_tilt_prod"
-exp-name: "jug_tilt_motion"
-pose-tracker:
-  init_opacity: 0.1
-  enable_viewer: false
-  n_develop_epochs: 1000
-  develop_lr: 0.001
-  max_gaussians: 15_000
-  n_pose_refine_epochs: 400
-  refine_lr: 0.001
-  enable_cache: false
-object-mesh-path: false
-upscale-model: 1
+# ReLiFT-6DoF — all tunable hyperparameters in one place.
+# Code reads this at startup via config.py.
+
+# ── paths ──────────────────────────────────────────────────────────────────────
+dataset_root: /home/ngoncharov/SpecTrack_dataset
+cache_root: cache/diffuse_corrected          # reflection-separation cache
+
+# ── pipeline switches ──────────────────────────────────────────────────────────
+separation_iters: 300                        # reflection-separation Adam steps per frame
+use_reflection_separation: true              # false → LoFTR on raw central view (ablation)
+enable_vis: false                            # open viser viewer during refinement
+alpha_stable_tol: 0.01                       # consecutive alpha estimates within this → stable
+pin_alpha: false                             # true → use known reflectivity; false → estimate from SLF
+refine_feed_forward: true                    # feed refined pose into the tracking backbone
+depth_sources: [gt]                          # gt | synth | lf  (overridden by --depth flag)
+split_prefixes: [cube, objects]
+reflectivities: ["0.0", "0.5", "0.7", "1.0"]
+
+# ── photometric refinement (RefineConfig) ─────────────────────────────────────
+refine:
+  # optimisation
+  num_iters: 60                              # Adam steps per pyramid level
+  lr_rot: 5.0e-3                             # rotation learning rate (6-D representation)
+  lr_trans: 1.0e-4                           # translation lr (metres); kept small, depth anchor pins it
+  cosine_decay: false                        # cosine LR anneal; inert at single scale
+  lambda_depth: 3.0                          # L1 depth-anchor weight; dominant translation knob
+  diffuse_mode: diffuse_shaded               # diffuse | diffuse_shaded | sh
+  diffuse_alpha_min: 0.2                     # skip diffuse stage on frames more specular than this
+  scales: [1.0]                              # pyramid render scales (coarse → fine)
+  accept_on_loss: true                       # keep result only if photometric loss improved
+  max_correction_deg: .inf                   # per-frame rollback cap (degrees); .inf = disabled
+  max_correction_trans: .inf                # per-frame rollback cap (metres);  .inf = disabled
+  patience_loss: 10                          # early-stop after N non-improving steps per level
+  min_rel_improve: 5.0e-3                    # minimum relative loss drop to count as improvement
+  update_every: 1                            # viewer update frequency (iterations)
+
+  # diffuse drift guard: reset backbone to pure-LoFTR when accumulated drift exceeds caps
+  drift_reset_deg: 10.0                      # rotation cap (degrees)
+  drift_reset_trans: 0.015                   # translation cap (metres)
+  drift_reset_alpha_min: 0.8                 # guard enabled only on diffuse frames (alpha ≥ this)
+
+  # relight stage — reflective frames only, requires a stable env map
+  relight: true
+  relight_alpha_max: 0.85                    # skip relight when alpha ≥ this (too diffuse)
+  lr_rot_relight: 3.0e-3                     # gentler: env map noisier than separated diffuse
+  lr_trans_relight: 2.0e-4
+  relight_min_correction_deg: 0.0            # discard corrections smaller than this (model noise floor)
+  relight_feed_forward: false                # feed relight pose forward independently (ablation)
+  relight_conf_floor: 0.15                   # weight floor for unobserved-env pixels in the relit loss
+
+# ── LF plane-sweep depth (LFDepthConfig) ──────────────────────────────────────
+lf_depth:
+  z_min: 0.30                                # near depth bound (metres)
+  z_max: 6.0                                 # far depth bound (metres)
+  n_planes: 192                              # inverse-depth hypotheses (uniform disparity)
+  patch: 7                                   # spatial cost-aggregation window (pixels, odd)
+  grad_weight: 8.0                           # gradient vs intensity cost weight
+  robust_frac: 0.6                           # fraction of views kept in the robust mean
+  robust_min_views: 4
+  tex_scale: 0.05                            # reference gradient magnitude → texture confidence = 1
+  conf_gamma: 1.0                            # confidence exponent before smoothing
+  smooth_lambda: 4.0                         # smoothness vs data trade-off in CG solve
+  edge_sigma: 0.06                           # guide-gradient scale (sRGB luminance [0,1])
+  edge_min_w: 0.02                           # floor on edge weight (keeps the CG system connected)
+  cg_iters: 160                              # conjugate-gradient iterations (mirror fill needs ~150)
+  mirror_reject: true                        # reject far-depth matches inside the object mask
+  mirror_near_pct: 0.10                      # quantile defining the near (true) surface
+  mirror_margin: 0.30                        # metres kept beyond the near surface
+  mirror_prior_w: 0.0                        # soft fill prior toward near surface (0 = pure membrane)
+
+# ── surface light field ────────────────────────────────────────────────────────
+slf:
+  footprint_scale: 0.5                       # Gaussian std as fraction of 1-pixel depth footprint; 0.5 halves formation MSE
+  sh_degree: 2
+
+# ── pose tracking ─────────────────────────────────────────────────────────────
+tracking:
+  min_loftr_inliers: 12                      # minimum LoFTR inliers to accept a relative pose
+
+# ── shading model (SoftPhong) ───────────────────────
+shading:
+  light_pos_cam: [0.0, -0.1, 0.0]           # light position in OpenCV camera frame
+  ambient:  [0.5, 0.5,  0.5]
+  diffuse:  [0.5, 0.4,  0.25]
+  specular: [0.5, 0.45, 0.35]
+  shininess: 64.0

@@ -1,13 +1,7 @@
-"""6-DoF pose tracking: LoFTR + ICP blended by reflectivity.
+"""6-DoF pose tracking: LoFTR + ICP geodesically blended by reflectivity.
 
-  reflectivity = 0  → LoFTR only
-  reflectivity = 1  → ICP only (geometry-only, no colors)
-  0 < r < 1         → geodesic blend: SLERP rotation, lerp translation
-
-When reflection separation is active, the caller passes diffuse RGB as
-``diffuse_prev/curr``; those same images are used for ICP colors so both
-branches see only the diffuse component.  At reflectivity = 1, ICP colors
-are set to None, forcing geometry-only alignment.
+reflectivity=0 → LoFTR only; reflectivity=1 → geometry-only ICP; intermediate → blend.
+Diffuse images feed both branches when separation is active.
 """
 
 from __future__ import annotations
@@ -26,7 +20,7 @@ from icp import (
     run_explorative_icp_with_centering,
 )
 
-MIN_INLIERS = 12
+from config import MIN_LOFTR_INLIERS as MIN_INLIERS
 
 
 def loftr_relative_pose(
@@ -183,16 +177,10 @@ def track_pose(
     color_curr: np.ndarray | None = None,
     rng: np.random.Generator | None = None,
 ) -> np.ndarray:
-    """New absolute pose blended by reflectivity = 1 - alpha.
+    """Absolute pose blended by reflectivity (= 1 - alpha).
 
-    reflectivity = 0  → LoFTR only (ICP skipped)
-    reflectivity = 1  → ICP only, geometry-only (colors suppressed, LoFTR skipped)
-    0 < r < 1         → both run; result is geodesic blend weighted by reflectivity
-
-    ``diffuse_prev/curr`` feed LoFTR and (when separation is active) ICP colors.
-    When reflectivity = 1, ICP receives no colors.
-    Falls back gracefully: if the needed branch fails, uses the other; if both
-    fail, holds the previous pose.
+    LoFTR and ICP each run where appropriate and fall back gracefully;
+    returns prev pose if both fail.
     """
     reflectivity = 1.0 - alpha
     icp_has_inputs = pc_prev is not None and pc_curr is not None

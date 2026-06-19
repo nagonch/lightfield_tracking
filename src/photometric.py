@@ -1,25 +1,10 @@
-"""Photometric pose refinement via Gaussian-splat rendering.
+"""Photometric pose refinement via differentiable Gaussian-splat rendering.
 
-The previous-frame surface light field (SLF) is a set of Gaussian splats with SH
-appearance.  To refine the coarse (LoFTR) pose we:
-
-  1. Transform the prev-frame Gaussians into the current camera with a candidate
-     pose and render them with gsplat (``SurfaceLightField.render_relit``):
-       • not relit → view-dependent colour from the SH coefficients, evaluated at
-         the pose-rotated view direction;
-       • relit     → ``alpha * diffuse + (1-alpha) * env_map[reflected_dir]``.
-     Both produce *precomputed* per-Gaussian colours fed to gsplat as direct RGB,
-     so the pose gradient flows through the Gaussian means (geometry) *and* the
-     colours (appearance) — fully differentiable, no scatter aliasing, no LK trick.
-  2. Compare the rendered source image against a pre-rendered render of the
-     *current* SLF (same gsplat path) and minimise a composite loss:
-       photometric MSE   (primary, linear space, over the object region)
-     + depth anchoring   (L1 between source and target rendered depth)
-     + pose magnitude    (angular + translation regularisation from the coarse init).
-
-All photometric quantities are kept in linear light; only the viser visualisation
-converts to sRGB for display.  Loss / translation-error / rotation-error curves are
-rendered with matplotlib and shown as camera-frustum images in the 3-D scene.
+Transforms prev-frame SLF Gaussians to the current camera under a candidate pose,
+renders via gsplat (with optional relighting), and minimises a composite loss:
+  photometric MSE (linear, object region) + L1 depth anchor + pose regularisation.
+Pose gradient flows through Gaussian means (geometry) and analytically-evaluated
+per-point colours (appearance).
 """
 
 from __future__ import annotations
@@ -93,20 +78,8 @@ def _curve_image(
 
 
 class PhotometricRefineViewer:
-    """Lightweight viser viewer for photometric refinement.
-
-    Displays in the 3-D scene the rendered-source / target / loss images as
-    camera frustums, the environment map, and live loss / translation-error /
-    rotation-error curves rendered as frustum images.
-
-    When ``show_gaussians`` is set, an interactive gsplat viewer
-    (nerfview + ``GsplatViewer``, mirroring ``gaussian_splatting/gs_vis.py``) is
-    attached to the same viser server: the source SLF (prev frame, transformed to
-    the current candidate pose) is rasterized live from the client camera, so you
-    can fly around the actual Gaussian splats and watch refinement move them. The
-    target SLF is never mixed into this render — it stays a separate comparison
-    image (the ``target`` frustum below), since combining both onto one render
-    would average over geometry from two different frames.
+    """Viser viewer: rendered source/target/loss frustums + live loss/error curves.
+    Optionally attaches an interactive gsplat viewer of the source SLF at the candidate pose.
     """
 
     def __init__(self, port: int = 8081, show_gaussians: bool = True):
@@ -358,12 +331,8 @@ class PhotometricRefineViewer:
 
 @dataclass
 class PhotometricContext:
-    """Pose-independent inputs for one photometric loss evaluation.
-
-    Everything here is fixed for a given (prev, curr) frame pair and pyramid
-    level; only the candidate ``pose_curr`` varies between evaluations.  Built
-    once by :func:`build_photometric_context` so the optimizer and any offline
-    analysis evaluate *exactly* the same loss.
+    """Fixed inputs for one photometric loss evaluation (one frame pair, one pyramid level).
+    Only pose_curr varies; built once by build_photometric_context.
     """
 
     slf_prev: SurfaceLightField  # source Gaussians (prev camera space)
@@ -371,8 +340,10 @@ class PhotometricContext:
     # [H, W, 3] source env observation-confidence broadcast (None → uniform). Used
     # to downweight reflected-into-UNOBSERVED env pixels in the relit photo loss, so
     # only env signal that was actually observed drives the pose. See conf_floor.
-    env_conf3_prev: torch.Tensor | None
-    conf_floor: float  # weight kept for fully-unobserved reflections (in [0, 1])
+    env_conf3_prev: (
+        torch.Tensor | None
+    )  # [H,W,3] env observation confidence; None → uniform
+    conf_floor: float  # weight floor for fully-unobserved env pixels
     alpha: float
     mode: str  # render appearance model ("diffuse" | "relit" | "sh" | "auto")
     inv_pose_prev: torch.Tensor  # [4, 4] camera_prev → object (prev)
@@ -408,17 +379,11 @@ def photometric_forward(
         mode=ctx.mode,
     )
 
-    # ── photometric residual over the object region ────────────────────────────
-    # Weight by the union of the target region and the source's current footprint
-    # so both silhouettes carry gradient even when the candidate pose is off.
+    # Union of target region and source footprint: both silhouettes carry gradient.
     w = (ctx.roi + src_mask.float()).clamp(max=1.0)
 
-    # Observation-confidence weighting (relit stage): downweight pixels whose
-    # reflected ray samples an UNOBSERVED env region (interpolated fill ≈ 3-4× worse
-    # than observed). Confidence is rendered at the candidate pose via the same
-    # equirect sampling (env replaced by the conf map, pure-reflection alpha=0), then
-    # detached — a stop-gradient robust mask, not an extra objective. conf_floor keeps
-    # a little weight so unobserved pixels still constrain silhouette/geometry.
+    # Relit stage: downweight pixels whose reflected ray samples unobserved env.
+    # Confidence rendered via the same equirect path, detached (stop-gradient mask).
     if ctx.env_conf3_prev is not None:
         with torch.no_grad():
             conf_img, _, _ = ctx.slf_prev.render_relit(
@@ -476,12 +441,8 @@ def build_photometric_context(
     env_conf_prev: torch.Tensor | None = None,
     conf_floor: float = 0.1,
 ) -> tuple[PhotometricContext, torch.Tensor]:
-    """Assemble a :class:`PhotometricContext` plus the [H,W,3] rendered target.
-
-    The target (current SLF) is rendered once at the requested pyramid ``scale``
-    via the same gsplat path as the source, using the same appearance ``mode`` so
-    source and target are pixel-comparable; pose reg is anchored at ``pose_coarse``.
-    Returns ``(ctx, tgt_img_hwc)``.
+    """Build a PhotometricContext and render the target [H,W,3] once at ``scale``.
+    Returns (ctx, tgt_img_hwc).
     """
     inv_pose_prev = torch.linalg.inv(torch.from_numpy(abs_pose_prev).float().to(device))
 
@@ -491,8 +452,7 @@ def build_photometric_context(
         )
         roi = tgt_mask.float()
 
-    # Confidence masking only applies to the relit stage (env reflection present).
-    env_conf3_prev = None
+    env_conf3_prev = None  # confidence masking only applies to the relit stage
     if mode == "relit" and env_conf_prev is not None and env_map_prev is not None:
         c = env_conf_prev.to(device=device, dtype=torch.float32)
         env_conf3_prev = c[..., None].expand(-1, -1, 3).contiguous()
@@ -526,134 +486,54 @@ def build_photometric_context(
 
 @dataclass
 class RefineConfig:
-    """Every hyperparameter governing photometric pose refinement.
+    """Hyperparameters for two-stage photometric pose refinement.
 
-    Built once and threaded through :func:`refine_pose_photometric` so all
-    experiments tweak exactly the same set of knobs.  The refinement runs in two
-    stages with a *consistent* appearance model each: a diffuse "fine" stage
-    always, then a relight "final" stage on reflective frames.
+    Stage 1 (diffuse): always run; matches separated diffuse appearance.
+    Stage 2 (relight): reflective frames only; matches alpha·diffuse + (1-alpha)·env[reflect].
+    All defaults mirror config.yaml; see config.yaml for rationale.
     """
 
     # optimisation (per pyramid level)
-    num_iters: int = 60  # max Adam steps per level
-    lr_rot: float = 5e-3  # learning rate for the rotation correction (6-D)
-    lr_trans: float = 1e-4  # learning rate for the translation correction dt (m).
-    #   A free dt lets the optimiser place the object so the rotation gradient stays
-    #   pure rotation (otherwise rotation absorbs the coarse pose's translation error;
-    #   measured: freezing dt worsens rotation 1.15°→1.34° on sugar_box1). But a free
-    #   dt also drifts: the photometric loss minimum in translation sits ~1 mm off GT
-    #   (splat-aliasing floor), so dt slides the object there. Halved from 2e-4 to damp
-    #   the residual oscillation; the depth anchor below is what actually pins it.
-    cosine_decay: bool = False  # OFF — tuning showed it's inert on the (now single)
-    #   level: rotation converges in <30 iters regardless and the per-iter curves are
-    #   unchanged with/without the anneal. Kept as a knob for the relight basin.
-
-    # composite-loss weight. lambda_depth pins TRANSLATION to the GT-depth surface.
-    # This is the dominant translation knob: at the old 0.1 the free dt drifted up
-    # (~0.7 mm → ~1.5 mm over a fit) and refinement REGRESSED translation vs LoFTR on
-    # 53% of cube_0.0 frames; at 3.0 the drift is anchored out (regressions → 40%,
-    # mean 2.51 → 2.43 mm) with no rotation cost. (Photo-only, lambda_depth=0, is
-    # worst — translation has no anchor.) Higher (10) shaves a little more but starts
-    # diluting rotation on near-symmetric objects (a cylinder's depth is rotation-
-    # invariant about its axis), so 3.0 is the balance.
-    lambda_depth: float = 3.0
-
-    # Diffuse appearance model for the fine stage. "diffuse_shaded" recovers the
-    # intrinsic albedo (un-shades the separated diffuse with the dataset's SoftPhong
-    # model, see src.shading) and RE-shades it at each candidate pose, so a rotation
-    # re-shades the surface like the original renderer instead of rigidly carrying a
-    # frozen shaded colour. On real data this matches a rotated frame far better than
-    # the bake (objects 45° pair: on-data MSE 2.4e-2→9.0e-3) and never worse near GT;
-    # it round-trips exactly at the canonical pose. "diffuse" = legacy frozen bake.
-    diffuse_mode: str = "diffuse_shaded"
-
-    # the diffuse stage is skipped on reflective frames (alpha ≤ this): a mirror
-    # has no view-independent diffuse signal, so the separated diffuse colour is
-    # meaningless and its loss basin is displaced 5–10° from GT (measured). Those
-    # frames are refined by the relight stage instead.
-    diffuse_alpha_min: float = 0.2
-
-    # Render-scale pyramid (coarse → fine). Single scale by default: A/B tuning
-    # showed the 0.5 coarse level is INERT on the diffuse stage (C0 pyramid ≈ C1
-    # single-scale on every sequence) — it just adds a blurry pass that can pull the
-    # pose off the LoFTR init for no gain, while the LoFTR coarse is already inside
-    # the single-scale capture basin (convex to ±15°). Kept as a knob (e.g. (0.5, 1.0)
-    # could still widen the relight basin for a far-off mirror coarse).
+    num_iters: int = 60
+    lr_rot: float = 5e-3
+    lr_trans: float = (
+        1e-4  # free dt avoids rotation absorbing translation error; depth anchor pins it
+    )
+    cosine_decay: bool = False
+    lambda_depth: float = 3.0  # L1 depth anchor weight; dominant translation knob
+    diffuse_mode: str = (
+        "diffuse_shaded"  # re-shades at candidate pose; "diffuse" = frozen bake
+    )
+    diffuse_alpha_min: float = (
+        0.2  # skip diffuse stage on frames more specular than this
+    )
     scales: tuple[float, ...] = (1.0,)
-
-    # relight ("final") stage — only fires on reflective frames with a stable env map.
-    # DEFAULT OFF: the relit loss basin is correct (bottoms ≤1.5° from GT — the
-    # reflection IS a valid pose cue) but its appearance-model floor (env-map res,
-    # PCA normals, alpha) plus a narrow ~12° basin make it net-negative against
-    # accurate GT-depth ICP — it nudges good coarse poses (cube_1.0 5.3°→6.2°,
-    # objects_1.0 17.0°→17.4°) toward its bias and can't reach far-off ones. Enable
-    # for studies / lower-quality coarse (e.g. synth depth) where coarse ≫ floor.
-    relight: bool = False
-    relight_alpha_max: float = 0.85  # run relight only when alpha < this (reflective)
-    lr_rot_relight: float = 3e-3  # gentler: the env map is noisier than diffuse
-    lr_trans_relight: float = 2e-4
-    # Relight has an appearance-model accuracy floor (~2–3°: env-map resolution,
-    # PCA-normal and alpha error). A relight rotation correction SMALLER than this
-    # is within its own noise, so it is reverted — this is what stops relight from
-    # nudging an already-good ICP pose (cube_1.0, coarse <3°) toward its biased
-    # basin, while still letting a LARGE correction through on a poor coarse
-    # (reflective objects, coarse ≫ floor) where the signal dominates the noise.
-    relight_min_correction_deg: float = 3.0
-    # Per-knob feed-forward of the RELIGHT stage specifically (independent of the
-    # whole-pose feed-forward in main.track_sequence). Defaults OFF: an early test
-    # with a SEPARATED env map diverged (cube_1.0 bleach0 15°→29°) because the env/
-    # normal/alpha imperfection leaves a ~1.5° basin bias that recycling compounds.
-    # The landed pipeline instead feeds the WHOLE refined pose forward (main's
-    # REFINE_FEED_FORWARD) guarded by the alpha-gated drift reset below, which makes
-    # reflective feed-forward a net win with an accurate env map — so this finer knob
-    # stays off and is kept only as an ablation lever.
-    relight_feed_forward: bool = False
-    # Observation-confidence masking for the relit stage: when a per-pixel env
-    # confidence map is supplied (separated env only — GT env is fully valid), the
-    # relit photo loss downweights pixels whose reflection samples UNobserved env to
-    # this floor (0 = ignore unobserved entirely, 1 = legacy uniform weighting). The
-    # interpolated env fill is ~3-4× worse than the observed env, so trusting only
-    # observed reflections moves est tracking toward the GT-env behaviour. 0.15 chosen
-    # by a floor sweep over the most reflective cube sequences: it gives the largest,
-    # most consistent TRANSLATION gain (cube_1.0/0.7: ATE ~−20-35% toward the GT-env
-    # bound) while keeping ~15% weight on unobserved pixels so rotation stays
-    # constrained (a harder floor underconstrains a near-mirror's rotation).
-    relight_conf_floor: float = 0.15
-
-    # safety: keep a stage's result only if it lowered the photometric loss vs its
-    # own init. Guarantees "refine never increases the loss it optimises".
-    accept_on_loss: bool = True
-
-    # Drift rollback: a per-frame refinement should be a SMALL correction to a good
-    # coarse pose. If the total correction (refined vs the LoFTR coarse) exceeds these
-    # caps, the optimiser has almost certainly wandered into a wrong basin (occlusion,
-    # fast motion, separation/relight failure) — discard it and fall back to the coarse
-    # pose. This is the check-and-balance that makes feeding the refined pose forward
-    # safe (a bad frame can't poison the backbone) and stops the per-frame overlay from
-    # regressing a sequence. Defaults are generous (study-mode); production should set
-    # them to a few × the typical inter-frame motion.
-    max_correction_deg: float = 1e9
-    max_correction_trans: float = 1e9  # metres
-
-    # Feed-forward drift guard (main.track_sequence): when the refined pose is fed
-    # forward, a small systematic per-frame bias accumulates over a long sequence. If
-    # the fed-forward pose diverges from the independent pure-LoFTR reference by more
-    # than these, reset the backbone to that reference ("rollback to LoFTR, move on").
-    # Bounds drift while keeping the large per-frame feed-forward gains.
-    drift_reset_deg: float = 1e9
-    drift_reset_trans: float = 1e9  # metres
-    # The guard falls back to the pure-LoFTR pose, so it only makes sense where LoFTR
-    # is TRUSTWORTHY — i.e. diffuse frames. On reflective frames LoFTR is the thing
-    # the relight refine is beating (it can be ~30 mm off), so falling back to it
-    # reverts the gains. Apply the guard only when alpha ≥ this (mostly-diffuse).
-    drift_reset_alpha_min: float = 0.8
-
-    # early stopping (per level)
-    patience_loss: int = 10  # steps of no loss improvement before cutting a level
-    min_rel_improve: float = 5e-3  # relative loss drop that counts as "improvement"
-
-    # viewer
+    accept_on_loss: bool = True  # keep result only if it lowered the loss it optimised
+    max_correction_deg: float = (
+        1e9  # per-frame rollback cap; tighten to prevent basin drift
+    )
+    max_correction_trans: float = 1e9
+    patience_loss: int = 10
+    min_rel_improve: float = 5e-3
     update_every: int = 1
+
+    # feed-forward drift guard
+    drift_reset_deg: float = 1e9
+    drift_reset_trans: float = 1e9
+    drift_reset_alpha_min: float = (
+        0.8  # guard only on diffuse frames where LoFTR is reliable
+    )
+
+    # relight stage
+    relight: bool = False
+    relight_alpha_max: float = 0.85
+    lr_rot_relight: float = 3e-3
+    lr_trans_relight: float = 2e-4
+    relight_min_correction_deg: float = (
+        3.0  # noise-floor gate; discard small corrections
+    )
+    relight_feed_forward: bool = False  # ablation lever; whole-pose FF is in main.py
+    relight_conf_floor: float = 0.15  # weight floor for unobserved-env pixels
 
 
 def _optimise_stage(
@@ -677,15 +557,8 @@ def _optimise_stage(
     diag: list[dict] | None,
     loss_history: list[float],
 ) -> np.ndarray:
-    """One refinement stage: joint 6-DoF optimisation under a single appearance
-    ``mode`` (``"diffuse"`` or ``"relit"``), coarse-to-fine.
-
-    Honest parameterisation — what is optimised is what is reported:
-        ``pose = [dR @ R0 | t0 + dt]``  with ``R0, t0`` the stage init.
-    The pose gradient flows through gsplat geometry and the analytic appearance.
-    Rotation about the object origin keeps the optimisation/report poses identical
-    (no lever-arm gauge games); ``dt`` (when ``lr_trans>0``) and the depth term
-    co-determine translation.  Returns the refined pose (np.float64).
+    """Joint 6-DoF Adam optimisation under appearance ``mode``, coarse-to-fine.
+    pose = [dR @ R0 | t0 + dt] with R0, t0 the stage init. Returns np.float64 pose.
     """
     device = "cuda"
     R0 = torch.from_numpy(pose_init[:3, :3]).float().to(device).detach()
@@ -749,11 +622,15 @@ def _optimise_stage(
             loss, _components, aux = photometric_forward(ctx, pose_curr)
             loss_val = loss.item()
             loss_history.append(loss_val)
-            best_pose = pose_curr.detach().cpu().numpy().astype(np.float64)
+
+            if not np.isfinite(loss_val):
+                break  # NaN/Inf loss — keep best_pose from previous step
+
+            pose_np = pose_curr.detach().cpu().numpy().astype(np.float64)
 
             if diag is not None and gt_pose_curr is not None:
-                rot_e = _rot_err_deg_np(best_pose[:3, :3], gt_pose_curr[:3, :3])
-                trans_e = float(np.linalg.norm(best_pose[:3, 3] - gt_pose_curr[:3, 3]))
+                rot_e = _rot_err_deg_np(pose_np[:3, :3], gt_pose_curr[:3, :3])
+                trans_e = float(np.linalg.norm(pose_np[:3, 3] - gt_pose_curr[:3, 3]))
                 diag.append(
                     {
                         "stage": stage,
@@ -769,6 +646,7 @@ def _optimise_stage(
 
             if loss_val < best_level_loss * (1.0 - cfg.min_rel_improve):
                 best_level_loss = loss_val
+                best_pose = pose_np
                 no_improve = 0
             else:
                 no_improve += 1
@@ -820,7 +698,7 @@ def _optimise_stage(
             final_loss = photometric_forward(
                 ctx, torch.from_numpy(best_pose).float().to(device)
             )[0].item()
-        if final_loss > base_loss:
+        if not np.isfinite(final_loss) or final_loss > base_loss:
             return pose_init.copy()
     return best_pose
 
@@ -842,20 +720,10 @@ def refine_pose_photometric(
 ) -> tuple[np.ndarray, list[float]]:
     """Two-stage photometric pose refinement on top of the coarse (LoFTR/ICP) pose.
 
-    Stage 1 — FINE (diffuse): always run.  Matches the prev SLF's separated
-    diffuse appearance (``mode="diffuse"``, env map off) against the current SLF's
-    diffuse render.  This is the view-independent Lambertian channel, so it is
-    free of specular contamination and consistent across pyramid levels.
-
-    Stage 2 — FINAL (relight): run only on reflective frames (``alpha <
-    relight_alpha_max``) once a stable env map is available.  Matches the *relit*
-    appearance ``alpha·diffuse + (1-alpha)·env[reflect]``; the specular reflection
-    sweeps as the object rotates, supplying a rotation cue that pure geometry/ICP
-    and the low-contrast diffuse channel lack at high reflectivity.
-
-    Both stages render source and target through the same differentiable gsplat
-    path (``SurfaceLightField.render_relit``); each is gated so it can only lower
-    the loss it optimises.  Returns ``(refined_abs_pose [4,4] float64, loss_hist)``.
+    Stage 1 (diffuse): matches separated diffuse appearance; skipped on reflective frames.
+    Stage 2 (relight): matches alpha·diffuse + (1-alpha)·env[reflect]; reflective only.
+    Each stage is gated to only keep results that lower the loss.
+    Returns (refined_abs_pose [4,4] float64, loss_history).
     """
     cfg = cfg or RefineConfig()
     loss_history: list[float] = []
