@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -260,7 +259,12 @@ def estimate_alpha(colors, valid, view_dirs, normals, stat_history=None):
             history,
         )  # no evidence -> assume near-diffuse (safe path)
     if len(history) >= ALPHA_ACCUM_MIN_FRAMES:
-        agg = float(np.percentile(np.asarray(history), ALPHA_ACROSS_Q * 100.0))
+        # torch.quantile uses linear interpolation, matching np.percentile's default.
+        agg = float(
+            torch.quantile(
+                torch.tensor(history, dtype=torch.float32), ALPHA_ACROSS_Q
+            )
+        )
         alpha = _stat_to_alpha(agg, ALPHA_CAL_ACCUM)
     else:
         alpha = _stat_to_alpha(history[-1], ALPHA_CAL_SINGLE)

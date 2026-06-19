@@ -27,8 +27,10 @@ from config import (
     SPLIT_PREFIXES,
     REFLECTIVITIES,
     REFINE_CFG,
+    LF_DEPTH_CFG,
 )
 from icp import rebase_poses
+from lf_depth import LFPlaneSweepDepth
 from loftr_baseline import DEPTH_ZNEAR, DEPTH_ZFAR
 from loftr_wrapper import LoftrRunner
 from src.dataset import LFDataset
@@ -106,8 +108,15 @@ def track_sequence(
     gt_env: torch.Tensor | None = None,
     feed_forward: bool = False,
     collect: dict | None = None,
+    no_cache_separation: bool = False,
+    depth_estimator: LFPlaneSweepDepth | None = None,
 ) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
-    dataset = LFDataset(seq_path, depth_source=depth_source)
+    # Live LF depth: compute plane-sweep depth per frame from the loaded LF instead
+    # of reading pre-written depth_lf/. The dataset still needs a real depth folder
+    # to index frames, so carry "synth" (always present) and override per frame.
+    live_lf_depth = depth_estimator is not None and depth_source == "lf"
+    ds_depth_source = "synth" if live_lf_depth else depth_source
+    dataset = LFDataset(seq_path, depth_source=ds_depth_source)
     s_size, t_size = dataset.metadata["n_views"]
 
     # GT-refine: the fully-diffuse (0.0) dataset provides ground-truth per-point
@@ -137,8 +146,14 @@ def track_sequence(
                 break
             gt_poses.append(frame["object_pose"].cpu().numpy())
 
-            depth = frame["depth"]
             mask = frame["masks"][s_size // 2, t_size // 2]
+            # Live plane-sweep depth (GPU tensor) replaces the disk depth for
+            # depth=lf when caching is disabled; otherwise use the loaded depth.
+            if live_lf_depth:
+                bar.set_postfix(fr=i, stage="lf-depth")
+                depth = depth_estimator.estimate(frame, mask=mask)["depth"]
+            else:
+                depth = frame["depth"]
 
             if separate:
                 bar.set_postfix(fr=i, stage="separate")
@@ -154,7 +169,11 @@ def track_sequence(
                         alpha=alpha,
                         s_size=s_size,
                         t_size=t_size,
-                        cache_path=os.path.join(cache_dir, f"diffuse_{i:04d}.png"),
+                        cache_path=(
+                            None
+                            if no_cache_separation
+                            else os.path.join(cache_dir, f"diffuse_{i:04d}.png")
+                        ),
                         iterations=SEPARATION_ITERS,
                         verbose=True,
                         previous_environment_map=prev_env if was_stable else None,
@@ -333,7 +352,9 @@ def track_sequence(
     return coarse_errs, refined_errs
 
 
-def build_work_list(exp_name: str, depth_sources: list[str]) -> list[dict]:
+def build_work_list(
+    exp_name: str, depth_sources: list[str], no_cache_depth: bool = False
+) -> list[dict]:
     work = []
     for depth_source in depth_sources:
         for split_prefix in SPLIT_PREFIXES:
@@ -347,11 +368,14 @@ def build_work_list(exp_name: str, depth_sources: list[str]) -> list[dict]:
                     seq_path = os.path.join(split_dir, sequence_name)
                     if not os.path.isdir(seq_path) or sequence_name == "models":
                         continue
-                    if depth_source == "lf" and not os.path.isdir(
-                        os.path.join(seq_path, "depth_lf")
+                    if (
+                        depth_source == "lf"
+                        and not no_cache_depth
+                        and not os.path.isdir(os.path.join(seq_path, "depth_lf"))
                     ):
                         logging.warning(
-                            "depth_lf missing for %s — run `./run_lf_depth.sh write` first; skipping",
+                            "depth_lf missing for %s — run `./run_lf_depth.sh write` first "
+                            "(or pass --no-cache-depth to compute it live); skipping",
                             f"{tag}/{sequence_name}",
                         )
                         continue
@@ -397,6 +421,18 @@ def main() -> None:
         default=None,
         help="Stop each sequence after this many frames (useful for smoke tests).",
     )
+    parser.add_argument(
+        "--no-cache-separation",
+        action="store_true",
+        help="Recompute reflection separation every frame instead of reading the "
+        "diffuse cache (for honest timing / fresh experiments).",
+    )
+    parser.add_argument(
+        "--no-cache-depth",
+        action="store_true",
+        help="Compute LF plane-sweep depth live in the main loop (depth=lf) instead "
+        "of reading pre-written depth_lf/. No-op for depth=gt|synth.",
+    )
     args = parser.parse_args()
 
     depth_sources = (
@@ -419,10 +455,21 @@ def main() -> None:
     refine_cfg = REFINE_CFG
 
     logging.info("refine=%s  gt=%s  → %s", use_refine, use_gt, exp_name)
+    logging.info(
+        "cache: separation=%s  lf_depth=%s",
+        "off (live)" if args.no_cache_separation else "on",
+        "off (live)" if args.no_cache_depth else "on",
+    )
 
     loftr = LoftrRunner()
     rng = np.random.default_rng(seed=42)
-    work = build_work_list(exp_name, depth_sources)
+    # Live LF plane-sweep depth estimator (only when needed); reused across sequences.
+    depth_estimator = (
+        LFPlaneSweepDepth(LF_DEPTH_CFG)
+        if args.no_cache_depth and "lf" in depth_sources
+        else None
+    )
+    work = build_work_list(exp_name, depth_sources, no_cache_depth=args.no_cache_depth)
 
     gt_env = (
         _load_env_linear("/home/ngoncharov/cvpr2026/ycbv-eoat-lf/env2.jpg")
@@ -464,6 +511,8 @@ def main() -> None:
                     reflectivity=float(item["reflectivity"]),
                     gt_env=gt_env,
                     feed_forward=REFINE_FEED_FORWARD,
+                    no_cache_separation=args.no_cache_separation,
+                    depth_estimator=depth_estimator,
                 )
             except Exception:
                 logging.exception("%s: FAILED", item["tag"])
