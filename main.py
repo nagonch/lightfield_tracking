@@ -10,6 +10,7 @@ Runs over every {depth source} × {split} × {reflectivity} × {sequence}, rebas
 the estimated trajectory to the GT frame-0 pose, and saves it as <sequence>.npy.
 """
 
+import argparse
 import logging
 import os
 from dataclasses import replace
@@ -505,7 +506,7 @@ def track_sequence(
     return coarse_errs, refined_errs
 
 
-def build_work_list() -> list[dict]:
+def build_work_list(exp_name: str) -> list[dict]:
     work = []
     for depth_source in DEPTH_SOURCES:
         for split_prefix in SPLIT_PREFIXES:
@@ -527,7 +528,7 @@ def build_work_list() -> list[dict]:
                                 # fully-diffuse (0.0) version of the same sequence —
                                 # the GT diffuse appearance source for the experiment.
                                 "gt0_seq_path": f"{DATASET_ROOT}/{split_prefix}_0.0/{sequence_name}",
-                                "results_dir": f"{EXP_NAME}/{tag}",
+                                "results_dir": f"{exp_name}/{tag}",
                                 "cache_dir": f"{CACHE_ROOT}/{tag}/{sequence_name}",
                                 "tag": f"{tag}/{sequence_name}",
                             }
@@ -536,21 +537,37 @@ def build_work_list() -> list[dict]:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="ReLiFT-6DoF ablation runner")
+    parser.add_argument("--refine", action="store_true", help="Enable photometric refinement")
+    parser.add_argument("--gt", action="store_true", help="Use GT appearance in refinement (GT-refine experiment)")
+    args = parser.parse_args()
+
+    use_refine = args.refine
+    use_gt = args.refine and args.gt
+
+    if not use_refine:
+        exp_name = "ablation_loftr"
+    elif use_gt:
+        exp_name = "ablation_refine_gt"
+    else:
+        exp_name = "ablation_refine_est"
+
+    pin_alpha = PIN_ALPHA
+    refine_cfg = REFINE_CFG
+    if use_gt:
+        pin_alpha = False
+        refine_cfg = replace(REFINE_CFG, relight_min_correction_deg=0.0)
+
+    logging.info("Ablation: refine=%s  gt=%s  → %s", use_refine, use_gt, exp_name)
+
     loftr = LoftrRunner()
     rng = np.random.default_rng(seed=42)
-    work = build_work_list()
+    work = build_work_list(exp_name)
 
-    gt_env = _load_env_linear(GT_ENV_PATH) if GT_REFINE_EXPERIMENT else None
-    if GT_REFINE_EXPERIMENT:
-        logging.info(
-            "GT-REFINE experiment: coarse=LoFTR(separated, alpha estimated) | "
-            "refine=GT diffuse(0.0)+GT env+GT alpha | splits %s → %s",
-            REFLECTIVITIES,
-            EXP_NAME,
-        )
+    gt_env = _load_env_linear(GT_ENV_PATH) if use_gt else None
 
     viewer = None
-    if USE_PHOTOMETRIC_REFINE and ENABLE_VIS:
+    if use_refine and ENABLE_VIS:
         viewer = PhotometricRefineViewer(port=8081)
 
     with tqdm(work, desc="sequences", unit="seq", dynamic_ncols=True) as bar:
@@ -569,15 +586,15 @@ def main() -> None:
                     results_dir=item["results_dir"],
                     cache_dir=item["cache_dir"],
                     sequence_name=item["sequence_name"],
-                    alpha=(1.0 - float(item["reflectivity"])) if PIN_ALPHA else None,
+                    alpha=(1.0 - float(item["reflectivity"])) if pin_alpha else None,
                     depth_source=item["depth_source"],
                     loftr=loftr,
                     rng=rng,
                     separate=USE_REFLECTION_SEPARATION,
-                    refine=USE_PHOTOMETRIC_REFINE,
+                    refine=use_refine,
                     viewer=viewer,
-                    refine_cfg=REFINE_CFG,
-                    gt_refine=GT_REFINE_EXPERIMENT,
+                    refine_cfg=refine_cfg,
+                    gt_refine=use_gt,
                     gt0_seq_path=item.get("gt0_seq_path"),
                     reflectivity=float(item["reflectivity"]),
                     gt_env=gt_env,
