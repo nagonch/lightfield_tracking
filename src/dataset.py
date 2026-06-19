@@ -45,7 +45,9 @@ class LFDataset:
         )
         self.size = len(self.frames)
         self.camera_poses_dir = os.path.join(self.folder, "camera_poses")
-        depth_subfolder = "depth_synth" if depth_source == "synth" else "depth"
+        depth_subfolder = {"synth": "depth_synth", "lf": "depth_lf"}.get(
+            depth_source, "depth"
+        )
         self.depth_dir = os.path.join(self.folder, depth_subfolder)
         self.depth_fnames = list(sorted(os.listdir(self.depth_dir)))
 

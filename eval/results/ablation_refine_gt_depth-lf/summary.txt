@@ -1,0 +1,74 @@
+Cube (LF depth)
+──────────────────────────────────────────────────────────────────────────
+                                     ADD↑ AUC ADD-S↑ AUC ATE↓ (m) Rot↓ (°)
+split    sequence                                                         
+cube_0.0 bleach0                       0.8309     0.8309   0.0137     4.79
+         bleach_hard_00_03_chaitanya   0.8841     0.8841   0.0102     2.57
+         cracker_box_reorient          0.8864     0.8864   0.0095     2.91
+         cracker_box_yalehand0         0.6763     0.6789   0.0385     8.67
+         mustard0                      0.8258     0.8258   0.0091     6.08
+         mustard_easy_00_02            0.8730     0.8730   0.0118     2.69
+         sugar_box1                    0.8230     0.8230   0.0106     5.62
+         sugar_box_yalehand0           0.8914     0.8914   0.0078     3.47
+split    sequence                               
+cube_0.0 ── Average ── 0.8364 0.8367 0.0139 4.60
+··········································································
+split    sequence                                             
+cube_0.5 bleach0                     0.6735 0.6735 0.0322 6.84
+         bleach_hard_00_03_chaitanya 0.7828 0.7828 0.0233 2.40
+         cracker_box_reorient        0.8505 0.8505 0.0150 2.24
+         cracker_box_yalehand0       0.6500 0.6505 0.0394 9.19
+         mustard0                    0.7800 0.7800 0.0171 6.46
+         mustard_easy_00_02          0.8747 0.8747 0.0133 2.08
+         sugar_box1                  0.7132 0.7132 0.0203 8.99
+         sugar_box_yalehand0         0.8217 0.8217 0.0168 4.85
+split    sequence                               
+cube_0.5 ── Average ── 0.7683 0.7684 0.0222 5.38
+······························································
+split    sequence                                              
+cube_0.7 bleach0                     0.5923 0.5923 0.0398  8.85
+         bleach_hard_00_03_chaitanya 0.7864 0.7864 0.0225  2.91
+         cracker_box_reorient        0.8510 0.8510 0.0146  2.91
+         cracker_box_yalehand0       0.6372 0.6444 0.0427 10.67
+         mustard0                    0.7551 0.7551 0.0181  7.55
+         mustard_easy_00_02          0.8725 0.8725 0.0135  1.72
+         sugar_box1                  0.6777 0.6777 0.0250  9.76
+         sugar_box_yalehand0         0.8153 0.8153 0.0171  4.76
+split    sequence                               
+cube_0.7 ── Average ── 0.7484 0.7493 0.0242 6.14
+·······························································
+split    sequence                                              
+cube_1.0 bleach0                     0.3203 0.3478 0.0787 27.07
+         bleach_hard_00_03_chaitanya 0.5237 0.5237 0.0530  5.78
+         cracker_box_reorient        0.5523 0.5525 0.1481 12.01
+         cracker_box_yalehand0       0.3400 0.3428 0.1009 19.20
+         mustard0                    0.3593 0.3612 0.2125 17.51
+         mustard_easy_00_02          0.5586 0.5586 0.0436  7.55
+         sugar_box1                  0.3012 0.3061 0.0411 24.46
+         sugar_box_yalehand0         0.5270 0.5270 0.0537  7.39
+split    sequence                                
+cube_1.0 ── Average ── 0.4353 0.4400 0.0915 15.12
+·······························································
+
+Objects (LF depth)
+─────────────────────────────────────────────────────────────────────────────
+                                        ADD↑ AUC ADD-S↑ AUC ATE↓ (m) Rot↓ (°)
+split       sequence                                                         
+objects_0.0 bleach0                       0.7386     0.8677   0.0252    12.20
+            bleach_hard_00_03_chaitanya   0.7903     0.8911   0.0207    11.83
+            cracker_box_reorient          0.8465     0.9141   0.0151     5.92
+            cracker_box_yalehand0         0.7793     0.8512   0.0483    11.62
+            mustard0                      0.8653     0.9252   0.0078     9.88
+            mustard_easy_00_02            0.8689     0.9265   0.0118     7.93
+            sugar_box1                    0.8210     0.9033   0.0142    12.42
+            sugar_box_yalehand0           0.8077     0.9004   0.0164    11.07
+split       sequence                                
+objects_0.0 ── Average ── 0.8147 0.8974 0.0199 10.36
+·············································································
+split       sequence                                              
+objects_0.5 bleach0                     0.6945 0.8428 0.0221 18.29
+            bleach_hard_00_03_chaitanya 0.7147 0.8434 0.0290  9.98
+            cracker_box_reorient        0.8364 0.9076 0.0119  7.83
+split       sequence                                
+objects_0.5 ── Average ── 0.7485 0.8646 0.0210 12.03
+··································································

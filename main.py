@@ -211,7 +211,7 @@ def _save_refine_vis(
     im.save(os.path.join(save_dir, f"frame_{i:04d}.png"))
 
 
-DEPTH_SOURCES = ["gt"]  # "gt" | "synth"
+DEPTH_SOURCES = ["gt"]  # "gt" | "synth" | "lf" (override with main.py --depth)
 SPLIT_PREFIXES = ["cube", "objects"]
 # LoFTR must fight the reflection → reflective splits only for the GT-refine study.
 REFLECTIVITIES = ["0.0", "0.5", "0.7", "1.0"]
@@ -243,7 +243,10 @@ def track_sequence(
 
     # GT-refine: fully-diffuse (0.0) render gives GT per-point diffuse; GT alpha is the
     # known diffuse fraction. The separator still runs alpha-free for the coarse stage.
-    gt_ds0 = LFDataset(gt0_seq_path, depth_source=depth_source) if gt_refine else None
+    # Only the central-view appearance is read from gt_ds0 (depth is unused), so pin it
+    # to "gt" — this keeps the GT-refine path independent of which depth_source is under
+    # test (an lf run does not also need depth_lf written for the 0.0 split).
+    gt_ds0 = LFDataset(gt0_seq_path, depth_source="gt") if gt_refine else None
     gt_alpha = 1.0 - reflectivity
     vis_dir = os.path.join(results_dir, "vis", sequence_name)
 
@@ -533,21 +536,31 @@ def build_work_list(exp_name: str) -> list[dict]:
                 tag = f"{depth_source}/{split_prefix}_{reflectivity}"
                 for sequence_name in sorted(os.listdir(split_dir)):
                     seq_path = os.path.join(split_dir, sequence_name)
-                    if os.path.isdir(seq_path):
-                        work.append(
-                            {
-                                "depth_source": depth_source,
-                                "reflectivity": reflectivity,
-                                "sequence_name": sequence_name,
-                                "seq_path": seq_path,
-                                # fully-diffuse (0.0) version of the same sequence —
-                                # the GT diffuse appearance source for the experiment.
-                                "gt0_seq_path": f"{DATASET_ROOT}/{split_prefix}_0.0/{sequence_name}",
-                                "results_dir": f"{exp_name}/{tag}",
-                                "cache_dir": f"{CACHE_ROOT}/{tag}/{sequence_name}",
-                                "tag": f"{tag}/{sequence_name}",
-                            }
+                    if not os.path.isdir(seq_path) or sequence_name == "models":
+                        continue
+                    if depth_source == "lf" and not os.path.isdir(
+                        os.path.join(seq_path, "depth_lf")
+                    ):
+                        logging.warning(
+                            "depth_lf missing for %s — run `./run_lf_depth.sh write` "
+                            "first; skipping",
+                            f"{tag}/{sequence_name}",
                         )
+                        continue
+                    work.append(
+                        {
+                            "depth_source": depth_source,
+                            "reflectivity": reflectivity,
+                            "sequence_name": sequence_name,
+                            "seq_path": seq_path,
+                            # fully-diffuse (0.0) version of the same sequence —
+                            # the GT diffuse appearance source for the experiment.
+                            "gt0_seq_path": f"{DATASET_ROOT}/{split_prefix}_0.0/{sequence_name}",
+                            "results_dir": f"{exp_name}/{tag}",
+                            "cache_dir": f"{CACHE_ROOT}/{tag}/{sequence_name}",
+                            "tag": f"{tag}/{sequence_name}",
+                        }
+                    )
     return work
 
 
@@ -561,7 +574,21 @@ def main() -> None:
         action="store_true",
         help="Use GT appearance in refinement (GT-refine experiment)",
     )
+    parser.add_argument(
+        "--depth",
+        default=None,
+        help="comma-separated depth source(s): gt | synth | lf  (overrides "
+        "DEPTH_SOURCES). 'lf' = our light-field plane-sweep depth — run "
+        "`./run_lf_depth.sh write` first to populate depth_lf/.",
+    )
     args = parser.parse_args()
+
+    # The depth source flows into the cache/results path (tag), so gt / synth / lf
+    # each get an independent reflection-separation cache and result directory; an
+    # lf run never reads a gt-depth diffuse cache (the cache is depth-dependent).
+    if args.depth:
+        global DEPTH_SOURCES
+        DEPTH_SOURCES = [d for d in args.depth.split(",") if d]
 
     use_refine = args.refine
     use_gt = args.refine and args.gt
@@ -576,6 +603,8 @@ def main() -> None:
         exp_name = "ablation_refine_gt"
     else:
         exp_name = "ablation_refine_est"
+    if args.depth == "lf":
+        exp_name += "_depth-" + "-".join(DEPTH_SOURCES)
 
     pin_alpha = PIN_ALPHA
     refine_cfg = REFINE_CFG

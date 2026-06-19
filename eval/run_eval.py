@@ -261,13 +261,15 @@ def eval_sequence(
 
 # ── table helpers ─────────────────────────────────────────────────────────────
 
-BLOCK_ORDER = ["cube_gt", "cube_synth", "objects_gt", "objects_synth"]
+BLOCK_ORDER = ["cube_gt", "cube_synth", "cube_lf", "objects_gt", "objects_synth", "objects_lf"]
 
 BLOCK_DISPLAY = {
     "cube_gt": "Cube (GT depth)",
     "cube_synth": "Cube (Synth depth)",
+    "cube_lf": "Cube (LF depth)",
     "objects_gt": "Objects (GT depth)",
     "objects_synth": "Objects (Synth depth)",
+    "objects_lf": "Objects (LF depth)",
 }
 
 METRIC_KEYS = ["add_auc", "adds_auc", "ate_rmse", "mean_abs_rot_deg"]
@@ -282,7 +284,7 @@ def block_for(depth_mode: str, split: str) -> str:
         return f"cube_{depth_mode}"
     if split.startswith("objects_"):
         return f"objects_{depth_mode}"
-    return "other"
+    return f"other_{depth_mode}"
 
 
 def _split_avg(seqs: dict) -> dict:
@@ -398,7 +400,7 @@ def build_summary_txt(all_metrics: dict) -> str:
 
 def collect_sequences(results_root: str) -> list:
     entries = []
-    for depth_mode in ("gt", "synth"):
+    for depth_mode in ("gt", "synth", "lf"):
         mode_dir = os.path.join(results_root, depth_mode)
         if not os.path.isdir(mode_dir):
             continue
