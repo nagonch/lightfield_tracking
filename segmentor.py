@@ -6,7 +6,8 @@ from SAM_functions import (
 )
 from PIL import Image
 import numpy as np
-import hydra
+from hydra import initialize_config_module
+from hydra.core.global_hydra import GlobalHydra
 from cutie.inference.inference_core import InferenceCore
 from cutie.utils.get_default_model import get_default_model
 import torch
@@ -17,6 +18,14 @@ class Segmentor:
         self.prompt = prompt
         self.initialized = False
 
+        # SAM2 and Cutie both configure Hydra's *global* config state, and only one
+        # config module can be registered at a time. SAM2 registers its module on
+        # first import, but a previous Segmentor's Cutie init (below) leaves Hydra
+        # pointing at Cutie's config — so re-point Hydra at the sam2 config module
+        # before building SAM2, then hand it back to Cutie afterwards.
+        if sam_image_predictor is None:
+            GlobalHydra.instance().clear()
+            initialize_config_module("sam2", version_base="1.2")
         self.image_predictor = (
             sam_image_predictor
             if sam_image_predictor is not None
@@ -24,7 +33,7 @@ class Segmentor:
         )
         self.processor, self.grounding_model = get_dino_models()
 
-        hydra.core.global_hydra.GlobalHydra.instance().clear()
+        GlobalHydra.instance().clear()
         cutie = get_default_model()
         self.cutie_processor = InferenceCore(cutie, cfg=cutie.cfg)
 

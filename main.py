@@ -42,6 +42,7 @@ from src.photometric import (
 from src.pose import track_pose
 from src.reflection import central_view, frame_diffuse
 from src.surface_light_field import SurfaceLightField
+from utils import linear_to_srgb
 
 logging.basicConfig(
     format="%(asctime)s  %(levelname)-7s  %(message)s",
@@ -110,6 +111,7 @@ def track_sequence(
     collect: dict | None = None,
     no_cache_separation: bool = False,
     depth_estimator: LFPlaneSweepDepth | None = None,
+    gt_masks: bool = False,
 ) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
     # Live LF depth: compute plane-sweep depth per frame from the loaded LF instead
     # of reading pre-written depth_lf/. The dataset still needs a real depth folder
@@ -118,6 +120,19 @@ def track_sequence(
     ds_depth_source = "synth" if live_lf_depth else depth_source
     dataset = LFDataset(seq_path, depth_source=ds_depth_source)
     s_size, t_size = dataset.metadata["n_views"]
+
+    # Object mask: by default segment the central view with the
+    # GroundingDINO + SAM2 + Cutie segmentor, prompted on the object name (the
+    # string used to locate the mesh). GT masks are used only with gt_masks=True.
+    # Cutie tracks temporally, so the segmentor is single-use per sequence.
+    segmentor = None
+    if not gt_masks:
+        from segmentor import Segmentor
+
+        # Mesh names use underscores (e.g. "bleach_cleanser"); GroundingDINO detects
+        # the natural-language form far more reliably ("bleach cleanser").
+        prompt = dataset.object_name.replace("_", " ")
+        segmentor = Segmentor(prompt=prompt)
 
     # GT-refine: the fully-diffuse (0.0) dataset provides ground-truth per-point
     # diffuse colours to replace the separated estimate in the photometric refine.
@@ -146,7 +161,14 @@ def track_sequence(
                 break
             gt_poses.append(frame["object_pose"].cpu().numpy())
 
-            mask = frame["masks"][s_size // 2, t_size // 2]
+            if gt_masks:
+                mask = frame["masks"][s_size // 2, t_size // 2]
+            else:
+                bar.set_postfix(fr=i, stage="segment")
+                central_srgb = linear_to_srgb(
+                    frame["LF"][s_size // 2, t_size // 2].clamp(0.0, 1.0)
+                )
+                mask = segmentor(central_srgb).bool()
             # Live plane-sweep depth (GPU tensor) replaces the disk depth for
             # depth=lf when caching is disabled; otherwise use the loaded depth.
             if live_lf_depth:
@@ -433,6 +455,12 @@ def main() -> None:
         help="Compute LF plane-sweep depth live in the main loop (depth=lf) instead "
         "of reading pre-written depth_lf/. No-op for depth=gt|synth.",
     )
+    parser.add_argument(
+        "--gt-masks",
+        action="store_true",
+        help="Use ground-truth object masks from the dataset instead of segmenting "
+        "the central view with GroundingDINO+SAM2+Cutie (prompted on the object name).",
+    )
     args = parser.parse_args()
 
     depth_sources = (
@@ -455,6 +483,7 @@ def main() -> None:
     refine_cfg = REFINE_CFG
 
     logging.info("refine=%s  gt=%s  → %s", use_refine, use_gt, exp_name)
+    logging.info("masks: %s", "GT (dataset)" if args.gt_masks else "segmentor")
     logging.info(
         "cache: separation=%s  lf_depth=%s",
         "off (live)" if args.no_cache_separation else "on",
@@ -513,6 +542,7 @@ def main() -> None:
                     feed_forward=REFINE_FEED_FORWARD,
                     no_cache_separation=args.no_cache_separation,
                     depth_estimator=depth_estimator,
+                    gt_masks=args.gt_masks,
                 )
             except Exception:
                 logging.exception("%s: FAILED", item["tag"])

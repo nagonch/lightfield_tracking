@@ -49,6 +49,11 @@ def get_dino_models():
 
 
 def get_dino_boxes(image, prompt, processor, model, return_full=False):
+    # GroundingDINO expects a lowercase caption terminated with a period; without
+    # the period it silently returns zero detections (e.g. "cube" -> 0 boxes).
+    prompt = prompt.strip().lower()
+    if not prompt.endswith("."):
+        prompt += "."
     inputs = processor(images=image, text=prompt, return_tensors="pt").to("cuda")
     with torch.no_grad():
         outputs = model(**inputs)
@@ -66,6 +71,10 @@ def get_dino_boxes(image, prompt, processor, model, return_full=False):
 
 
 def get_image_masks_from_boxes(image_predictor, boxes, image):
+    if len(boxes) == 0:
+        raise ValueError(
+            "GroundingDINO returned no boxes for the prompt; cannot segment."
+        )
     image_predictor.set_image(image)
     masks, _, _ = image_predictor.predict(
         point_coords=None,
