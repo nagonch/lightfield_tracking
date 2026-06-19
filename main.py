@@ -415,7 +415,6 @@ def main() -> None:
         exp_name += "_depth-" + "-".join(depth_sources)
     if args.name:
         exp_name = args.name
-    exp_name += "_"
     pin_alpha = False if use_gt else PIN_ALPHA
     refine_cfg = REFINE_CFG
 
