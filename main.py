@@ -41,7 +41,13 @@ logging.basicConfig(
 # ── configuration ──────────────────────────────────────────────────────────────
 DATASET_ROOT = "/home/ngoncharov/SpecTrack_dataset"
 EXP_NAME = "results_est_refine_experiment"
-CACHE_ROOT = "cache/diffuse"
+# Reflection-separation cache. Reflection separation is ALWAYS confidence-weighted
+# now (confidence-weighted env TV + per-pixel observation confidence threaded into
+# the relit loss — see reflection_separation / src.photometric), so every cached
+# entry carries an env-confidence map and the relight masking is always well-defined.
+# Named "_corrected" for historical reasons; it deliberately does NOT reuse the old
+# "cache/diffuse" (which holds legacy uniform-TV separations with no confidence).
+CACHE_ROOT = "cache/diffuse_corrected"
 SEPARATION_ITERS = 300
 USE_REFLECTION_SEPARATION = True  # False → LoFTR on the raw central view
 USE_PHOTOMETRIC_REFINE = True  # True → photometric pose refinement after coarse
@@ -249,8 +255,9 @@ def track_sequence(
     loftr_ref_poses: list[np.ndarray] = []
     coarse_errs: list[tuple[float, float]] = []  # (rot°, trans m) per frame
     refined_errs: list[tuple[float, float]] = []
-    prev = None  # (view, depth, mask, pc, color, env_map, slf)
+    prev = None  # (view, depth, mask, pc, color, env_map, slf, env_conf)
     prev_env = None  # accumulated env map warm-start for separation
+    prev_env_conf = None  # accumulated env observation confidence, carried forward
     alpha_history: list[float] = []  # per-frame alpha stats, carried forward
     alpha_stable = False  # latched: True once two alphas in a row agree
     prev_alpha_i: float | None = None  # last frame's raw alpha estimate
@@ -275,18 +282,21 @@ def track_sequence(
                 # accumulation resumes from once alpha does stabilize. Latched: once
                 # stable we keep relighting and accumulating the env map.
                 was_stable = alpha_stable  # stability state entering this frame
-                view, prev_env, slf, alpha_i, alpha_history = frame_diffuse(
-                    frame=frame,
-                    mask=mask,
-                    depth=depth,
-                    alpha=alpha,  # None → estimate on the fly from the SLF
-                    s_size=s_size,
-                    t_size=t_size,
-                    cache_path=os.path.join(cache_dir, f"diffuse_{i:04d}.png"),
-                    iterations=SEPARATION_ITERS,
-                    verbose=True,
-                    previous_environment_map=prev_env if was_stable else None,
-                    alpha_stat_history=alpha_history,
+                view, prev_env, prev_env_conf, slf, alpha_i, alpha_history = (
+                    frame_diffuse(
+                        frame=frame,
+                        mask=mask,
+                        depth=depth,
+                        alpha=alpha,  # None → estimate on the fly from the SLF
+                        s_size=s_size,
+                        t_size=t_size,
+                        cache_path=os.path.join(cache_dir, f"diffuse_{i:04d}.png"),
+                        iterations=SEPARATION_ITERS,
+                        verbose=True,
+                        previous_environment_map=prev_env if was_stable else None,
+                        previous_env_confidence=prev_env_conf if was_stable else None,
+                        alpha_stat_history=alpha_history,
+                    )
                 )
                 if not alpha_stable:
                     if alpha is not None or (
@@ -305,9 +315,11 @@ def track_sequence(
                 # drifted and the feed-forward backbone inherited it.)
                 alpha_eff = alpha_i
                 env_curr = prev_env if alpha_stable else None
+                env_conf_curr = prev_env_conf if alpha_stable else None
             else:
                 view = central_view(frame, s_size, t_size)
                 env_curr = None
+                env_conf_curr = None
                 slf = SurfaceLightField.from_frame(frame, mask, depth, s_size, t_size)
                 # No separation → treat as fully diffuse (LoFTR-only) unless pinned.
                 alpha_i = 1.0 if alpha is None else alpha
@@ -321,6 +333,7 @@ def track_sequence(
             if gt_refine:
                 slf.diffuse_colors = _gt_diffuse_points(gt_ds0, i, mask > 0)
                 env_curr = gt_env
+                env_conf_curr = None  # GT env is fully valid → no confidence masking
 
             depth_np = depth.cpu().numpy()
             mask_np = (mask > 0).cpu().numpy()
@@ -374,6 +387,8 @@ def track_sequence(
                         slf_curr=slf,
                         env_map_prev=prev[5],
                         env_map_curr=env_curr,
+                        env_conf_prev=prev[7],
+                        env_conf_curr=env_conf_curr,
                         abs_pose_prev=coarse_poses[-2],
                         pose_coarse=coarse_pose,
                         alpha=(gt_alpha if gt_refine else alpha_eff),
@@ -476,7 +491,7 @@ def track_sequence(
                 else:
                     est_poses.append(coarse_pose)
 
-            prev = (view, depth_np, mask_np, pc, color, env_curr, slf)
+            prev = (view, depth_np, mask_np, pc, color, env_curr, slf, env_conf_curr)
 
     if refined_errs:
         c = np.array(coarse_errs)
@@ -545,6 +560,10 @@ def main() -> None:
     use_refine = args.refine
     use_gt = args.refine and args.gt
 
+    # Reflection separation is always confidence-weighted and the relit loss always
+    # masks unobserved-env reflections (both default-on in the code + CACHE_ROOT), so
+    # ablation_refine_est IS the corrected estimated-env method — there is no
+    # uncorrected variant anymore.
     if not use_refine:
         exp_name = "ablation_loftr"
     elif use_gt:

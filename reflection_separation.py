@@ -64,9 +64,15 @@ def sample_environment_map(env_map_hwc, dirs, flip_u=True, flip_v=True):
 
 
 def splat_environment_map(
-    dirs, colors, weights, env_h, env_w, flip_u=True, flip_v=True, eps=1e-8
+    dirs, colors, weights, env_h, env_w, flip_u=True, flip_v=True, eps=1e-8,
+    return_weight=False,
 ):
-    """Nearest-bin weighted accumulation, used to seed the env-map parameter."""
+    """Nearest-bin weighted accumulation, used to seed the env-map parameter.
+
+    With ``return_weight`` also returns the per-bin accumulated weight
+    ``accum_w`` ([env_h*env_w]) — a raw measure of how much each env-map pixel was
+    actually observed by reflected rays (the observation/confidence signal).
+    """
     dirs = dirs.reshape(-1, 3)
     colors = colors.reshape(-1, 3)
     weights = weights.reshape(-1).to(colors.dtype)
@@ -85,6 +91,8 @@ def splat_environment_map(
 
     env = (accum_rgb / (accum_w.unsqueeze(-1) + eps)).reshape(env_h, env_w, 3)
     valid = (accum_w > eps).reshape(env_h, env_w)
+    if return_weight:
+        return env, valid, accum_w
     return env, valid
 
 
@@ -269,6 +277,7 @@ def separate_reflection(
     mask=None,
     alpha_stat_history=None,
     previous_environment_map=None,
+    previous_env_confidence=None,
     env_h=256,
     env_w=512,
     flip_u=True,
@@ -278,6 +287,7 @@ def separate_reflection(
     weight_env_tv=1e-2,
     weight_env_range=1e-1,
     weight_env_prior=1e-1,
+    tv_observed_floor=0.1,
     iterations=300,
     eps=1e-8,
     verbose=False,
@@ -312,10 +322,18 @@ def separate_reflection(
             [ALPHA_CLAMP_MIN, ALPHA_CLAMP_MAX]), so an env map -- representing at
             minimum the low-frequency ambient illumination -- is always fit.
 
+        previous_env_confidence: [env_h, env_w] accumulated observation confidence
+            from previous frames; OR-combined with this frame's so coverage grows as
+            the object rotates. Thread forward alongside ``previous_environment_map``.
+
     Returns:
         diffuse_point:   [P, 3]
         environment_map: [env_h, env_w, 3]
         reflective_point:[P, M, 3] env contribution sampled per observation.
+        env_confidence:  [env_h, env_w] in [0, 1] — per-pixel observation confidence
+            (high where reflected rays landed, low for interpolated fill). Use it to
+            downweight unobserved reflections in the relight loss, and thread it
+            forward as ``previous_env_confidence``.
     """
     p, m, _ = colors.shape
     device = "cuda"
@@ -357,9 +375,34 @@ def separate_reflection(
     #      the residual reflective estimate (obs - alpha*diffuse) / (1 - alpha) ----
     denom = max(1.0 - float(alpha), eps)
     reflective_est = ((colors - alpha_t * diffuse0[:, None, :]) / denom).clamp(0.0, 1.0)
-    env_splat, _ = splat_environment_map(
-        reflected_dirs, reflective_est, weight, env_h, env_w, flip_u, flip_v, eps
+    env_splat, _, accum_w = splat_environment_map(
+        reflected_dirs, reflective_est, weight, env_h, env_w, flip_u, flip_v, eps,
+        return_weight=True,
     )
+
+    # ---- Observation confidence: where reflected rays actually landed this frame,
+    #      accumulated across frames via a probabilistic OR. Marks observed env
+    #      pixels (high) vs interpolated/unobserved fill (low). The relight loss
+    #      downweights low-confidence reflections; TV smoothing is concentrated
+    #      there (data wins in observed regions, see the weighted TV term below). ----
+    accum_w_2d = accum_w.reshape(env_h, env_w)
+    pos = accum_w_2d > 0
+    # Soft "observed vs interpolated" mask. The per-bin splat weight is heavy-tailed
+    # (front-facing dense regions dwarf sparse grazing hits), so normalise by a LOW
+    # robust reference (a fraction of the median observed weight): any bin with a
+    # meaningful number of reflected-ray hits saturates to ~1, only truly-unobserved
+    # bins stay ~0. (Normalising by the mean would over-shrink the sparse tail and
+    # collapse genuine observations toward 0.)
+    if bool(pos.any()):
+        ref = (0.3 * torch.quantile(accum_w_2d[pos].float(), 0.5)).clamp(min=eps)
+    else:
+        ref = accum_w_2d.new_tensor(1.0)
+    this_conf = 1.0 - torch.exp(-accum_w_2d / ref)  # [H, W] in [0,1]
+    if previous_env_confidence is not None:
+        prev_conf = previous_env_confidence.to(device).float()
+        env_confidence = 1.0 - (1.0 - prev_conf) * (1.0 - this_conf)
+    else:
+        env_confidence = this_conf
 
     prev_valid = None
     if previous_environment_map is not None:
@@ -396,8 +439,16 @@ def separate_reflection(
         loss_recon = (((reconstruction - target) ** 2) * w_ext).sum() / w_norm
 
         env = model.environment_map
-        tv_u = (env - torch.roll(env, shifts=1, dims=1)).abs().mean()  # wrap in u
-        tv_v = (env[1:, :, :] - env[:-1, :, :]).abs().mean()
+        # Confidence-weighted TV: interpolation (smoothness) only governs UNobserved
+        # pixels. Observed pixels keep a small floor of smoothing (tv_observed_floor)
+        # but are otherwise driven by the reconstruction term, so real reflection
+        # structure is not blurred away — this is what keeps the observed env sharp
+        # and close to GT (the relight rotation cue lives in that structure).
+        w_tv = tv_observed_floor + (1.0 - tv_observed_floor) * (1.0 - env_confidence)
+        du = (env - torch.roll(env, shifts=1, dims=1)).abs().mean(-1)  # [H, W]
+        dv = (env[1:, :, :] - env[:-1, :, :]).abs().mean(-1)  # [H-1, W]
+        tv_u = (du * w_tv).mean()
+        tv_v = (dv * w_tv[1:, :]).mean()
         loss_env_tv = tv_u + tv_v
 
         loss_env_range = (F.relu(-env) + F.relu(env - 1.0)).mean()
@@ -428,7 +479,7 @@ def separate_reflection(
             refl_img[mask_d] = reflective_point[:, mid, :].to(refl_img.dtype)
             diffuse_img = refine_diffuse_decorrelate(diffuse_img, refl_img, mask_d)
             diffuse_point = diffuse_img[mask_d]
-    return diffuse_point, environment_map, reflective_point
+    return diffuse_point, environment_map, reflective_point, env_confidence.detach()
 
 
 # ---------------------------------------------------------------------------
@@ -643,7 +694,7 @@ if __name__ == "__main__":
                 alpha_now, alpha_history = estimate_alpha(
                     colors, valid, view_dirs, normals, stat_history=alpha_history
                 )
-                diffuse_point, environment_map, _ = separate_reflection(
+                diffuse_point, environment_map, _, _ = separate_reflection(
                     colors=colors,
                     alpha=alpha_now,
                     reflected_dirs=reflected_dirs,

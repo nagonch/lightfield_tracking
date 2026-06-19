@@ -368,6 +368,11 @@ class PhotometricContext:
 
     slf_prev: SurfaceLightField  # source Gaussians (prev camera space)
     env_map_prev: torch.Tensor | None
+    # [H, W, 3] source env observation-confidence broadcast (None → uniform). Used
+    # to downweight reflected-into-UNOBSERVED env pixels in the relit photo loss, so
+    # only env signal that was actually observed drives the pose. See conf_floor.
+    env_conf3_prev: torch.Tensor | None
+    conf_floor: float  # weight kept for fully-unobserved reflections (in [0, 1])
     alpha: float
     mode: str  # render appearance model ("diffuse" | "relit" | "sh" | "auto")
     inv_pose_prev: torch.Tensor  # [4, 4] camera_prev → object (prev)
@@ -407,6 +412,26 @@ def photometric_forward(
     # Weight by the union of the target region and the source's current footprint
     # so both silhouettes carry gradient even when the candidate pose is off.
     w = (ctx.roi + src_mask.float()).clamp(max=1.0)
+
+    # Observation-confidence weighting (relit stage): downweight pixels whose
+    # reflected ray samples an UNOBSERVED env region (interpolated fill ≈ 3-4× worse
+    # than observed). Confidence is rendered at the candidate pose via the same
+    # equirect sampling (env replaced by the conf map, pure-reflection alpha=0), then
+    # detached — a stop-gradient robust mask, not an extra objective. conf_floor keeps
+    # a little weight so unobserved pixels still constrain silhouette/geometry.
+    if ctx.env_conf3_prev is not None:
+        with torch.no_grad():
+            conf_img, _, _ = ctx.slf_prev.render_relit(
+                rel_pose=T_rel,
+                env_map=ctx.env_conf3_prev,
+                alpha=0.0,
+                scale=ctx.scale,
+                mode="relit",
+                shade_diffuse=False,
+            )
+        conf_w = ctx.conf_floor + (1.0 - ctx.conf_floor) * conf_img[..., 0]
+        w = w * conf_w.detach()
+
     w_sum = w.sum().clamp(min=1.0)
     photo = (((src_img - ctx.tgt_img) ** 2).mean(-1) * w).sum() / w_sum
 
@@ -448,6 +473,8 @@ def build_photometric_context(
     scale: float = 1.0,
     device: str = "cuda",
     mode: str = "auto",
+    env_conf_prev: torch.Tensor | None = None,
+    conf_floor: float = 0.1,
 ) -> tuple[PhotometricContext, torch.Tensor]:
     """Assemble a :class:`PhotometricContext` plus the [H,W,3] rendered target.
 
@@ -464,10 +491,18 @@ def build_photometric_context(
         )
         roi = tgt_mask.float()
 
+    # Confidence masking only applies to the relit stage (env reflection present).
+    env_conf3_prev = None
+    if mode == "relit" and env_conf_prev is not None and env_map_prev is not None:
+        c = env_conf_prev.to(device=device, dtype=torch.float32)
+        env_conf3_prev = c[..., None].expand(-1, -1, 3).contiguous()
+
     pose_init = torch.from_numpy(pose_coarse).float().to(device)
     ctx = PhotometricContext(
         slf_prev=slf_prev,
         env_map_prev=env_map_prev,
+        env_conf3_prev=env_conf3_prev,
+        conf_floor=conf_floor,
         alpha=alpha,
         mode=mode,
         inv_pose_prev=inv_pose_prev,
@@ -573,6 +608,17 @@ class RefineConfig:
     # reflective feed-forward a net win with an accurate env map — so this finer knob
     # stays off and is kept only as an ablation lever.
     relight_feed_forward: bool = False
+    # Observation-confidence masking for the relit stage: when a per-pixel env
+    # confidence map is supplied (separated env only — GT env is fully valid), the
+    # relit photo loss downweights pixels whose reflection samples UNobserved env to
+    # this floor (0 = ignore unobserved entirely, 1 = legacy uniform weighting). The
+    # interpolated env fill is ~3-4× worse than the observed env, so trusting only
+    # observed reflections moves est tracking toward the GT-env behaviour. 0.15 chosen
+    # by a floor sweep over the most reflective cube sequences: it gives the largest,
+    # most consistent TRANSLATION gain (cube_1.0/0.7: ATE ~−20-35% toward the GT-env
+    # bound) while keeping ~15% weight on unobserved pixels so rotation stays
+    # constrained (a harder floor underconstrains a near-mirror's rotation).
+    relight_conf_floor: float = 0.15
 
     # safety: keep a stage's result only if it lowered the photometric loss vs its
     # own init. Guarantees "refine never increases the loss it optimises".
@@ -624,6 +670,7 @@ def _optimise_stage(
     cfg: RefineConfig,
     *,
     stage: str,
+    env_conf_prev: torch.Tensor | None = None,
     min_correction_deg: float = 0.0,
     viewer: PhotometricRefineViewer | None,
     gt_pose_curr: np.ndarray | None,
@@ -680,6 +727,8 @@ def _optimise_stage(
             scale=scale,
             device=device,
             mode=mode,
+            env_conf_prev=env_conf_prev,
+            conf_floor=cfg.relight_conf_floor,
         )
         if is_final_level and base_loss is None:
             with torch.no_grad():
@@ -765,6 +814,8 @@ def _optimise_stage(
                 scale=1.0,
                 device=device,
                 mode=mode,
+                env_conf_prev=env_conf_prev,
+                conf_floor=cfg.relight_conf_floor,
             )
             final_loss = photometric_forward(
                 ctx, torch.from_numpy(best_pose).float().to(device)
@@ -786,6 +837,8 @@ def refine_pose_photometric(
     viewer: PhotometricRefineViewer | None = None,
     gt_pose_curr: np.ndarray | None = None,
     diag: list[dict] | None = None,
+    env_conf_prev: torch.Tensor | None = None,
+    env_conf_curr: torch.Tensor | None = None,
 ) -> tuple[np.ndarray, list[float]]:
     """Two-stage photometric pose refinement on top of the coarse (LoFTR/ICP) pose.
 
@@ -851,6 +904,7 @@ def refine_pose_photometric(
             lr_trans=cfg.lr_trans_relight,
             cfg=cfg,
             stage="relit",
+            env_conf_prev=env_conf_prev,
             min_correction_deg=cfg.relight_min_correction_deg,
             viewer=viewer,
             gt_pose_curr=gt_pose_curr,

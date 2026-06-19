@@ -1,0 +1,64 @@
+Cube (GT depth)
+──────────────────────────────────────────────────────────────────────────
+                                     ADD↑ AUC ADD-S↑ AUC ATE↓ (m) Rot↓ (°)
+split    sequence                                                         
+cube_0.0 bleach0                       0.9263     0.9263   0.0077     1.01
+         bleach_hard_00_03_chaitanya   0.9496     0.9496   0.0053     1.05
+         cracker_box_reorient          0.9586     0.9586   0.0023     1.36
+         cracker_box_yalehand0         0.8501     0.8501   0.0088     5.02
+         mustard0                      0.9405     0.9405   0.0058     2.11
+         mustard_easy_00_02            0.9020     0.9020   0.0080     2.94
+         sugar_box1                    0.8760     0.8760   0.0094     3.61
+         sugar_box_yalehand0           0.9021     0.9021   0.0105     1.71
+         tomato_soup_can_yalehand0     0.8607     0.8607   0.0086     4.27
+split    sequence                               
+cube_0.0 ── Average ── 0.9073 0.9073 0.0074 2.56
+··········································································
+split    sequence                                             
+cube_0.5 bleach0                     0.7327 0.7327 0.0195 8.55
+         bleach_hard_00_03_chaitanya 0.9447 0.9447 0.0061 0.93
+         cracker_box_reorient        0.9515 0.9515 0.0025 1.70
+         cracker_box_yalehand0       0.8960 0.8960 0.0101 2.99
+         mustard0                    0.9381 0.9381 0.0057 2.26
+         mustard_easy_00_02          0.9043 0.9043 0.0077 2.85
+         sugar_box1                  0.8610 0.8610 0.0110 4.24
+         sugar_box_yalehand0         0.8709 0.8709 0.0131 2.87
+         tomato_soup_can_yalehand0   0.5625 0.5625 0.0436 7.65
+split    sequence                               
+cube_0.5 ── Average ── 0.8513 0.8513 0.0133 3.78
+······························································
+split    sequence                                              
+cube_0.7 bleach0                     0.7335 0.7335 0.0194  8.69
+         bleach_hard_00_03_chaitanya 0.9506 0.9506 0.0057  0.51
+         cracker_box_reorient        0.9439 0.9439 0.0032  1.88
+         cracker_box_yalehand0       0.8630 0.8630 0.0184  3.39
+         mustard0                    0.9273 0.9273 0.0059  2.66
+         mustard_easy_00_02          0.9109 0.9109 0.0077  2.12
+         sugar_box1                  0.8528 0.8528 0.0112  4.54
+         sugar_box_yalehand0         0.8782 0.8784 0.0126  2.82
+         tomato_soup_can_yalehand0   0.4657 0.4657 0.0487 12.44
+split    sequence                               
+cube_0.7 ── Average ── 0.8362 0.8362 0.0148 4.34
+·······························································
+split    sequence                                              
+cube_1.0 bleach0                     0.6578 0.6578 0.0239 10.87
+         bleach_hard_00_03_chaitanya 0.7617 0.7617 0.0210  5.92
+         cracker_box_reorient        0.8283 0.8283 0.0112  5.47
+         cracker_box_yalehand0       0.8054 0.8057 0.0235  5.33
+         mustard0                    0.5778 0.5778 0.0294 12.82
+         mustard_easy_00_02          0.8356 0.8356 0.0107  4.87
+         sugar_box1                  0.7802 0.7802 0.0143  7.20
+         sugar_box_yalehand0         0.7320 0.7320 0.0175  8.80
+         tomato_soup_can_yalehand0   0.4147 0.4226 0.0483 15.39
+split    sequence                               
+cube_1.0 ── Average ── 0.7104 0.7113 0.0222 8.52
+·······························································
+
+Objects (GT depth)
+──────────────────────────────────────────────────────────
+                     ADD↑ AUC ADD-S↑ AUC ATE↓ (m) Rot↓ (°)
+split       sequence                                      
+objects_0.0 bleach0    0.6602     0.8275   0.0372    15.54
+split       sequence                                
+objects_0.0 ── Average ── 0.6602 0.8275 0.0372 15.54
+··························································
