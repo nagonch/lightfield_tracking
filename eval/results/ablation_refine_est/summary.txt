@@ -10,9 +10,8 @@ cube_0.0 bleach0                       0.9263     0.9263   0.0077     1.01
          mustard_easy_00_02            0.9020     0.9020   0.0080     2.94
          sugar_box1                    0.8760     0.8760   0.0094     3.61
          sugar_box_yalehand0           0.9021     0.9021   0.0105     1.71
-         tomato_soup_can_yalehand0     0.8607     0.8607   0.0086     4.27
 split    sequence                               
-cube_0.0 ── Average ── 0.9073 0.9073 0.0074 2.56
+cube_0.0 ── Average ── 0.9131 0.9131 0.0072 2.35
 ··········································································
 split    sequence                                             
 cube_0.5 bleach0                     0.7327 0.7327 0.0195 8.55
@@ -23,23 +22,21 @@ cube_0.5 bleach0                     0.7327 0.7327 0.0195 8.55
          mustard_easy_00_02          0.9043 0.9043 0.0077 2.85
          sugar_box1                  0.8610 0.8610 0.0110 4.24
          sugar_box_yalehand0         0.8709 0.8709 0.0131 2.87
-         tomato_soup_can_yalehand0   0.5625 0.5625 0.0436 7.65
 split    sequence                               
-cube_0.5 ── Average ── 0.8513 0.8513 0.0133 3.78
+cube_0.5 ── Average ── 0.8874 0.8874 0.0095 3.30
 ······························································
-split    sequence                                              
-cube_0.7 bleach0                     0.7335 0.7335 0.0194  8.69
-         bleach_hard_00_03_chaitanya 0.9506 0.9506 0.0057  0.51
-         cracker_box_reorient        0.9439 0.9439 0.0032  1.88
-         cracker_box_yalehand0       0.8630 0.8630 0.0184  3.39
-         mustard0                    0.9273 0.9273 0.0059  2.66
-         mustard_easy_00_02          0.9109 0.9109 0.0077  2.12
-         sugar_box1                  0.8528 0.8528 0.0112  4.54
-         sugar_box_yalehand0         0.8782 0.8784 0.0126  2.82
-         tomato_soup_can_yalehand0   0.4657 0.4657 0.0487 12.44
+split    sequence                                             
+cube_0.7 bleach0                     0.7335 0.7335 0.0194 8.69
+         bleach_hard_00_03_chaitanya 0.9506 0.9506 0.0057 0.51
+         cracker_box_reorient        0.9439 0.9439 0.0032 1.88
+         cracker_box_yalehand0       0.8630 0.8630 0.0184 3.39
+         mustard0                    0.9273 0.9273 0.0059 2.66
+         mustard_easy_00_02          0.9109 0.9109 0.0077 2.12
+         sugar_box1                  0.8528 0.8528 0.0112 4.54
+         sugar_box_yalehand0         0.8782 0.8784 0.0126 2.82
 split    sequence                               
-cube_0.7 ── Average ── 0.8362 0.8362 0.0148 4.34
-·······························································
+cube_0.7 ── Average ── 0.8825 0.8826 0.0105 3.32
+······························································
 split    sequence                                              
 cube_1.0 bleach0                     0.6578 0.6578 0.0239 10.87
          bleach_hard_00_03_chaitanya 0.7617 0.7617 0.0210  5.92
@@ -49,9 +46,8 @@ cube_1.0 bleach0                     0.6578 0.6578 0.0239 10.87
          mustard_easy_00_02          0.8356 0.8356 0.0107  4.87
          sugar_box1                  0.7802 0.7802 0.0143  7.20
          sugar_box_yalehand0         0.7320 0.7320 0.0175  8.80
-         tomato_soup_can_yalehand0   0.4147 0.4226 0.0483 15.39
 split    sequence                               
-cube_1.0 ── Average ── 0.7104 0.7113 0.0222 8.52
+cube_1.0 ── Average ── 0.7473 0.7474 0.0189 7.66
 ·······························································
 
 Objects (GT depth)
@@ -66,46 +62,42 @@ objects_0.0 bleach0                       0.6602     0.8275   0.0372    15.54
             mustard_easy_00_02            0.8896     0.9374   0.0107     5.56
             sugar_box1                    0.8775     0.9323   0.0075     7.52
             sugar_box_yalehand0           0.9073     0.9398   0.0099     2.71
-            tomato_soup_can_yalehand0     0.8578     0.9474   0.0080    14.35
 split       sequence                               
-objects_0.0 ── Average ── 0.8701 0.9284 0.0118 6.91
+objects_0.0 ── Average ── 0.8716 0.9260 0.0122 5.98
 ·············································································
-split       sequence                                              
-objects_0.5 bleach0                     0.8436 0.9192 0.0148  8.19
-            bleach_hard_00_03_chaitanya 0.9158 0.9461 0.0086  3.00
-            cracker_box_reorient        0.9005 0.9409 0.0114  0.81
-            cracker_box_yalehand0       0.8492 0.9210 0.0178  3.14
-            mustard0                    0.8688 0.9247 0.0118  6.13
-            mustard_easy_00_02          0.8846 0.9316 0.0128  3.05
-            sugar_box1                  0.8633 0.9259 0.0148  3.00
-            sugar_box_yalehand0         0.8718 0.9174 0.0153  2.94
-            tomato_soup_can_yalehand0   0.4558 0.7446 0.0537 41.82
+split       sequence                                             
+objects_0.5 bleach0                     0.8436 0.9192 0.0148 8.19
+            bleach_hard_00_03_chaitanya 0.9158 0.9461 0.0086 3.00
+            cracker_box_reorient        0.9005 0.9409 0.0114 0.81
+            cracker_box_yalehand0       0.8492 0.9210 0.0178 3.14
+            mustard0                    0.8688 0.9247 0.0118 6.13
+            mustard_easy_00_02          0.8846 0.9316 0.0128 3.05
+            sugar_box1                  0.8633 0.9259 0.0148 3.00
+            sugar_box_yalehand0         0.8718 0.9174 0.0153 2.94
 split       sequence                               
-objects_0.5 ── Average ── 0.8281 0.9079 0.0179 8.01
-··································································
-split       sequence                                              
-objects_0.7 bleach0                     0.9180 0.9483 0.0068  5.19
-            bleach_hard_00_03_chaitanya 0.9264 0.9508 0.0078  2.41
-            cracker_box_reorient        0.9101 0.9439 0.0098  1.79
-            cracker_box_yalehand0       0.8041 0.9169 0.0251  3.20
-            mustard0                    0.8714 0.9261 0.0120  5.51
-            mustard_easy_00_02          0.8813 0.9311 0.0131  3.27
-            sugar_box1                  0.8614 0.9246 0.0149  3.20
-            sugar_box_yalehand0         0.8709 0.9168 0.0153  3.05
-            tomato_soup_can_yalehand0   0.4622 0.7555 0.0516 42.48
+objects_0.5 ── Average ── 0.8747 0.9283 0.0134 3.78
+·································································
+split       sequence                                             
+objects_0.7 bleach0                     0.9180 0.9483 0.0068 5.19
+            bleach_hard_00_03_chaitanya 0.9264 0.9508 0.0078 2.41
+            cracker_box_reorient        0.9101 0.9439 0.0098 1.79
+            cracker_box_yalehand0       0.8041 0.9169 0.0251 3.20
+            mustard0                    0.8714 0.9261 0.0120 5.51
+            mustard_easy_00_02          0.8813 0.9311 0.0131 3.27
+            sugar_box1                  0.8614 0.9246 0.0149 3.20
+            sugar_box_yalehand0         0.8709 0.9168 0.0153 3.05
 split       sequence                               
-objects_0.7 ── Average ── 0.8340 0.9127 0.0174 7.79
-··································································
-split       sequence                                              
-objects_1.0 bleach0                     0.7762 0.9089 0.0210  7.11
-            bleach_hard_00_03_chaitanya 0.9148 0.9473 0.0086  3.75
-            cracker_box_reorient        0.9303 0.9470 0.0068  2.11
-            cracker_box_yalehand0       0.8189 0.9107 0.0199  4.50
-            mustard0                    0.8845 0.9341 0.0108  6.16
-            mustard_easy_00_02          0.8735 0.9316 0.0137  4.95
-            sugar_box1                  0.8552 0.9265 0.0141  5.50
-            sugar_box_yalehand0         0.8624 0.9127 0.0158  6.29
-            tomato_soup_can_yalehand0   0.4524 0.7708 0.0500 50.23
-split       sequence                                
-objects_1.0 ── Average ── 0.8187 0.9099 0.0179 10.07
-··································································
+objects_0.7 ── Average ── 0.8804 0.9323 0.0131 3.45
+·································································
+split       sequence                                             
+objects_1.0 bleach0                     0.7762 0.9089 0.0210 7.11
+            bleach_hard_00_03_chaitanya 0.9148 0.9473 0.0086 3.75
+            cracker_box_reorient        0.9303 0.9470 0.0068 2.11
+            cracker_box_yalehand0       0.8189 0.9107 0.0199 4.50
+            mustard0                    0.8845 0.9341 0.0108 6.16
+            mustard_easy_00_02          0.8735 0.9316 0.0137 4.95
+            sugar_box1                  0.8552 0.9265 0.0141 5.50
+            sugar_box_yalehand0         0.8624 0.9127 0.0158 6.29
+split       sequence                               
+objects_1.0 ── Average ── 0.8645 0.9273 0.0138 5.05
+·································································

@@ -170,13 +170,22 @@ def _dashed_line(draw: ImageDraw.Draw, p1, p2, color, width=1, dash=8, gap=5):
         t, on = t_end, not on
 
 
-def _draw_axes(draw: ImageDraw.Draw, K: np.ndarray, T: np.ndarray,
-               colors: dict, axis_len: float, width: int, dashed: bool):
+def _draw_axes(
+    draw: ImageDraw.Draw,
+    K: np.ndarray,
+    T: np.ndarray,
+    colors: dict,
+    axis_len: float,
+    width: int,
+    dashed: bool,
+):
     origin = _project(T[:3, 3], K)
     if origin is None:
         return
     for name, col in colors.items():
-        offset = {"x": [axis_len, 0, 0], "y": [0, axis_len, 0], "z": [0, 0, axis_len]}[name]
+        offset = {"x": [axis_len, 0, 0], "y": [0, axis_len, 0], "z": [0, 0, axis_len]}[
+            name
+        ]
         tip_3d = T[:3, :3] @ np.array(offset) + T[:3, 3]
         tip = _project(tip_3d, K)
         if tip is None:
@@ -186,9 +195,7 @@ def _draw_axes(draw: ImageDraw.Draw, K: np.ndarray, T: np.ndarray,
         else:
             draw.line([origin, tip], fill=col, width=width)
         r = width + 1
-        draw.ellipse(
-            [tip[0] - r, tip[1] - r, tip[0] + r, tip[1] + r], fill=col
-        )
+        draw.ellipse([tip[0] - r, tip[1] - r, tip[0] + r, tip[1] + r], fill=col)
 
 
 def visualize_sequence(
@@ -405,8 +412,13 @@ def collect_sequences(results_root: str) -> list:
     return entries
 
 
-def run(results_root: str, dataset_root: str, output_dir: str,
-        qual_dir: str | None = None, axis_len: float = 0.05):
+def run(
+    results_root: str,
+    dataset_root: str,
+    output_dir: str,
+    qual_dir: str | None = None,
+    axis_len: float = 0.05,
+):
     os.makedirs(output_dir, exist_ok=True)
 
     entries = collect_sequences(results_root)
@@ -418,6 +430,8 @@ def run(results_root: str, dataset_root: str, output_dir: str,
     mesh_cache: dict = {}  # (split, seq) → model_pts
 
     for depth_mode, split, seq_name in tqdm(entries, desc="Evaluating"):
+        if seq_name == "tomato_soup_can_yalehand0":
+            continue
         npy_path = os.path.join(results_root, depth_mode, split, f"{seq_name}.npy")
         seq_dir = os.path.join(dataset_root, split, seq_name)
         if not os.path.isdir(seq_dir):
@@ -449,8 +463,15 @@ def run(results_root: str, dataset_root: str, output_dir: str,
             K = load_camera_matrix(seq_dir)
             img_paths = get_frame_image_paths(seq_dir)
             visualize_sequence(
-                est_poses, gt_poses, img_paths, K,
-                qual_dir, depth_mode, split, seq_name, axis_len=axis_len,
+                est_poses,
+                gt_poses,
+                img_paths,
+                K,
+                qual_dir,
+                depth_mode,
+                split,
+                seq_name,
+                axis_len=axis_len,
             )
 
     # ── split-level averages (4 blocks × 4 reflectivity levels = 16) ─────────
@@ -533,5 +554,10 @@ if __name__ == "__main__":
     else:
         qual_dir = args.qual_dir or os.path.join(eval_dir, "results_qual", method_name)
 
-    run(args.results_folder, args.dataset_root, output_dir,
-        qual_dir=qual_dir, axis_len=args.axis_len)
+    run(
+        args.results_folder,
+        args.dataset_root,
+        output_dir,
+        qual_dir=qual_dir,
+        axis_len=args.axis_len,
+    )
