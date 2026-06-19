@@ -1,0 +1,13 @@
+[
+  {
+    "seq": "bleach0",
+    "frames": 50,
+    "mae_mm": 62.908410453796385,
+    "med_mae_mm": 26.929038047790527,
+    "corr": 0.5679215081874855,
+    "bg_jitter_raw_mm": 7952.85302734375,
+    "bg_jitter_temporal_mm": 238.59580993652344,
+    "split": "cube",
+    "refl": "0.0"
+  }
+]
