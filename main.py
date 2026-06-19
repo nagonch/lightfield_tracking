@@ -565,6 +565,7 @@ def build_work_list(exp_name: str) -> list[dict]:
 
 
 def main() -> None:
+    # PROD
     parser = argparse.ArgumentParser(description="ReLiFT-6DoF ablation runner")
     parser.add_argument(
         "--refine", action="store_true", help="Enable photometric refinement"
