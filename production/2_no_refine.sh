@@ -21,4 +21,4 @@ shift
 
 echo ">> PRODUCTION 2/4: NO REFINEMENT (separation only, gt + live-lf depth) — GPU $GPU"
 docker exec -e CUDA_VISIBLE_DEVICES="$GPU" -w "$REPO" lift6dof \
-  python -u main.py --depth gt,lf --gt-masks --no-cache-depth "$@"
+  python -u main.py --name "ablation_no_refine_gt_mask" --depth gt,lf --gt-masks --no-cache-depth "$@"

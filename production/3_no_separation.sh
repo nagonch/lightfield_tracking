@@ -21,4 +21,4 @@ shift
 
 echo ">> PRODUCTION 3/4: NO REFINE + NO SEPARATION (raw-view LoFTR, gt + live-lf depth) — GPU $GPU"
 docker exec -e CUDA_VISIBLE_DEVICES="$GPU" -w "$REPO" lift6dof \
-  python -u main.py --no-cache-separation --gt-masks --depth gt,lf --no-cache-depth "$@"
+  python -u main.py --name "ablation_no_separation_gt_mask" --no-cache-separation --gt-masks --depth gt,lf --no-cache-depth "$@"

@@ -32,14 +32,14 @@ case "$CMD" in
   run)
     echo ">> PRODUCTION 1/4: FULL pipeline (refine + separation, gt + live-lf depth) — GPU $GPU"
     docker exec -e CUDA_VISIBLE_DEVICES="$GPU" -w "$REPO" lift6dof \
-      python -u main.py --refine --gt-masks --depth gt,lf --no-cache-depth "$@" ;;
+      python -u main.py --refine --name "ablation_full_gt_mask" --gt-masks --depth gt,lf --no-cache-depth "$@" ;;
   fps)
     echo ">> PRODUCTION 1/4: FPS of FULL pipeline (live lf depth + live separation) — GPU $GPU"
     fpscap="${MAX_FRAMES:-80}"            # per-sequence cap; set MAX_FRAMES=0 for unbounded
     extra=()
     [[ "$fpscap" != "0" ]] && extra+=(--max-frames "$fpscap")
     docker exec -e CUDA_VISIBLE_DEVICES="$GPU" -w "$REPO" lift6dof \
-      python -u main.py --refine --depth lf --no-cache-depth --no-cache-separation \
+      python -u main.py --refine --name "ablation_full_gt_mask" --gt-masks --depth lf --no-cache-depth --no-cache-separation \
         --fps --name _fps_full "${extra[@]}" "$@" ;;
   *) echo "usage: $0 <gpu:0|1> [run|fps] [extra main.py args...]"; exit 1 ;;
 esac
