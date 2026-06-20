@@ -31,7 +31,7 @@ BASELINES = [
     ("results_bsdf", "BSDF"),
     ("results_icp", "ICP"),
     ("results_loftr", "LoFTR"),
-    ("results_ours", "Ours"),
+    ("ablation_full_gt_mask", "Ours"),
 ]
 
 COLORS = ["#1f77b4", "#9467bd", "#2ca02c", "#d62728", "#ff7f0e", "#8c564b"]
