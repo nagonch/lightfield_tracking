@@ -234,8 +234,21 @@ def eval_sequence(
     ), f"Shape mismatch: est {est_poses.shape} vs gt {gt_poses.shape}"
     N = len(est_poses)
 
+    # A tracker can occasionally emit a degenerate (NaN/inf) pose. Treat such a
+    # frame as a hard failure rather than letting it crash cKDTree / poison means:
+    #  - ADD / ADD-S: assign +inf so the frame counts against the AUC.
+    #  - ATE / rotation: exclude from the means (reported via n_invalid).
+    valid = np.isfinite(est_poses.reshape(N, -1)).all(axis=1) & np.isfinite(
+        gt_poses.reshape(N, -1)
+    ).all(axis=1)
+    n_invalid = int((~valid).sum())
+
     add_errs, adds_errs = [], []
-    for est, gt in zip(est_poses, gt_poses):
+    for est, gt, ok in zip(est_poses, gt_poses, valid):
+        if not ok:
+            add_errs.append(np.inf)
+            adds_errs.append(np.inf)
+            continue
         add_errs.append(_add_err(est, gt, model_pts))
         adds_errs.append(_adds_err(est, gt, model_pts))
     add_errs = np.array(add_errs)
@@ -250,12 +263,20 @@ def eval_sequence(
     rot_errs = rotation_angle_deg(R_err)
     trans_errs = np.linalg.norm(t_est - t_gt, axis=1)
 
+    if valid.any():
+        ate_rmse = float(np.sqrt((trans_errs[valid] ** 2).mean()))
+        mean_rot = float(rot_errs[valid].mean())
+    else:
+        ate_rmse = float("nan")
+        mean_rot = float("nan")
+
     return {
         "add_auc": _auc_under_accuracy_curve(add_errs),
         "adds_auc": _auc_under_accuracy_curve(adds_errs),
-        "ate_rmse": float(np.sqrt((trans_errs**2).mean())),
-        "mean_abs_rot_deg": float(rot_errs.mean()),
+        "ate_rmse": ate_rmse,
+        "mean_abs_rot_deg": mean_rot,
         "n_frames": N,
+        "n_invalid": n_invalid,
     }
 
 
@@ -458,6 +479,12 @@ def run(
         model_pts = mesh_cache[key]
 
         metrics = eval_sequence(est_poses, gt_poses, model_pts)
+        if metrics["n_invalid"]:
+            tqdm.write(
+                f"  WARN {depth_mode}/{split}/{seq_name}: "
+                f"{metrics['n_invalid']}/{metrics['n_frames']} frames had "
+                f"non-finite est poses (counted as failures)"
+            )
         blk = block_for(depth_mode, split)
         all_metrics.setdefault(blk, {}).setdefault(split, {})[seq_name] = metrics
 
