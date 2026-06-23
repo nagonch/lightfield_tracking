@@ -1,0 +1,7 @@
+FoundationPose | objects_1.0/bleach0 | depth=gt
+── FPS [fp] ──
+    19.76 FPS   (50 timed frames, 50.6 ms/frame mean)
+── GPU usage [fp]  (29 samples) ──
+  process mem : avg   2539.0 MiB   peak   2539.0 MiB
+  utilisation : avg     65.9 %     peak     68.0 %
+  power draw  : avg    194.6 W     peak    202.0 W
