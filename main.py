@@ -8,6 +8,7 @@ sequence, rebases the estimated trajectory to the GT frame-0 pose, and saves as 
 import argparse
 import logging
 import os
+import time
 from dataclasses import replace
 
 import numpy as np
@@ -49,6 +50,13 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
     level=logging.INFO,
 )
+
+
+# Below this many object pixels in the central view, segmentation has effectively
+# lost the object: too few pixels for LoFTR/ICP to recover a non-degenerate pose
+# (ICP on an empty point cloud yields a singular transform). We can't track an
+# object we can't see, so we stop and pad the rest of the trajectory.
+MIN_TRACK_PIXELS = 200
 
 
 def _rot_err_deg(Ra: np.ndarray, Rb: np.ndarray) -> float:
@@ -112,6 +120,8 @@ def track_sequence(
     no_cache_separation: bool = False,
     depth_estimator: LFPlaneSweepDepth | None = None,
     gt_masks: bool = False,
+    measure_fps: bool = False,
+    fps_samples: list[float] | None = None,
 ) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
     # Live LF depth: compute plane-sweep depth per frame from the loaded LF instead
     # of reading pre-written depth_lf/. The dataset still needs a real depth folder
@@ -152,6 +162,19 @@ def track_sequence(
     alpha_history: list[float] = []
     alpha_stable = False
     prev_alpha_i: float | None = None
+    # Set once the object is lost; the remaining frames repeat the last good pose.
+    tracking_lost = False
+
+    def _pad_with_last() -> None:
+        """Object lost: repeat the last tracked pose for this frame."""
+        est_poses.append(est_poses[-1])
+        coarse_poses.append(coarse_poses[-1])
+        loftr_ref_poses.append(loftr_ref_poses[-1])
+    # Honest per-frame timing (frame 0 has no tracking and absorbs CUDA warmup, so
+    # it is excluded). Models are already loaded before the loop, so this measures
+    # steady-state pipeline throughput, not setup cost.
+    frame_times: list[float] = []
+    _t0 = 0.0
 
     with tqdm(
         dataset, desc="  frames", unit="fr", leave=False, dynamic_ncols=True
@@ -159,7 +182,16 @@ def track_sequence(
         for i, frame in enumerate(bar):
             if max_frames is not None and i >= max_frames:
                 break
+            if measure_fps and i >= 1:
+                torch.cuda.synchronize()
+                _t0 = time.perf_counter()
             gt_poses.append(frame["object_pose"].cpu().numpy())
+
+            # Once tracking is lost, skip all per-frame work and keep padding so the
+            # saved trajectory still covers every GT frame.
+            if tracking_lost:
+                _pad_with_last()
+                continue
 
             if gt_masks:
                 mask = frame["masks"][s_size // 2, t_size // 2]
@@ -169,6 +201,26 @@ def track_sequence(
                     frame["LF"][s_size // 2, t_size // 2].clamp(0.0, 1.0)
                 )
                 mask = segmentor(central_srgb).bool()
+
+            # Segmentation can lose the object (occlusion, out of frame). With too
+            # few pixels there is nothing to track, and ICP/LoFTR would return a
+            # singular pose that later crashes the refine inverse. Stop here and pad
+            # the remaining frames with the last good pose. (Frame 0 is seeded from
+            # GT, so it is never gated.)
+            n_mask_px = int(mask.sum().item())
+            if i > 0 and n_mask_px < MIN_TRACK_PIXELS:
+                logging.warning(
+                    "%s: lost object at frame %d (%d mask px < %d) — padding "
+                    "remaining %d frames with last tracked pose",
+                    sequence_name,
+                    i,
+                    n_mask_px,
+                    MIN_TRACK_PIXELS,
+                    len(dataset) - i,
+                )
+                tracking_lost = True
+                _pad_with_last()
+                continue
             # Live plane-sweep depth (GPU tensor) replaces the disk depth for
             # depth=lf when caching is disabled; otherwise use the loaded depth.
             if live_lf_depth:
@@ -255,6 +307,25 @@ def track_sequence(
                     color_curr=color,
                     rng=rng,
                 )
+
+                # The mask can survive the pixel gate yet still yield a degenerate
+                # pose (e.g. all in-mask depth out of range → empty point cloud, so
+                # ICP returns a singular transform). A non-finite or singular pose
+                # would crash the next frame's refine inverse, so treat it as a lost
+                # track and pad the rest.
+                if not np.all(np.isfinite(coarse_pose)) or (
+                    abs(np.linalg.det(coarse_pose[:3, :3])) < 1e-6
+                ):
+                    logging.warning(
+                        "%s: degenerate pose at frame %d — padding remaining "
+                        "%d frames with last tracked pose",
+                        sequence_name,
+                        i,
+                        len(dataset) - i,
+                    )
+                    tracking_lost = True
+                    _pad_with_last()
+                    continue
 
                 # Propagate the independent LoFTR reference for the drift guard.
                 rel = coarse_pose @ np.linalg.inv(coarse_poses[-1])
@@ -347,6 +418,24 @@ def track_sequence(
                     est_poses.append(coarse_pose)
 
             prev = (view, depth_np, mask_np, pc, color, env_curr, slf, env_conf_curr)
+
+            if measure_fps and i >= 1:
+                torch.cuda.synchronize()
+                frame_times.append(time.perf_counter() - _t0)
+
+    if measure_fps and frame_times:
+        tot = sum(frame_times)
+        n = len(frame_times)
+        fps = n / tot if tot > 0 else 0.0
+        logging.info(
+            "%s: FPS %.2f  (%d frames, %.1f ms/frame mean)",
+            sequence_name,
+            fps,
+            n,
+            1000.0 * tot / n,
+        )
+        if fps_samples is not None:
+            fps_samples.extend(frame_times)
 
     if refined_errs:
         c = np.array(coarse_errs)
@@ -461,6 +550,20 @@ def main() -> None:
         help="Use ground-truth object masks from the dataset instead of segmenting "
         "the central view with GroundingDINO+SAM2+Cutie (prompted on the object name).",
     )
+    parser.add_argument(
+        "--no-separation",
+        action="store_true",
+        help="Disable reflection separation (overrides config). LoFTR then tracks the "
+        "raw central view instead of the separated diffuse view — the loftr-only "
+        "fallback ablation.",
+    )
+    parser.add_argument(
+        "--fps",
+        action="store_true",
+        help="Measure steady-state per-frame throughput (excludes frame 0 / model "
+        "load) and log per-sequence + overall FPS. Pair with --no-cache-separation "
+        "(and --no-cache-depth for depth=lf) for an honest end-to-end number.",
+    )
     args = parser.parse_args()
 
     depth_sources = (
@@ -468,8 +571,11 @@ def main() -> None:
     )
     use_refine = args.refine
     use_gt = args.refine and args.gt
+    separate = USE_REFLECTION_SEPARATION and not args.no_separation
 
-    if not use_refine:
+    if not separate:
+        exp_name = "ablation_no_separation"
+    elif not use_refine:
         exp_name = "ablation_loftr"
     elif use_gt:
         exp_name = "ablation_refine_gt"
@@ -482,7 +588,13 @@ def main() -> None:
     pin_alpha = False if use_gt else PIN_ALPHA
     refine_cfg = REFINE_CFG
 
-    logging.info("refine=%s  gt=%s  → %s", use_refine, use_gt, exp_name)
+    logging.info(
+        "refine=%s  gt=%s  separation=%s  → %s",
+        use_refine,
+        use_gt,
+        separate,
+        exp_name,
+    )
     logging.info("masks: %s", "GT (dataset)" if args.gt_masks else "segmentor")
     logging.info(
         "cache: separation=%s  lf_depth=%s",
@@ -510,6 +622,9 @@ def main() -> None:
     if use_refine and ENABLE_VIS:
         viewer = PhotometricRefineViewer(port=8081)
 
+    # Pooled per-frame times across all sequences for the overall FPS report.
+    fps_samples: list[float] | None = [] if args.fps else None
+
     with tqdm(work, desc="sequences", unit="seq", dynamic_ncols=True) as bar:
         for item in bar:
             bar.set_postfix_str(item["tag"])
@@ -530,7 +645,7 @@ def main() -> None:
                     depth_source=item["depth_source"],
                     loftr=loftr,
                     rng=rng,
-                    separate=USE_REFLECTION_SEPARATION,
+                    separate=separate,
                     refine=use_refine,
                     viewer=viewer,
                     max_frames=args.max_frames,
@@ -543,9 +658,22 @@ def main() -> None:
                     no_cache_separation=args.no_cache_separation,
                     depth_estimator=depth_estimator,
                     gt_masks=args.gt_masks,
+                    measure_fps=args.fps,
+                    fps_samples=fps_samples,
                 )
             except Exception:
                 logging.exception("%s: FAILED", item["tag"])
+
+    if fps_samples:
+        tot = sum(fps_samples)
+        n = len(fps_samples)
+        logging.info(
+            "OVERALL FPS %.2f  (%d frames, %.1f ms/frame mean) over %s",
+            n / tot if tot > 0 else 0.0,
+            n,
+            1000.0 * tot / n,
+            exp_name,
+        )
 
     if viewer is not None:
         viewer.close()
