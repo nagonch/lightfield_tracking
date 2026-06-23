@@ -1,0 +1,8 @@
+BundleSDF | objects_1.0/mustard0 | depth=synth
+── FPS [bundlesdf] ──
+    0.16 FPS   (42 timed frames, 6094.8 ms/frame mean)
+── GPU usage [bundlesdf]  (1745 samples) ──
+  process mem : avg   9391.0 MiB   peak  15086.0 MiB
+  utilisation : avg     96.8 %     peak    100.0 %
+  power draw  : avg    210.2 W     peak    229.2 W
+  torch alloc : peak   7505.8 MiB   reserved peak  14192.0 MiB
