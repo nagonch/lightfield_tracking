@@ -105,14 +105,23 @@ def main() -> None:
             fps_samples=fps_samples,
         )
 
+    tag = f"{args.split}_{args.refl}/{args.seq}"
+    lines = [f"ReLiFT-6DoF (method) | {tag} | depth={depth_source}"]
     if fps_samples:
         tot = sum(fps_samples)
         n = len(fps_samples)
-        print(
-            f"\n── FPS [method] ──\n  {n / tot:6.2f} FPS   "
-            f"({n} timed frames, {1000.0 * tot / n:.1f} ms/frame mean)"
-        )
-    mon.report("method", torch_module=torch)
+        lines += [
+            "── FPS [method] ──",
+            f"  {n / tot:6.2f} FPS   "
+            f"({n} timed frames, {1000.0 * tot / n:.1f} ms/frame mean)",
+        ]
+    lines.append(mon.format_report("method", torch_module=torch))
+
+    report = "\n".join(lines)
+    out_txt = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fps_method.txt")
+    with open(out_txt, "w") as f:
+        f.write(report + "\n")
+    print("\n" + report + f"\n\nsaved -> {out_txt}")
 
 
 if __name__ == "__main__":

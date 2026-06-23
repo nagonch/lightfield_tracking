@@ -1,0 +1,7 @@
+SIFT+PnP (baseline, CPU) | objects_1.0/bleach0 | depth=gt
+── FPS [pnp] ──
+   34.24 FPS   (49 timed frames, 29.2 ms/frame mean)
+── GPU usage [pnp]  (12 samples) ──
+  process mem : avg      0.0 MiB   peak      0.0 MiB
+  utilisation : avg     59.0 %     peak     62.0 %
+  power draw  : avg    186.7 W     peak    190.4 W

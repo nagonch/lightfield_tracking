@@ -124,30 +124,28 @@ class GpuMonitor:
             "power_peak_w": pow_peak,
         }
 
-    def report(self, label: str, torch_module=None) -> dict:
+    def format_report(self, label: str, torch_module=None) -> str:
+        """Build the GPU-usage block as text (also stashes torch peaks in summary)."""
         s = self.summary()
-        print(f"\n── GPU usage [{label}]  ({s['samples']} samples) ──")
-        print(
+        lines = [
+            f"── GPU usage [{label}]  ({s['samples']} samples) ──",
             f"  process mem : avg {s['mem_avg_mib']:8.1f} MiB   "
-            f"peak {s['mem_peak_mib']:8.1f} MiB"
-        )
-        print(
+            f"peak {s['mem_peak_mib']:8.1f} MiB",
             f"  utilisation : avg {s['util_avg_pct']:8.1f} %     "
-            f"peak {s['util_peak_pct']:8.1f} %"
-        )
-        print(
+            f"peak {s['util_peak_pct']:8.1f} %",
             f"  power draw  : avg {s['power_avg_w']:8.1f} W     "
-            f"peak {s['power_peak_w']:8.1f} W"
-        )
+            f"peak {s['power_peak_w']:8.1f} W",
+        ]
         if torch_module is not None and torch_module.cuda.is_available():
             # Process-exact PyTorch allocator peak — complements the nvidia-smi
             # board-level numbers above (which include the CUDA context + cuDNN).
             alloc = torch_module.cuda.max_memory_allocated() / 1024**2
             resv = torch_module.cuda.max_memory_reserved() / 1024**2
-            print(
+            lines.append(
                 f"  torch alloc : peak {alloc:8.1f} MiB   "
                 f"reserved peak {resv:8.1f} MiB"
             )
             s["torch_alloc_peak_mib"] = alloc
             s["torch_reserved_peak_mib"] = resv
-        return s
+        self.last_summary = s
+        return "\n".join(lines)

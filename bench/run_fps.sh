@@ -6,7 +6,8 @@
 #   bash bench/run_fps.sh                 # bleach0, all three methods
 #   SEQ=mustard0 bash bench/run_fps.sh    # different sequence
 #
-# Each method is a separate script; results print to stdout.
+# Each method is a separate script and saves its own performance report:
+#   bench/fps_method.txt   bench/fps_icp.txt   bench/fps_pnp.txt
 set -e
 SEQ="${SEQ:-bleach0}"
 REFL="${REFL:-1.0}"

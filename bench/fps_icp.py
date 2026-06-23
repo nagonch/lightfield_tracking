@@ -93,14 +93,22 @@ def main() -> None:
     with GpuMonitor() as mon:
         times = timed_run(tracker)
 
+    lines = [f"Colored-ICP (baseline) | {args.split}_{args.refl}/{args.seq} | depth={args.depth}"]
     if times:
         tot = sum(times)
         n = len(times)
-        print(
-            f"\n── FPS [icp] ──\n  {n / tot:6.2f} FPS   "
-            f"({n} timed frames, {1000.0 * tot / n:.1f} ms/frame mean)"
-        )
-    mon.report("icp")
+        lines += [
+            "── FPS [icp] ──",
+            f"  {n / tot:6.2f} FPS   "
+            f"({n} timed frames, {1000.0 * tot / n:.1f} ms/frame mean)",
+        ]
+    lines.append(mon.format_report("icp"))
+
+    report = "\n".join(lines)
+    out_txt = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fps_icp.txt")
+    with open(out_txt, "w") as f:
+        f.write(report + "\n")
+    print("\n" + report + f"\n\nsaved -> {out_txt}")
 
 
 if __name__ == "__main__":

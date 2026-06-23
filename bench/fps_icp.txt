@@ -1,0 +1,7 @@
+Colored-ICP (baseline) | objects_1.0/bleach0 | depth=gt
+── FPS [icp] ──
+   11.74 FPS   (49 timed frames, 85.2 ms/frame mean)
+── GPU usage [icp]  (31 samples) ──
+  process mem : avg    926.0 MiB   peak    926.0 MiB
+  utilisation : avg      0.1 %     peak      3.0 %
+  power draw  : avg     59.4 W     peak     63.7 W
