@@ -38,27 +38,44 @@ import run_eval as R  # noqa: E402
 # ── what to plot ──────────────────────────────────────────────────────────────
 DATASET_ROOT = "/home/ngoncharov/SpecTrack_dataset"
 BASELINES_ROOT = os.path.join(os.path.dirname(R.__file__), "..", "baselines")
-DEPTH = "synth"            # our *estimated* depth (baselines only ship gt/synth)
 
-# default sequence (overridable on the command line); also the top-5 batch list
-SPLIT = "objects_1.0"
-SEQ = "sugar_box1"
-TOP5 = [
+# ── BASELINE comparison (GT row + 4 trackers, our estimated/synth depth) ──────
+BASELINE_SEQS = [
     ("objects_1.0", "sugar_box1"),
     ("objects_1.0", "sugar_box_yalehand0"),
     ("objects_0.7", "sugar_box1"),
     ("objects_1.0", "bleach_hard_00_03_chaitanya"),
     ("cube_1.0", "sugar_box1"),
 ]
-
-# GT row first, then baselines, ours last
-ROWS = [
-    ("__gt__", "GT"),
-    ("results_loftr", "LoFTR"),
-    ("results_fp", "FoundationPose"),
-    ("results_bsdf", "BundleSDF"),
-    ("ablation_full_gt_mask", "Ours"),
+# row = (folder, label, depth); "__gt__" → ground-truth pose (depth irrelevant)
+BASELINE_ROWS = [
+    ("__gt__", "GT", None),
+    ("results_loftr", "LoFTR", "synth"),
+    ("results_fp", "FoundationPose", "synth"),
+    ("results_bsdf", "BundleSDF", "synth"),
+    ("ablation_full_gt_mask", "Ours", "synth"),
 ]
+
+# ── ABLATION of our method (sequences where photometric refinement matters) ───
+ABLATION_SEQS = [
+    ("cube_1.0", "sugar_box_yalehand0"),
+    ("cube_1.0", "sugar_box1"),
+    ("cube_1.0", "mustard0"),
+    ("objects_0.7", "bleach0"),
+    ("cube_0.7", "bleach0"),
+]
+ABLATION_ROWS = [
+    ("__gt__", "GT", None),
+    ("ablation_full_gt_mask", "Full model", "gt"),
+    ("ablation_no_refine_gt_mask", "− photometric\nrefinement", "gt"),
+    ("ablation_no_separation_gt_mask", "− reflection\nseparation", "gt"),
+    ("ablation_synth_depth_gt_mask", "− sensor instead\nof GT depth", "synth"),
+]
+
+MODES = {
+    "baseline": (BASELINE_ROWS, BASELINE_SEQS, "tracking_grid"),
+    "ablation": (ABLATION_ROWS, ABLATION_SEQS, "ablation_grid"),
+}
 
 # first / 25% / 85% / 100% of the sequence
 FRAC = [0.0, 0.25, 0.85, 1.0]
@@ -156,10 +173,17 @@ def render_cell(rgb, K, T, verts, faces, center, side):
     return img.crop(box).resize((CELL_PX, CELL_PX), Image.LANCZOS)
 
 
-def main(split, seq):
+def adds_auc(poses, gt_poses, model_pts):
+    """ADD-S AUC for a full estimated track (matches eval/run_eval.py)."""
+    n = min(len(poses), len(gt_poses))
+    return R.eval_sequence(poses[:n], gt_poses[:n], model_pts)["adds_auc"]
+
+
+def main(split, seq, rows, stem_prefix):
     seq_dir = os.path.join(DATASET_ROOT, split, seq)
     K = R.load_camera_matrix(seq_dir)
     gt_poses = R.load_gt_poses(seq_dir)
+    model_pts = R.load_mesh_pts(DATASET_ROOT, split, seq)
     pose_files = sorted(os.listdir(os.path.join(seq_dir, "object_poses")))
     frame_ids = [pf[5:-4] for pf in pose_files]
     N = len(gt_poses)
@@ -170,26 +194,29 @@ def main(split, seq):
     max_dim = max(object_center(seq_dir, frame_ids[i])[2] for i in idxs)
     side = max(CROP_SIDE, int(max_dim * (1 + PAD)))
 
-    # pose source per row (GT row uses GT poses; method rows use their npy)
-    pose_by_row = {}
-    for folder, _ in ROWS:
+    # pose source + ADD-S per row (GT row uses GT poses, no score)
+    pose_by_row, score_by_row = {}, {}
+    for folder, label, depth in rows:
         if folder == "__gt__":
-            pose_by_row[folder] = gt_poses
+            pose_by_row[label] = gt_poses
+            score_by_row[label] = None
         else:
-            p = os.path.join(BASELINES_ROOT, folder, DEPTH, split, f"{seq}.npy")
-            pose_by_row[folder] = np.load(p)
+            p = os.path.join(BASELINES_ROOT, folder, depth, split, f"{seq}.npy")
+            poses = np.load(p)
+            pose_by_row[label] = poses
+            score_by_row[label] = adds_auc(poses, gt_poses, model_pts)
 
     rgbs = {i: Image.open(rgb_path(seq_dir, frame_ids[i])).convert("RGB") for i in idxs}
 
-    nrow, ncol = len(ROWS), len(idxs)
+    nrow, ncol = len(rows), len(idxs)
     fig, axes = plt.subplots(
         nrow, ncol,
         figsize=(ncol * 1.7, nrow * 1.7),
         gridspec_kw={"wspace": 0.0, "hspace": 0.0},
     )
 
-    for r, (folder, label) in enumerate(ROWS):
-        poses = pose_by_row[folder]
+    for r, (folder, label, depth) in enumerate(rows):
+        poses = pose_by_row[label]
         for c, i in enumerate(idxs):
             cell = render_cell(rgbs[i], K, poses[i], verts, faces, centers[c], side)
             ax = axes[r, c]
@@ -200,36 +227,41 @@ def main(split, seq):
                 s.set_color("white")
                 s.set_linewidth(1.2)
             if c == 0:
-                ax.set_ylabel(label, fontsize=12, fontweight="bold", labelpad=6)
+                ax.set_ylabel(label, fontsize=10, fontweight="bold", labelpad=6,
+                              linespacing=0.9)
+                if score_by_row[label] is not None:
+                    ax.text(
+                        0.035, 0.965, f"ADD-S {score_by_row[label]:.3f}",
+                        transform=ax.transAxes, ha="left", va="top",
+                        fontsize=9.5, color="white", fontweight="bold",
+                        bbox=dict(facecolor="black", alpha=0.55, pad=2,
+                                  edgecolor="none"),
+                    )
 
-    fig.subplots_adjust(left=0.10, right=0.995, top=0.945, bottom=0.005,
+    fig.subplots_adjust(left=0.19, right=0.995, top=0.945, bottom=0.005,
                         wspace=0.0, hspace=0.0)
     fig.suptitle("Tracking along time", fontsize=16, fontweight="bold", y=0.985)
 
     os.makedirs(OUT_DIR, exist_ok=True)
-    stem = f"tracking_grid_{split}_{seq}"
+    stem = f"{stem_prefix}_{split}_{seq}"
     for ext in ("png", "pdf"):
         out = os.path.join(OUT_DIR, f"{stem}.{ext}")
         fig.savefig(out, dpi=300)
         print("Saved →", out)
     plt.close(fig)
-    print(f"Sequence: {split}/{seq}  depth={DEPTH}  N={N}  frames={idxs}  crop={side}px")
+    print(f"Sequence: {split}/{seq}  N={N}  frames={idxs}  crop={side}px")
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--split", default=None)
+    ap.add_argument("--mode", choices=list(MODES), default="baseline")
+    ap.add_argument("--split", default=None, help="render a single split/seq instead of the batch")
     ap.add_argument("--seq", default=None)
-    ap.add_argument("--top5", action="store_true",
-                    help="render the five sequences where we beat the baselines most")
     args = ap.parse_args()
 
-    if args.top5:
-        targets = TOP5
-    elif args.split and args.seq:
-        targets = [(args.split, args.seq)]
-    else:
-        targets = [(SPLIT, SEQ)]
+    rows, seqs, stem_prefix = MODES[args.mode]
+    if args.split and args.seq:
+        seqs = [(args.split, args.seq)]
 
-    for sp, sq in targets:
-        main(sp, sq)
+    for sp, sq in seqs:
+        main(sp, sq, rows, stem_prefix)
