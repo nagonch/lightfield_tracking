@@ -56,25 +56,50 @@ BASELINE_ROWS = [
     ("ablation_full_gt_mask", "Ours", "synth"),
 ]
 
-# ── ABLATION of our method (sequences where photometric refinement matters) ───
+# ── ABLATION of our method (objects @ reflectivity 1.0, our estimated LF depth) ─
+# Modules ablated on our LF (light-field) depth; the last row swaps LF → raw
+# sensor depth. ADD-S drops monotonically: 0.861 → 0.829 → 0.805 → 0.280.
 ABLATION_SEQS = [
-    ("cube_1.0", "sugar_box_yalehand0"),
-    ("cube_1.0", "sugar_box1"),
-    ("cube_1.0", "mustard0"),
-    ("objects_0.7", "bleach0"),
-    ("cube_0.7", "bleach0"),
+    ("objects_1.0", "sugar_box1"),          # #1 by ADD-S evolution (1.4→1.7→2.0→10.0 cm)
+    ("objects_1.0", "cracker_box_yalehand0"),
+    ("objects_1.0", "cracker_box_reorient"),
 ]
 ABLATION_ROWS = [
     ("__gt__", "GT", None),
-    ("ablation_full_gt_mask", "Full model", "gt"),
-    ("ablation_no_refine_gt_mask", "− photometric\nrefinement", "gt"),
-    ("ablation_no_separation_gt_mask", "− reflection\nseparation", "gt"),
-    ("ablation_synth_depth_gt_mask", "− sensor instead\nof GT depth", "synth"),
+    ("ablation_full_gt_mask", "Full model", "lf"),
+    ("ablation_no_refine_gt_mask", "− photometric\nrefinement", "lf"),
+    ("ablation_no_separation_gt_mask", "− reflection\nseparation", "lf"),
+    ("ablation_synth_depth_gt_mask",
+     "− light field depth\n(instead: synth depth)", "synth"),
 ]
 
+SKIP_SEQS = {"tomato_soup_can_yalehand0"}   # excluded from eval (bad data)
+
+
+def all_sequences():
+    """Every (split, seq) across cube_*/objects_* reflectivities, sorted."""
+    out = []
+    for split in sorted(os.listdir(DATASET_ROOT)):
+        if not (split.startswith("cube_") or split.startswith("objects_")):
+            continue
+        sd = os.path.join(DATASET_ROOT, split)
+        if not os.path.isdir(sd):
+            continue
+        for seq in sorted(os.listdir(sd)):
+            if os.path.isdir(os.path.join(sd, seq)) and seq not in SKIP_SEQS \
+                    and seq != "models":
+                out.append((split, seq))
+    return out
+
+
+# mode → (rows, sequences, filename-stem, metric-key, badge-label, title)
+# title=None → per-figure title built from the sequence; sequences=None → all
 MODES = {
-    "baseline": (BASELINE_ROWS, BASELINE_SEQS, "tracking_grid"),
-    "ablation": (ABLATION_ROWS, ABLATION_SEQS, "ablation_grid"),
+    "baseline": (BASELINE_ROWS, BASELINE_SEQS, "tracking_grid", "add_auc", "ADD",
+                 "Tracking along time"),
+    "ablation": (ABLATION_ROWS, ABLATION_SEQS, "ablation_grid", "add_auc", "ADD",
+                 "Qualitative ablation"),
+    "appendix": (BASELINE_ROWS, None, "appendix_grid", "add_auc", "ADD", None),
 }
 
 # first / 25% / 85% / 100% of the sequence
@@ -173,38 +198,50 @@ def render_cell(rgb, K, T, verts, faces, center, side):
     return img.crop(box).resize((CELL_PX, CELL_PX), Image.LANCZOS)
 
 
-def adds_auc(poses, gt_poses, model_pts):
-    """ADD-S AUC for a full estimated track (matches eval/run_eval.py)."""
+def auc_metric(poses, gt_poses, model_pts, key):
+    """ADD / ADD-S AUC for a full estimated track (matches eval/run_eval.py)."""
     n = min(len(poses), len(gt_poses))
-    return R.eval_sequence(poses[:n], gt_poses[:n], model_pts)["adds_auc"]
+    return R.eval_sequence(poses[:n], gt_poses[:n], model_pts)[key]
 
 
-def main(split, seq, rows, stem_prefix):
+def main(split, seq, rows, stem_prefix, metric_key, metric_label, title):
     seq_dir = os.path.join(DATASET_ROOT, split, seq)
     K = R.load_camera_matrix(seq_dir)
     gt_poses = R.load_gt_poses(seq_dir)
     model_pts = R.load_mesh_pts(DATASET_ROOT, split, seq)
     pose_files = sorted(os.listdir(os.path.join(seq_dir, "object_poses")))
     frame_ids = [pf[5:-4] for pf in pose_files]
-    N = len(gt_poses)
     verts, faces = load_mesh(split, seq)
 
+    # pose source + score per row (GT row uses GT poses, no score). Rows whose
+    # .npy is missing are skipped so the batch never crashes on a gap.
+    present_rows, pose_by_row, score_by_row = [], {}, {}
+    for folder, label, depth in rows:
+        if folder == "__gt__":
+            pose_by_row[label] = gt_poses
+            score_by_row[label] = None
+            present_rows.append((folder, label, depth))
+            continue
+        p = os.path.join(BASELINES_ROOT, folder, depth, split, f"{seq}.npy")
+        if not os.path.exists(p):
+            print(f"  skip row {label}: missing {p}")
+            continue
+        poses = np.load(p)
+        pose_by_row[label] = poses
+        score_by_row[label] = auc_metric(poses, gt_poses, model_pts, metric_key)
+        present_rows.append((folder, label, depth))
+    rows = present_rows
+
+    # sample frames within the length common to GT and every present track
+    N = min(len(pose_by_row[lab]) for _, lab, _ in rows)
     idxs = [int(round(f * (N - 1))) for f in FRAC]
     centers = [object_center(seq_dir, frame_ids[i])[:2] for i in idxs]
     max_dim = max(object_center(seq_dir, frame_ids[i])[2] for i in idxs)
     side = max(CROP_SIDE, int(max_dim * (1 + PAD)))
 
-    # pose source + ADD-S per row (GT row uses GT poses, no score)
-    pose_by_row, score_by_row = {}, {}
-    for folder, label, depth in rows:
-        if folder == "__gt__":
-            pose_by_row[label] = gt_poses
-            score_by_row[label] = None
-        else:
-            p = os.path.join(BASELINES_ROOT, folder, depth, split, f"{seq}.npy")
-            poses = np.load(p)
-            pose_by_row[label] = poses
-            score_by_row[label] = adds_auc(poses, gt_poses, model_pts)
+    if title is None:                      # per-figure title from the sequence
+        cls, _, refl = split.partition("_")
+        title = f"{seq}    ({cls}, ρ = {refl})"
 
     rgbs = {i: Image.open(rgb_path(seq_dir, frame_ids[i])).convert("RGB") for i in idxs}
 
@@ -227,20 +264,20 @@ def main(split, seq, rows, stem_prefix):
                 s.set_color("white")
                 s.set_linewidth(1.2)
             if c == 0:
-                ax.set_ylabel(label, fontsize=10, fontweight="bold", labelpad=6,
+                ax.set_ylabel(label, fontsize=9.5, fontweight="bold", labelpad=5,
                               linespacing=0.9)
                 if score_by_row[label] is not None:
                     ax.text(
-                        0.035, 0.965, f"ADD-S {score_by_row[label]:.3f}",
+                        0.035, 0.965, f"{metric_label} {score_by_row[label]:.3f}",
                         transform=ax.transAxes, ha="left", va="top",
                         fontsize=9.5, color="white", fontweight="bold",
                         bbox=dict(facecolor="black", alpha=0.55, pad=2,
                                   edgecolor="none"),
                     )
 
-    fig.subplots_adjust(left=0.19, right=0.995, top=0.945, bottom=0.005,
+    fig.subplots_adjust(left=0.215, right=0.995, top=0.945, bottom=0.005,
                         wspace=0.0, hspace=0.0)
-    fig.suptitle("Tracking along time", fontsize=16, fontweight="bold", y=0.985)
+    fig.suptitle(title, fontsize=16, fontweight="bold", y=0.985)
 
     os.makedirs(OUT_DIR, exist_ok=True)
     stem = f"{stem_prefix}_{split}_{seq}"
@@ -259,9 +296,11 @@ if __name__ == "__main__":
     ap.add_argument("--seq", default=None)
     args = ap.parse_args()
 
-    rows, seqs, stem_prefix = MODES[args.mode]
+    rows, seqs, stem_prefix, metric_key, metric_label, title = MODES[args.mode]
     if args.split and args.seq:
         seqs = [(args.split, args.seq)]
+    elif seqs is None:
+        seqs = all_sequences()
 
     for sp, sq in seqs:
-        main(sp, sq, rows, stem_prefix)
+        main(sp, sq, rows, stem_prefix, metric_key, metric_label, title)

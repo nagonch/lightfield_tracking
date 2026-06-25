@@ -25,7 +25,13 @@ sys.path.insert(0, _HERE)   # so `import icp`, `import pnp` resolve to baselines
 sys.path.insert(0, _ROOT)   # so `import loftr_baseline`, `import loftr_wrapper` resolve
 
 from pnp import SpecTrackSequence  # noqa: E402  (rgb/depth/mask + GT pose loader)
+import loftr_baseline  # noqa: E402
 from loftr_baseline import LoftrBase  # noqa: E402
+
+# Load the LoFTR model once and reuse it across every sequence (otherwise each
+# LoftrBase() reloads the checkpoint onto the GPU).
+_SHARED_RUNNER = loftr_baseline.LoftrRunner()
+loftr_baseline.LoftrRunner = lambda *a, **k: _SHARED_RUNNER
 
 DATASET_ROOT = "/home/ngoncharov/SpecTrack_dataset"
 RESULTS_DIR = os.path.join(_HERE, "results_loftr")
