@@ -8,9 +8,11 @@ object type (cracker_box, sugar_box, mustard, bleach). Columns:
         ‖ GT env | Ours env (GT depth) | Ours env (est. depth)
 
 Object panels are square crops (uniform aspect, no weird crops); env panels are
-equirectangular. Per sequence a single frame is chosen that is healthy (mask not
-collapsed) in BOTH depth caches and has the highest env coverage — the same
-frame for GT/est depth so the comparison is fair. Saved as PNG and PDF.
+equirectangular. The diffuse columns share one frame (healthy in BOTH depth
+caches, post alpha-stabilization, highest PSNR). The env is an *accumulated*
+quantity, so each env column uses its own depth's best-covered healthy frame
+(decoupled — lets a sequence whose GT cache collapses early still show a full LF
+env, and vice-versa). Sequences are pinned to the best est-depth trackers. PNG+PDF.
 """
 import os
 import glob
@@ -25,21 +27,39 @@ from reflection_report import CACHE, DATASET, srgb_to_linear, u8, env2_linear
 from scipy.ndimage import gaussian_filter
 
 ENV_RECON_BLUR = 1.3   # recon env is intrinsically low-frequency; light blur drops splat dots
+THRESHOLD_ENV = True   # show recon env only where observed (confidence>thr); blank elsewhere
+ENV_CONF_THR = 0.9
+ALPHA_STABLE_TOL = 0.01  # alpha "stabilized" once consecutive estimates change less than this
+MIN_STABLE_PROGRESS = 0.45  # also wait at least this far into the sequence (≈ frame 20 of ~40)
+
+FIXED_FRAME = 20       # None → best-frame selection; int → every panel at this frame (clamped)
 
 REFL = "0.7"
+_suffix = f"_frame{FIXED_FRAME}" if FIXED_FRAME is not None else ("_envthresh" if THRESHOLD_ENV else "")
 OUT_PNG = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                       "reflection_report", f"grid_final_r{REFL}.png")
-PROGRESS_PROBES = [0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85]
+                       "reflection_report", f"grid_final_r{REFL}{_suffix}.png")
+PROGRESS_PROBES = [0.05, 0.12, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.97]
 MIN_VALID = 1500
 
-# (row label, split prefix, sequence-name filter)
-GROUPS = [
-    ("cube", "cube", lambda s: True),
-    ("cracker box", "objects", lambda s: s.startswith("cracker_box")),
-    ("sugar box", "objects", lambda s: s.startswith("sugar_box")),
-    ("mustard", "objects", lambda s: s.startswith("mustard")),
-    ("bleach", "objects", lambda s: s.startswith("bleach")),
+# (row label, split prefix, sequence). Best-est sequences (LF-depth tracking, from
+# eval/results/ablation_full_gt_mask/summary.txt, ranked by ADD-S AUC + rotation).
+GROUPS_BEST = [
+    ("cube", "cube", "cracker_box_reorient"),            # cube LF: best Rot 2.6°
+    ("cracker box", "objects", "cracker_box_reorient"),  # 0.898 / 8.6° vs yalehand0 0.863 / 11.5°
+    ("sugar box", "objects", "sugar_box_yalehand0"),     # 7.6° vs sugar_box1 19.5°
+    ("mustard", "objects", "mustard_easy_00_02"),        # 0.919 / 5.5° vs mustard0 14.0°
+    ("bleach", "objects", "bleach_hard_00_03_chaitanya"),  # 7.2° vs bleach0 19.0°
 ]
+# Sequences whose GT *and* LF reflection caches both survive to FIXED_FRAME (=20):
+# reorient is only 20 frames and sugar_box_yalehand0's GT cache dies at frame 10.
+GROUPS_FRAME20 = [
+    ("cube", "cube", "cracker_box_yalehand0"),
+    ("cracker box", "objects", "cracker_box_yalehand0"),
+    ("sugar box", "objects", "sugar_box1"),
+    ("mustard", "objects", "mustard_easy_00_02"),
+    ("bleach", "objects", "bleach_hard_00_03_chaitanya"),
+]
+GROUPS = GROUPS_FRAME20 if FIXED_FRAME is not None else GROUPS_BEST
 
 
 def cache_frames(depth, split, seq):
@@ -59,6 +79,25 @@ def load_diffuse(depth, split, seq, fi):
 
 def load_env(depth, split, seq, fi):
     return np.nan_to_num(np.load(cache_frames(depth, split, seq)[fi][:-4] + "_env.npy"))
+
+
+def load_conf(depth, split, seq, fi):
+    return np.nan_to_num(np.load(cache_frames(depth, split, seq)[fi][:-4] + "_envconf.npy"))
+
+
+def stable_floor(split, seq):
+    """First frame at/after which the alpha estimate has stabilized (two
+    consecutive changes < tol), but at least MIN_STABLE_PROGRESS into the
+    sequence — so we read the env/diffuse once the separation has settled."""
+    fs = cache_frames("gt", split, seq)
+    a = np.array([float(np.load(f[:-4] + "_alpha.npy")) if os.path.exists(f[:-4] + "_alpha.npy")
+                  else np.nan for f in fs])
+    fstab = len(a) // 3
+    for i in range(2, len(a)):
+        if abs(a[i] - a[i - 1]) < ALPHA_STABLE_TOL and abs(a[i - 1] - a[i - 2]) < ALPHA_STABLE_TOL:
+            fstab = i
+            break
+    return max(fstab, int(MIN_STABLE_PROGRESS * (len(a) - 1)))
 
 
 def dataset_frames(split, refl, seq):
@@ -96,23 +135,36 @@ def evaluate_seq(split, seq):
     n = min(len(cache_frames("gt", split, seq)), len(cache_frames("lf", split, seq)))
     if n == 0:
         return None
-    healthy = []
-    for p in [0.0] + PROGRESS_PROBES:
+    floor = min(stable_floor(split, seq), n - 1)
+    rows = []  # (fi, gt_ok, lf_ok, gt_cov, lf_cov, psnr)
+    for p in PROGRESS_PROBES:
         fi = min(int(p * (n - 1)), n - 1)
         Dg = load_diffuse("gt", split, seq, fi)
-        vg = (Dg.sum(-1) > 1e-6)
-        vl = (load_diffuse("lf", split, seq, fi).sum(-1) > 1e-6).sum()
-        if vg.sum() >= MIN_VALID and vl >= MIN_VALID:
+        vg = Dg.sum(-1) > 1e-6
+        gt_ok = vg.sum() >= MIN_VALID
+        lf_ok = (load_diffuse("lf", split, seq, fi).sum(-1) > 1e-6).sum() >= MIN_VALID
+        psnr = 0.0
+        if gt_ok:
             gt = central_linear(split, "0.0", seq, fi)
             mse = ((u8(Dg).astype(np.float32) - u8(gt).astype(np.float32))[vg] ** 2).mean()
             psnr = float(-10 * np.log10(mse / 255.0 ** 2 + 1e-12))
-            healthy.append((fi, coverage_at("gt", split, seq, fi), psnr))
-    if not healthy:
-        healthy = [(0, coverage_at("gt", split, seq, 0), 0.0)]
-    diff_fi, _, max_psnr = max(healthy, key=lambda t: t[2])
-    env_fi, max_cov, _ = max(healthy, key=lambda t: t[1])
-    return dict(seq=seq, diff_fi=diff_fi, env_fi=env_fi, psnr=max_psnr, cov=max_cov,
-                score=max_psnr / 20.0 + max_cov)
+        rows.append((fi, gt_ok, lf_ok, coverage_at("gt", split, seq, fi),
+                     coverage_at("lf", split, seq, fi), psnr))
+
+    def best(pool, key, default=0):
+        late = [r for r in pool if r[0] >= floor] or pool
+        return max(late, key=key)[0] if late else default
+
+    # diffuse: a frame healthy in BOTH depths (shared pose), highest PSNR vs GT
+    diff_fi = best([r for r in rows if r[1] and r[2]], lambda r: r[5])
+    # env is accumulated → pick each depth's own best-covered healthy frame
+    env_gt_fi = best([r for r in rows if r[1]], lambda r: r[3])
+    env_lf_fi = best([r for r in rows if r[2]], lambda r: r[4])
+    healthy_both = [r for r in rows if r[1] and r[2]] or rows
+    max_psnr = max((r[5] for r in healthy_both), default=0.0)
+    max_cov = max((r[3] for r in rows if r[1]), default=0.0)
+    return dict(seq=seq, diff_fi=diff_fi, env_gt_fi=env_gt_fi, env_lf_fi=env_lf_fi,
+                psnr=max_psnr, cov=max_cov, score=max_psnr / 20.0 + max_cov)
 
 
 def square_bbox(mask, pad=0.18):
@@ -127,19 +179,18 @@ def square_bbox(mask, pad=0.18):
     return y0, y0 + s, x0, x0 + s
 
 
-def build_row(label, split, filt):
-    root = os.path.join(CACHE, "gt", f"{split}_{REFL}")
-    seqs = [s for s in sorted(os.listdir(root))
-            if filt(s) and not s.startswith("tomato")
-            and os.path.isdir(os.path.join(root, s))]
-    best = None
-    for seq in seqs:
-        ev = evaluate_seq(split, seq)
-        if ev is not None and (best is None or ev["score"] > best["score"]):
-            best = ev
+def build_row(label, split, seq):
+    best = evaluate_seq(split, seq)
     if best is None:
         return None
-    seq, dfi, efi = best["seq"], best["diff_fi"], best["env_fi"]
+    dfi, egt, elf = best["diff_fi"], best["env_gt_fi"], best["env_lf_fi"]
+    if FIXED_FRAME is not None:
+        n = min(len(cache_frames("gt", split, seq)), len(cache_frames("lf", split, seq)))
+        dfi = egt = elf = min(FIXED_FRAME, n - 1)
+        gv = int((load_diffuse("gt", split, seq, dfi).sum(-1) > 1e-6).sum())
+        lv = int((load_diffuse("lf", split, seq, dfi).sum(-1) > 1e-6).sum())
+        print(f"  [{label}] frame {dfi}/{n-1}  gt_valid={gv} lf_valid={lv}"
+              f"{'  <-- GT COLLAPSED' if gv < MIN_VALID else ''}", flush=True)
     m = central_mask(split, REFL, seq, dfi)
     if m is None or m.sum() < 50:
         m = load_diffuse("gt", split, seq, dfi).sum(-1) > 1e-6
@@ -150,14 +201,23 @@ def build_row(label, split, filt):
     gtd = central_linear(split, "0.0", seq, dfi)[sl] * mc
     rec_g = load_diffuse("gt", split, seq, dfi)[sl]
     rec_l = load_diffuse("lf", split, seq, dfi)[sl]
-    def env(depth):
-        e = load_env(depth, split, seq, efi)
-        return np.stack([gaussian_filter(e[..., c], ENV_RECON_BLUR, mode="wrap")
-                         for c in range(3)], -1) if ENV_RECON_BLUR > 0 else e
-    print(f"  {label:12s} -> {seq:28s} diffuse f{dfi:<3d} env f{efi:<3d} "
-          f"cov={best['cov']:.2f} psnr={best['psnr']:.1f}", flush=True)
+    def env(depth, fi):
+        e = load_env(depth, split, seq, fi)
+        if ENV_RECON_BLUR > 0:
+            e = np.stack([gaussian_filter(e[..., c], ENV_RECON_BLUR, mode="wrap")
+                          for c in range(3)], -1)
+        if THRESHOLD_ENV:
+            # show env only where observed; blank (linear white) elsewhere
+            out = np.ones_like(e)
+            m = load_conf(depth, split, seq, fi) > ENV_CONF_THR
+            out[m] = np.clip(e, 0, 1)[m]
+            e = out
+        return e
+    print(f"  {label:12s} -> {seq:28s} diffuse f{dfi:<3d} env_gt f{egt:<3d} env_lf f{elf:<3d} "
+          f"psnr={best['psnr']:.1f}", flush=True)
     return dict(label=label, seq=seq,
-                panels=[inp, gtd, rec_g, rec_l], envs=[env2_linear(), env("gt"), env("lf")])
+                panels=[inp, gtd, rec_g, rec_l],
+                envs=[env2_linear(), env("gt", egt), env("lf", elf)])
 
 
 def main():

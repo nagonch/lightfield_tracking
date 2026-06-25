@@ -52,13 +52,23 @@ def coverage_curve(split):
                      for f in frame_files(split)])
 
 
-def pick_frames(split):
-    """Evenly spaced temporal frames (same indices for both sequences) so the
-    accumulation is shown over time; each is labelled with its actual coverage."""
+def pick_frames(split, k=4):
+    """Frames spanning this sequence's coverage range, monotonically.
+
+    Coverage isn't monotone (the env/confidence reset when alpha destabilizes), so
+    take the running max and the first frame reaching each of k evenly spaced
+    coverage levels between the start and the peak — clean growth, no dip, no
+    duplicate frames."""
     cov = coverage_curve(split)
-    n = len(cov)
-    idx = sorted({int(round(p * (n - 1))) for p in PROGRESS})
-    return idx, cov
+    run = np.maximum.accumulate(cov)
+    idx = []
+    for t in np.linspace(cov[0], run[-1], k):
+        hit = np.where(run >= t - 1e-9)[0]
+        f = int(hit[0]) if len(hit) else len(cov) - 1
+        while f in idx and f < len(cov) - 1:
+            f += 1
+        idx.append(f)
+    return sorted(set(idx)), cov
 
 
 def reliance(env, conf, grey=0.5):
