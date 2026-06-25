@@ -105,6 +105,32 @@ def main() -> None:
             fps_samples=fps_samples,
         )
 
+    # ── LoFTR-only baseline (same sequence, no separation, no refinement) ──
+    tmp_loftr = tempfile.mkdtemp(prefix="fps_loftr_")
+    fps_samples_loftr: list[float] = []
+
+    torch.cuda.reset_peak_memory_stats()
+    with GpuMonitor() as mon_loftr:
+        track_sequence(
+            seq_path=seq_path,
+            results_dir=tmp_loftr,
+            cache_dir=tmp_loftr,
+            sequence_name=args.seq,
+            alpha=alpha,
+            depth_source=depth_source,
+            loftr=loftr,
+            rng=rng,
+            separate=False,
+            refine=False,
+            max_frames=args.max_frames,
+            gt0_seq_path=gt0_seq_path,
+            reflectivity=float(args.refl),
+            depth_estimator=depth_estimator,
+            gt_masks=args.gt_masks,
+            measure_fps=True,
+            fps_samples=fps_samples_loftr,
+        )
+
     tag = f"{args.split}_{args.refl}/{args.seq}"
     lines = [f"ReLiFT-6DoF (method) | {tag} | depth={depth_source}"]
     if fps_samples:
@@ -116,6 +142,17 @@ def main() -> None:
             f"({n} timed frames, {1000.0 * tot / n:.1f} ms/frame mean)",
         ]
     lines.append(mon.format_report("method", torch_module=torch))
+
+    lines += ["", f"LoFTR baseline | {tag} | depth={depth_source}"]
+    if fps_samples_loftr:
+        tot_l = sum(fps_samples_loftr)
+        n_l = len(fps_samples_loftr)
+        lines += [
+            "── FPS [loftr] ──",
+            f"  {n_l / tot_l:6.2f} FPS   "
+            f"({n_l} timed frames, {1000.0 * tot_l / n_l:.1f} ms/frame mean)",
+        ]
+    lines.append(mon_loftr.format_report("loftr", torch_module=torch))
 
     report = "\n".join(lines)
     out_txt = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fps_method.txt")

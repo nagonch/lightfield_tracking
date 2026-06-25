@@ -1,8 +1,17 @@
 ReLiFT-6DoF (method) | objects_1.0/bleach0 | depth=gt
 ── FPS [method] ──
-    1.03 FPS   (49 timed frames, 969.6 ms/frame mean)
-── GPU usage [method]  (586 samples) ──
-  process mem : avg   8985.4 MiB   peak  13226.0 MiB
-  utilisation : avg     71.8 %     peak    100.0 %
-  power draw  : avg    175.2 W     peak    211.2 W
-  torch alloc : peak   2987.4 MiB   reserved peak  12662.0 MiB
+    1.40 FPS   (49 timed frames, 716.7 ms/frame mean)
+── GPU usage [method]  (438 samples) ──
+  process mem : avg   9602.1 MiB   peak  13226.0 MiB
+  utilisation : avg     32.3 %     peak    100.0 %
+  power draw  : avg     93.5 W     peak    122.3 W
+  torch alloc : peak   2981.5 MiB   reserved peak  12662.0 MiB
+
+LoFTR baseline | objects_1.0/bleach0 | depth=gt
+── FPS [loftr] ──
+   20.08 FPS   (49 timed frames, 49.8 ms/frame mean)
+── GPU usage [loftr]  (185 samples) ──
+  process mem : avg  13226.0 MiB   peak  13226.0 MiB
+  utilisation : avg      6.3 %     peak     68.0 %
+  power draw  : avg     71.8 W     peak    104.0 W
+  torch alloc : peak   2981.5 MiB   reserved peak  12662.0 MiB
