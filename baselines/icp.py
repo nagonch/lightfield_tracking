@@ -13,6 +13,13 @@ _TO_OPENCV = np.array(
 )
 
 
+def rebase_poses(gt_poses, est_poses):
+    """Align an estimated absolute-pose track so that poses[0] == gt_poses[0]."""
+    est_to_gt = np.linalg.inv(est_poses[0]) @ gt_poses[0]
+    est_poses = [p @ est_to_gt for p in est_poses]
+    return np.stack(est_poses, axis=0)
+
+
 class SpecTrackSequence:
     """Load central-view RGB, depth, mask, and GT object poses for one LF sequence.
 
