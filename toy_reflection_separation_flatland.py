@@ -29,6 +29,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Scene (shared with toy_reflection_motion.py)
@@ -39,15 +40,21 @@ ENV_Z = -0.70                                # coloured environment behind camer
 ENV_X0, ENV_X1 = -1.7, 1.7
 BG_Z = 2.00
 WARM = np.array([1.00, 0.94, 0.82])
-TURBO = matplotlib.colormaps["turbo"]
+# chaotic (non-periodic) but colourful environment hue field
+ENV_SEED, ENV_SIGMA, ENV_SPAN = 7, 95.0, 2.4
 
 # curved patch with spatially-varying diffuse
 X0 = 0.0                                      # patch centre
 W = 0.18                                      # patch half-extent (surface param t)
 CURV = 1.1                                    # convex bulge toward cameras
 P = 90                                        # surface points
-DA = np.array([0.13, 0.55, 0.60])             # diffuse at left edge  (teal)
-DB = np.array([0.46, 0.27, 0.52])             # diffuse at right edge (purple)
+# diffuse albedo cycles through these muted colours (distinct from the rainbow env)
+D_COLORS = np.array([[0.13, 0.55, 0.60],      # teal
+                     [0.46, 0.27, 0.52],      # purple
+                     [0.82, 0.58, 0.22],      # gold
+                     [0.30, 0.46, 0.26]])     # olive
+# chaotic diffuse field — different seed/scale from the env so they don't match
+DIFF_SEED, DIFF_SIGMA, DIFF_SPAN = 29, 130.0, 3.0
 K = 110                                       # environment bins
 
 S, Q = 121, 400
@@ -68,20 +75,43 @@ _prof = np.clip(0.60 + 0.16 * np.sin(2 * np.pi * _xt / 0.55)
                 + 0.18 * _smooth(_rng.standard_normal(_xt.size), 2.5), 0.30, 0.92)
 
 
+def _smooth_noise(n, seed, sigma, octaves=2):
+    """A smooth, chaotic (non-periodic) field in [0, 1] (sum of smoothed octaves)."""
+    rng = np.random.default_rng(seed)
+    y, amp = np.zeros(n), 1.0
+    for o in range(octaves):
+        y += amp * _smooth(rng.standard_normal(n), max(2.0, sigma / (2 ** o)))
+        amp *= 0.55
+    return (y - y.min()) / (y.max() - y.min() + 1e-9)
+
+
+_ENV_N, _DIFF_N = 2048, 1024
+_ENV_HUE = (_smooth_noise(_ENV_N, ENV_SEED, ENV_SIGMA) * ENV_SPAN) % 1.0   # cyclic hue
+_DIFF_PH = _smooth_noise(_DIFF_N, DIFF_SEED, DIFF_SIGMA)
+
+
 def bg_tex(X):
     inten = np.interp(np.ravel(X), _xt, _prof).reshape(np.shape(X))
     return inten[..., None] * WARM
 
 
 def env_color(xh):
-    t = np.clip((xh - ENV_X0) / (ENV_X1 - ENV_X0), 0, 1)
-    return np.asarray(TURBO(t))[..., :3]
+    """Chaotic, fully-saturated rainbow environment (non-periodic hue walk)."""
+    t = np.clip((np.asarray(xh) - ENV_X0) / (ENV_X1 - ENV_X0), 0, 1)
+    h = np.interp(np.ravel(t), np.linspace(0, 1, _ENV_N), _ENV_HUE).reshape(np.shape(t))
+    hsv = np.stack([h, np.full_like(t, 0.95), np.full_like(t, 0.96)], axis=-1)
+    return mcolors.hsv_to_rgb(hsv)
 
 
 def diffuse_at(t):
-    """Spatially-varying diffuse albedo across the patch (array-friendly)."""
-    f = np.clip((np.asarray(t) + W) / (2 * W), 0, 1)[..., None]
-    return DA * (1 - f) + DB * f
+    """Chaotic diffuse albedo wandering through the muted ``D_COLORS`` palette."""
+    f = np.clip((np.asarray(t) + W) / (2 * W), 0, 1)
+    ph = np.interp(np.ravel(f), np.linspace(0, 1, _DIFF_N), _DIFF_PH).reshape(np.shape(f))
+    n = len(D_COLORS)
+    idx = (ph * DIFF_SPAN * n) % n
+    i0 = np.floor(idx).astype(int) % n
+    frac = (idx - np.floor(idx))[..., None]
+    return D_COLORS[i0] * (1 - frac) + D_COLORS[(i0 + 1) % n] * frac
 
 
 def reflect_xh(xq, z, t, s):
@@ -142,9 +172,11 @@ def epi_observed():
 
 
 def epi_from(D_est, E_est):
-    """Dense diffuse / reflection / reconstruction EPIs from current estimates."""
-    diff = np.clip(layer(ALPHA * D_est[PIDX]), 0, 1)
-    refl = np.clip(layer((1 - ALPHA) * E_est[KDENSE]), 0, 1)
+    """Dense diffuse / reflection / reconstruction EPIs from current estimates.
+    The layers are divided by their mixing weight (alpha, 1-alpha) so D and E are
+    shown at full brightness rather than the darker alpha*D, (1-alpha)*E."""
+    diff = np.clip(layer(D_est[PIDX]), 0, 1)            # D  (= alpha*D / alpha)
+    refl = np.clip(layer(E_est[KDENSE]), 0, 1)          # E  (= (1-alpha)*E / (1-alpha))
     recon = np.clip(layer(ALPHA * D_est[PIDX] + (1 - ALPHA) * E_est[KDENSE], BG), 0, 1)
     return diff, refl, recon
 
@@ -209,8 +241,12 @@ def _main_figure():
     axs.axhline(0, color="#dddddd", lw=0.8, zorder=0)
     grad = env_color(np.linspace(ENV_X0, ENV_X1, 256))[None]
     axs.imshow(grad, extent=[-1.0, 1.0, ENV_Z - 0.06, ENV_Z + 0.06], aspect="auto", zorder=2)
-    axs.text(0.0, ENV_Z - 0.14, "environment $E$", fontsize=6.5, color="#555",
+    axs.text(0.0, ENV_Z - 0.14, "environment $E$ (reflected)", fontsize=6.5, color="#555",
              ha="center", va="top")
+    bgrad = bg_tex(np.linspace(-1.0, 1.0, 256))[None]
+    axs.imshow(bgrad, extent=[-1.0, 1.0, BG_Z - 0.07, BG_Z + 0.07], aspect="auto", zorder=2)
+    axs.text(0.0, BG_Z + 0.16, "textured background", fontsize=6.5, color="#777",
+             ha="center", va="bottom")
     for s in s_vals[::16]:
         axs.add_patch(plt.Polygon([[s - 0.025, -0.08], [s + 0.025, -0.08], [s, 0.0]],
                                   closed=True, facecolor="white", edgecolor="#222", lw=0.7))
@@ -226,7 +262,7 @@ def _main_figure():
         xh = reflect_xh(np.array(xqi), np.array(zi), np.array(ti), np.array(0.0))
         axs.plot([xqi, float(xh)], [zi, ENV_Z], color="#bbb", lw=0.6, zorder=1)
     axs.text(X0, ZP + 0.22, "patch", fontsize=7.5, color="#333", ha="center")
-    axs.set_xlim(-1.15, 1.15); axs.set_ylim(-0.9, 1.6)
+    axs.set_xlim(-1.15, 1.15); axs.set_ylim(-0.95, 2.35)
     axs.set_aspect("equal", adjustable="box")
     axs.set_xlabel("x", fontsize=7.5); axs.set_ylabel("depth z", fontsize=7.5)
     axs.tick_params(length=2, labelsize=6.5)
@@ -239,8 +275,8 @@ def _main_figure():
 
     diff_t, refl_t, _ = epi_from(D_TRUE, E_TRUE)
     _epi(fig.add_subplot(gs[1, 0]), epi_observed(), r"observed EPI  $O=\alpha D+(1-\alpha)E$")
-    _epi(fig.add_subplot(gs[1, 1]), diff_t, r"diffuse layer  $\alpha D$  (constant along lines)")
-    _epi(fig.add_subplot(gs[1, 2]), refl_t, r"reflection layer  $(1-\alpha)E$  (view-dependent)")
+    _epi(fig.add_subplot(gs[1, 1]), diff_t, r"diffuse  $D$  ($\div\,\alpha$;  constant along lines)")
+    _epi(fig.add_subplot(gs[1, 2]), refl_t, r"reflection  $E$  ($\div\,(1{-}\alpha)$;  view-dependent)")
 
     fig.suptitle("Reflection separation in flatland   ·   "
                  r"$\alpha=0.5$, known mask   ·   curved patch, spatially-varying diffuse",
@@ -269,8 +305,8 @@ def _gif_frames(outdir):
         gs = fig.add_gridspec(2, 3, height_ratios=[1.15, 0.85], hspace=0.45, wspace=0.28)
         for col, (img, ttl) in enumerate([
                 (O_disp, "observed  $O$  (input)"),
-                (diff_e, r"estimated diffuse  $\alpha\hat D$"),
-                (refl_e, r"estimated reflection  $(1-\alpha)\hat E$")]):
+                (diff_e, r"estimated diffuse  $\hat D$  ($\div\,\alpha$)"),
+                (refl_e, r"estimated reflection  $\hat E$  ($\div\,(1{-}\alpha)$)")]):
             ax = fig.add_subplot(gs[0, col])
             ax.imshow(img, origin="lower", aspect="auto", extent=ext, interpolation="nearest")
             ax.set_title(ttl, fontsize=9, loc="left")
