@@ -1,3 +1,6 @@
 __pycache__/
 results/
 *.npy
+eval/*
+*.png
+*.gif
