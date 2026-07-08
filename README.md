@@ -9,8 +9,8 @@ refinement.
 
 ```bash
 git clone --recursive <repo-url>
-cd ReLiFT-6DoF
-docker build -t relift6dof .
+cd lightfield_tracking
+docker build -t lightfield_tracking .
 ```
 
 Download the LoFTR outdoor weights (`outdoor_ds.ckpt`) from the
@@ -32,7 +32,7 @@ tar -xzf dataset.tar.gz
 docker run --gpus all -it --rm --network host \
   -v $(pwd):/workspace \
   -v /path/to/SpecTrack_dataset:/data \
-  relift6dof
+  lightfield_tracking
 
 python main.py --data /data --out results
 ```

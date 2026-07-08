@@ -1,4 +1,4 @@
-# ReLiFT-6DoF hyperparameters.
+# lightfield_tracking hyperparameters.
 
 separation_iters: 300        # reflection-separation Adam steps per frame
 alpha_stable_tol: 0.01       # consecutive alpha estimates within this -> stable

@@ -1,4 +1,4 @@
-"""ReLiFT-6DoF — 6-DoF object tracking in light fields, robust to reflections.
+"""lightfield_tracking — 6-DoF object tracking in light fields, robust to reflections.
 
 Per frame: build a surface light field from the LF views → separate it into a
 diffuse view + reflected environment map → coarse pose from LoFTR/ICP on the
@@ -138,7 +138,10 @@ def track_sequence(
                 alpha_stat_history=alpha_history,
             )
             if not alpha_stable:
-                if prev_alpha is not None and abs(alpha - prev_alpha) <= ALPHA_STABLE_TOL:
+                if (
+                    prev_alpha is not None
+                    and abs(alpha - prev_alpha) <= ALPHA_STABLE_TOL
+                ):
                     alpha_stable = True
             prev_alpha = alpha
             env_curr = prev_env if alpha_stable else None
@@ -261,7 +264,7 @@ def find_sequences(data_root: str) -> list[tuple[str, str]]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="ReLiFT-6DoF tracker")
+    parser = argparse.ArgumentParser(description="lightfield_tracking")
     parser.add_argument(
         "--data",
         required=True,
