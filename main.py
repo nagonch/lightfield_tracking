@@ -1,4 +1,4 @@
-"""ReLiFT-6DoF — 6-DoF reflective-object tracking pipeline.
+"""lightfield_tracking — 6-DoF reflective-object tracking pipeline.
 
 Per frame: load the LF frame → build SLF → reflection separation → diffuse view →
 LoFTR coarse pose → photometric refinement.  Runs over every split × reflectivity ×
@@ -170,6 +170,7 @@ def track_sequence(
         est_poses.append(est_poses[-1])
         coarse_poses.append(coarse_poses[-1])
         loftr_ref_poses.append(loftr_ref_poses[-1])
+
     # Honest per-frame timing (frame 0 has no tracking and absorbs CUDA warmup, so
     # it is excluded). Models are already loaded before the loop, so this measures
     # steady-state pipeline throughput, not setup cost.
@@ -506,7 +507,7 @@ def build_work_list(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="ReLiFT-6DoF tracking runner")
+    parser = argparse.ArgumentParser(description="lightfield_tracking")
     parser.add_argument(
         "--refine", action="store_true", help="Enable photometric refinement"
     )

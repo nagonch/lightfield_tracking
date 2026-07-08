@@ -1,4 +1,4 @@
-# ReLiFT-6DoF — all tunable hyperparameters in one place.
+# lightfield_tracking — all tunable hyperparameters in one place.
 # Code reads this at startup via config.py.
 
 # ── paths ──────────────────────────────────────────────────────────────────────
