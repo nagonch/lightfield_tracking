@@ -1,6 +1,6 @@
-# ReLiFT-6DoF
+# Reflection-Robust 6-DoF Object Tracking in Light Fields
 
-Reflection-robust 6-DoF object tracking in light fields. Each frame is lifted
+Each frame is lifted
 to a relightable surface light field, separated into a diffuse view and a
 reflected environment map, and tracked with LoFTR/ICP plus photometric pose
 refinement.
