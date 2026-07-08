@@ -1,0 +1,275 @@
+"""Light-field plane-sweep depth estimation.
+
+The LF grid is coplanar and co-oriented, so warping view (s,t) onto the central
+view at depth Z is a pure global pixel shift: u' = u - fx·tx/Z, v' = v - fy·ty/Z.
+This reduces the whole plane sweep to shift-and-compare cost volumes.
+
+Reflective surfaces are handled by a robust truncated mean over views: specular
+pixels disagree across views and are rejected, while the consistent diffuse
+structure wins.
+
+Pipeline: (1) luminance + gradient features per view; (2) inverse-depth cost
+volume with robust aggregation; (3) WTA + parabolic sub-pixel interpolation →
+metric depth; (4) confidence from peak margin × texture; (5) edge-aware CG
+smoothing → dense output.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import torch
+import torch.nn.functional as F
+
+from utils import linear_to_srgb
+
+
+@dataclass
+class LFDepthConfig:
+    z_min: float = 0.30
+    z_max: float = 6.0
+    n_planes: int = 192
+    patch: int = 7
+    grad_weight: float = 8.0
+    robust_frac: float = 0.6
+    robust_min_views: int = 4
+    tex_scale: float = 0.05
+    conf_gamma: float = 1.0
+    smooth_lambda: float = 4.0
+    edge_sigma: float = 0.06
+    edge_min_w: float = 0.02
+    cg_iters: int = 160
+    mirror_reject: bool = True
+    mirror_near_pct: float = 0.10
+    mirror_margin: float = 0.30
+    mirror_prior_w: float = 0.0
+
+
+# ── small image ops ───────────────────────────────────────────────────────────
+def _srgb_luma(lf_linear: torch.Tensor) -> torch.Tensor:
+    """[..., H, W, 3] linear RGB -> [..., H, W] sRGB luminance in [0, 1]."""
+    srgb = linear_to_srgb(lf_linear.clamp(0, 1))
+    r, g, b = srgb[..., 0], srgb[..., 1], srgb[..., 2]
+    return (0.299 * r + 0.587 * g + 0.114 * b).clamp(0, 1)
+
+
+def _grad_mag(gray: torch.Tensor) -> torch.Tensor:
+    """Sobel gradient magnitude of [N, H, W] -> [N, H, W]."""
+    kx = torch.tensor(
+        [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=gray.dtype, device=gray.device
+    ).view(1, 1, 3, 3) / 8.0
+    ky = kx.transpose(2, 3)
+    g = gray.unsqueeze(1)
+    gx = F.conv2d(g, kx, padding=1)
+    gy = F.conv2d(g, ky, padding=1)
+    return torch.sqrt(gx * gx + gy * gy + 1e-12)[:, 0]
+
+
+def _box(x: torch.Tensor, k: int) -> torch.Tensor:
+    """Box/patch average over the last two dims, window k (odd), same size."""
+    if k <= 1:
+        return x
+    nd = x.dim()
+    x4 = x.view(-1, 1, x.shape[-2], x.shape[-1])
+    out = F.avg_pool2d(x4, k, stride=1, padding=k // 2)
+    return out.view(*x.shape[:-2], out.shape[-2], out.shape[-1]) if nd > 2 else out[:, 0]
+
+
+# ── plane-sweep depth estimator ───────────────────────────────────────────────
+class LFPlaneSweepDepth:
+    def __init__(self, cfg: LFDepthConfig | None = None, device: str = "cuda"):
+        self.cfg = cfg or LFDepthConfig()
+        self.device = torch.device(device)
+
+    # ---- geometry -----------------------------------------------------------
+    @staticmethod
+    def _view_offsets(frame: dict):
+        """Per-view (tx, ty) baseline in metres relative to the central view, plus
+        the central flat index. Uses ``camera_poses_rel`` (view->central), whose
+        translation column is the relative camera centre (rotation is identity)."""
+        S, T = frame["LF"].shape[0], frame["LF"].shape[1]
+        cmid = (S // 2) * T + (T // 2)
+        rel = frame["camera_poses_rel"].reshape(S * T, 4, 4)
+        centres = rel[:, :3, 3]  # [N, 3] = (tx, ty, tz) of each view in central frame
+        return centres, cmid
+
+    # ---- core ---------------------------------------------------------------
+    @torch.no_grad()
+    def estimate(self, frame: dict, mask: torch.Tensor | None = None) -> dict:
+        """Estimate central-view depth from the light field.
+
+        ``mask`` (central-view object mask) is optional and used only for mirror
+        handling (the occlusion constraint); the photo-consistency core ignores it.
+        """
+        cfg = self.cfg
+        if mask is not None:
+            mask = mask.to(self.device).bool()
+        LF = frame["LF"].to(self.device)            # [S, T, H, W, 3] linear
+        S, T, H, W, _ = LF.shape
+        N = S * T
+        K = frame["camera_matrix"].to(self.device)
+        fx, fy = float(K[0, 0]), float(K[1, 1])
+
+        centres, cmid = self._view_offsets(frame)
+        centres = centres.to(self.device)
+
+        # Per-view features: [N, 2, H, W] = (luma, grad-magnitude).
+        luma = _srgb_luma(LF.reshape(N, H, W, 3))   # [N, H, W]
+        grad = _grad_mag(luma)
+        feat = torch.stack([luma, cfg.grad_weight * grad], dim=1)  # [N, 2, H, W]
+
+        # Reference (central) vs the other source views.
+        src_idx = [i for i in range(N) if i != cmid]
+        src_feat = feat[src_idx]                     # [V, 2, H, W]
+        ref_feat = feat[cmid : cmid + 1]             # [1, 2, H, W]
+        tx = centres[src_idx, 0]                     # [V]
+        ty = centres[src_idx, 1]
+        V = len(src_idx)
+
+        # Normalised base grid + validity channel (out-of-frame detection per warp).
+        ys, xs = torch.meshgrid(
+            torch.arange(H, device=self.device, dtype=torch.float32),
+            torch.arange(W, device=self.device, dtype=torch.float32),
+            indexing="ij",
+        )
+        base_gx = 2.0 * xs / (W - 1) - 1.0
+        base_gy = 2.0 * ys / (H - 1) - 1.0
+        src_aug = torch.cat([src_feat, torch.ones(V, 1, H, W, device=self.device)], 1)
+
+        # Uniform inverse-depth = uniform disparity = finest resolution at near range.
+        rhos = torch.linspace(
+            1.0 / cfg.z_max, 1.0 / cfg.z_min, cfg.n_planes, device=self.device
+        )                                          # ascending inverse depth (far -> near)
+        ref_l, ref_g = ref_feat[0, 0], ref_feat[0, 1]
+
+        P = cfg.n_planes
+        cost_vol = torch.empty(P, H, W, device=self.device)
+        keep = max(cfg.robust_min_views, int(round(cfg.robust_frac * V)))
+        rank = torch.arange(V, device=self.device).view(V, 1, 1)
+
+        for p in range(P):
+            rho = rhos[p]
+            # Per-view normalised pixel offset for this plane (global translation).
+            ox = (-fx * tx * rho) * (2.0 / (W - 1))   # [V]
+            oy = (-fy * ty * rho) * (2.0 / (H - 1))
+            gx = base_gx.unsqueeze(0) + ox.view(V, 1, 1)
+            gy = base_gy.unsqueeze(0) + oy.view(V, 1, 1)
+            grid = torch.stack([gx, gy], dim=-1)      # [V, H, W, 2]
+            warp = F.grid_sample(
+                src_aug, grid, mode="bilinear", padding_mode="zeros", align_corners=True
+            )                                          # [V, 3, H, W]
+            valid = warp[:, 2] > 0.999
+            cost_v = (warp[:, 0] - ref_l).abs() + (warp[:, 1] - ref_g).abs()  # [V, H, W]
+            cost_v = _box(cost_v, cfg.patch)
+            cost_v = torch.where(valid, cost_v, cost_v.new_full((), 1e6))
+            sc, _ = torch.sort(cost_v, dim=0)  # robust mean: keep best-agreeing views
+            m = (rank < keep).float()
+            cost_vol[p] = (sc * m).sum(0) / m.sum(0)
+
+        return self._finalise(cost_vol, rhos, ref_l, mask)
+
+    def _finalise(self, cost_vol, rhos, ref_luma, mask):
+        cfg = self.cfg
+        P = cost_vol.shape[0]
+        minc, arg = cost_vol.min(0)                  # [H, W]
+
+        # Parabolic sub-pixel interpolation in plane index.
+        am1 = (arg - 1).clamp(0, P - 1)
+        ap1 = (arg + 1).clamp(0, P - 1)
+        c0 = cost_vol.gather(0, am1[None])[0]
+        c1 = minc
+        c2 = cost_vol.gather(0, ap1[None])[0]
+        denom = (c0 - 2 * c1 + c2)
+        delta = torch.where(denom.abs() > 1e-9, 0.5 * (c0 - c2) / denom, torch.zeros_like(denom))
+        delta = delta.clamp(-1, 1)
+
+        rho_at = rhos[arg]
+        rho_lo = rhos[(arg - 1).clamp(0, P - 1)]
+        rho_hi = rhos[(arg + 1).clamp(0, P - 1)]
+        # local spacing on each side (sweep is non-uniform in inverse depth)
+        step = torch.where(delta >= 0, rho_hi - rho_at, rho_at - rho_lo)
+        rho_data = (rho_at + delta * step).clamp(rhos.min(), rhos.max())
+
+        # Confidence = cost margin (winning vs median plane) × texture (reference gradient).
+        cmed = cost_vol.median(0).values
+        margin = ((cmed - minc) / (cmed + 1e-6)).clamp(0, 1)
+        ref_grad = _grad_mag(ref_luma[None])[0]
+        tex = (ref_grad / cfg.tex_scale).clamp(0, 1)
+        conf = (margin * tex).clamp(0, 1) ** cfg.conf_gamma
+
+        # Mirror handling: reject masked matches beyond the near surface (virtual image),
+        # seed at the near surface so the CG membrane converges to the real surface.
+        fill_region = None
+        rho_solve, conf_solve = rho_data, conf
+        depth_raw_m = 1.0 / rho_data.clamp_min(1e-6)
+        if mask is not None and cfg.mirror_reject and mask.any():
+            md = depth_raw_m[mask]
+            z_near = torch.quantile(md, cfg.mirror_near_pct)
+            fill_region = mask & (depth_raw_m > (z_near + cfg.mirror_margin))
+            rho_solve = torch.where(fill_region, (1.0 / z_near), rho_data)
+            conf_solve = torch.where(
+                fill_region, conf.new_full((), cfg.mirror_prior_w), conf
+            )
+
+        # Edge-aware least-squares smoothing on inverse depth.
+        rho_smooth = self._edge_aware_solve(
+            rho_solve, conf_solve, ref_luma, mask, fill_region
+        )
+        depth = (1.0 / rho_smooth.clamp_min(1e-6)).clamp(cfg.z_min, cfg.z_max)
+        depth_raw = (1.0 / rho_data.clamp_min(1e-6)).clamp(cfg.z_min, cfg.z_max)
+        return {
+            "depth": depth,          # [H, W] dense smooth metric depth (metres)
+            "depth_raw": depth_raw,  # [H, W] winner-take-all depth before smoothing
+            "conf": conf,            # [H, W] in [0, 1]
+        }
+
+    def _edge_aware_solve(self, rho_data, conf, guide, mask=None, fill_region=None):
+        """CG solve: min_x sum c(x-rho)^2 + lam sum w_ij(x_i-x_j)^2.
+        Mirror mode: boundary edges block diffusion; interior mirror edges are smoothed
+        so the membrane interpolates across false specular texture."""
+        cfg = self.cfg
+        g = guide
+        wh = torch.exp(-(g[:, 1:] - g[:, :-1]).abs() / cfg.edge_sigma).clamp_min(cfg.edge_min_w)
+        wv = torch.exp(-(g[1:, :] - g[:-1, :]).abs() / cfg.edge_sigma).clamp_min(cfg.edge_min_w)
+        if fill_region is not None:
+            fh = fill_region[:, 1:] | fill_region[:, :-1]
+            fv = fill_region[1:, :] | fill_region[:-1, :]
+            wh = torch.where(fh, torch.ones_like(wh), wh)
+            wv = torch.where(fv, torch.ones_like(wv), wv)
+        if mask is not None:
+            bh = mask[:, 1:] ^ mask[:, :-1]   # object/background boundary edges
+            bv = mask[1:, :] ^ mask[:-1, :]
+            wh = torch.where(bh, wh.new_full((), cfg.edge_min_w), wh)
+            wv = torch.where(bv, wv.new_full((), cfg.edge_min_w), wv)
+        lam = cfg.smooth_lambda
+        c = (conf ** 1.0)
+
+        def laplacian(x):
+            out = torch.zeros_like(x)
+            dh = (x[:, 1:] - x[:, :-1]) * wh
+            out[:, :-1] -= dh
+            out[:, 1:] += dh
+            dv = (x[1:, :] - x[:-1, :]) * wv
+            out[:-1, :] -= dv
+            out[1:, :] += dv
+            return out
+
+        def amul(x):
+            return c * x + lam * laplacian(x)
+
+        b = c * rho_data
+        x = rho_data.clone()
+        r = b - amul(x)
+        p = r.clone()
+        rs = (r * r).sum()
+        for _ in range(cfg.cg_iters):
+            Ap = amul(p)
+            alpha = rs / (p * Ap).sum().clamp_min(1e-20)
+            x = x + alpha * p
+            r = r - alpha * Ap
+            rs_new = (r * r).sum()
+            if rs_new < 1e-12:
+                break
+            p = r + (rs_new / rs) * p
+            rs = rs_new
+        return x

@@ -1,0 +1,47 @@
+# ReLiFT-6DoF hyperparameters.
+
+separation_iters: 300        # reflection-separation Adam steps per frame
+alpha_stable_tol: 0.01       # consecutive alpha estimates within this -> stable
+refine_feed_forward: true    # feed the refined pose back into the tracking backbone
+
+# ── photometric refinement ────────────────────────────────────────────────────
+refine:
+  num_iters: 60              # Adam steps per stage
+  lr_rot: 5.0e-3             # rotation learning rate (6-D representation)
+  lr_trans: 1.0e-4           # translation learning rate (metres)
+  lambda_depth: 3.0          # L1 depth-anchor weight
+  diffuse_alpha_min: 0.2     # skip the diffuse stage on frames more specular than this
+  patience_loss: 10          # early-stop after N non-improving steps
+  min_rel_improve: 5.0e-3    # minimum relative loss drop to count as improvement
+  drift_reset_deg: 10.0      # feed-forward drift guard: rotation cap (degrees)
+  drift_reset_trans: 0.015   # feed-forward drift guard: translation cap (metres)
+  drift_reset_alpha_min: 0.8 # guard active only on diffuse frames (alpha >= this)
+  relight: true              # relighting stage on reflective frames
+  relight_alpha_max: 0.85    # skip relighting when alpha >= this (too diffuse)
+  lr_rot_relight: 3.0e-3
+  lr_trans_relight: 2.0e-4
+  relight_conf_floor: 0.15   # weight floor for unobserved-env pixels in the relit loss
+
+# ── light-field plane-sweep depth ─────────────────────────────────────────────
+lf_depth:
+  z_min: 0.30                # near depth bound (metres)
+  z_max: 6.0                 # far depth bound (metres)
+  n_planes: 192              # inverse-depth hypotheses (uniform disparity)
+  patch: 7                   # cost-aggregation window (pixels, odd)
+  grad_weight: 8.0           # gradient vs intensity cost weight
+  robust_frac: 0.6           # fraction of views kept in the robust mean
+  robust_min_views: 4
+  tex_scale: 0.05            # reference gradient magnitude at full texture confidence
+  conf_gamma: 1.0            # confidence exponent before smoothing
+  smooth_lambda: 4.0         # smoothness vs data trade-off in the CG solve
+  edge_sigma: 0.06           # guide-gradient scale (sRGB luminance)
+  edge_min_w: 0.02           # floor on edge weight (keeps the CG system connected)
+  cg_iters: 160              # conjugate-gradient iterations
+  mirror_reject: true        # reject far-depth matches inside the object mask
+  mirror_near_pct: 0.10      # quantile defining the near (true) surface
+  mirror_margin: 0.30        # metres kept beyond the near surface
+  mirror_prior_w: 0.0        # soft fill prior toward the near surface
+
+# ── pose tracking ─────────────────────────────────────────────────────────────
+tracking:
+  min_loftr_inliers: 12      # minimum LoFTR inliers to accept a relative pose
