@@ -510,6 +510,17 @@ def build_error_over_time_plot(accum: "_TimeSeriesAccumulator", out_path: str):
     plt.close(fig)
 
 
+def build_error_over_time_txt(accum: "_TimeSeriesAccumulator") -> str:
+    """Plain-text x/y dump of the error-over-time curves — one row per bin —
+    so multiple baselines' curves can later be combined into a joint plot."""
+    bin_centers, rot_mean, trans_mean = accum.means()
+    bin_centers_pct = bin_centers * 100.0
+    lines = ["# progress_pct  rot_err_deg  trans_err_m"]
+    for x, r, t in zip(bin_centers_pct, rot_mean, trans_mean):
+        lines.append(f"{x:.4f}  {r:.6f}  {t:.6f}")
+    return "\n".join(lines) + "\n"
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 
@@ -624,15 +635,21 @@ def run(
     with open(txt_path, "w") as f:
         f.write(summary)
 
-    # ── error-over-time plot (averaged over all sequences & reflectivities) ──
+    # ── error-over-time plot + raw x/y dump (averaged over all sequences &
+    # reflectivities) — the .txt lets multiple baselines be combined later
+    # into one joint plot.
     plot_path = os.path.join(output_dir, "error_over_time.png")
     build_error_over_time_plot(time_accum, plot_path)
+    eot_txt_path = os.path.join(output_dir, "error_over_time.txt")
+    with open(eot_txt_path, "w") as f:
+        f.write(build_error_over_time_txt(time_accum))
 
     print(summary)
     print(f"Metrics  → {json_path}")
     print(f"LaTeX    → {tex_path}")
     print(f"Summary  → {txt_path}")
     print(f"Plot     → {plot_path}")
+    print(f"Plot data→ {eot_txt_path}")
     if qual_dir is not None:
         print(f"Qual viz → {qual_dir}")
 
