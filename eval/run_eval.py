@@ -27,6 +27,10 @@ import math
 import os
 import sys
 
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import trimesh
@@ -41,6 +45,7 @@ _TO_OPENCV = np.array(
 )
 DEFAULT_DATASET_ROOT = "/home/ngoncharov/SpecTrack_dataset"
 MESH_SAMPLE_PTS = 2000  # max model points used for ADD / ADD-S
+TIME_SERIES_BINS = 20  # number of bins over normalized trajectory progress
 
 
 # ── geometry helpers ─────────────────────────────────────────────────────────
@@ -80,6 +85,23 @@ def _auc_under_accuracy_curve(errors: np.ndarray, threshold_max: float = 0.1) ->
     thresholds = np.linspace(0, threshold_max, 100)
     accuracies = [(errors < t).mean() for t in thresholds]
     return float(np.trapz(accuracies, np.linspace(0, 1, 100)))
+
+
+def per_frame_pose_errors(est_poses: np.ndarray, gt_poses: np.ndarray):
+    """Per-frame rotation (deg) / translation (m) error of est vs. gt, plus a
+    validity mask (False where either pose is non-finite)."""
+    N = len(est_poses)
+    valid = np.isfinite(est_poses.reshape(N, -1)).all(axis=1) & np.isfinite(
+        gt_poses.reshape(N, -1)
+    ).all(axis=1)
+    R_gt = gt_poses[:, :3, :3]
+    t_gt = gt_poses[:, :3, 3]
+    R_est = est_poses[:, :3, :3]
+    t_est = est_poses[:, :3, 3]
+    R_err = R_est @ np.transpose(R_gt, (0, 2, 1))
+    rot_errs = rotation_angle_deg(R_err)
+    trans_errs = np.linalg.norm(t_est - t_gt, axis=1)
+    return rot_errs, trans_errs, valid
 
 
 # ── dataset loading ───────────────────────────────────────────────────────────
@@ -238,9 +260,7 @@ def eval_sequence(
     # frame as a hard failure rather than letting it crash cKDTree / poison means:
     #  - ADD / ADD-S: assign +inf so the frame counts against the AUC.
     #  - ATE / rotation: exclude from the means (reported via n_invalid).
-    valid = np.isfinite(est_poses.reshape(N, -1)).all(axis=1) & np.isfinite(
-        gt_poses.reshape(N, -1)
-    ).all(axis=1)
+    rot_errs, trans_errs, valid = per_frame_pose_errors(est_poses, gt_poses)
     n_invalid = int((~valid).sum())
 
     add_errs, adds_errs = [], []
@@ -253,15 +273,6 @@ def eval_sequence(
         adds_errs.append(_adds_err(est, gt, model_pts))
     add_errs = np.array(add_errs)
     adds_errs = np.array(adds_errs)
-
-    R_gt = gt_poses[:, :3, :3]
-    t_gt = gt_poses[:, :3, 3]
-    R_est = est_poses[:, :3, :3]
-    t_est = est_poses[:, :3, 3]
-
-    R_err = R_est @ np.transpose(R_gt, (0, 2, 1))
-    rot_errs = rotation_angle_deg(R_err)
-    trans_errs = np.linalg.norm(t_est - t_gt, axis=1)
 
     if valid.any():
         ate_rmse = float(np.sqrt((trans_errs[valid] ** 2).mean()))
@@ -416,6 +427,89 @@ def build_summary_txt(all_metrics: dict) -> str:
     return "\n".join(parts)
 
 
+# ── error-over-time plot ─────────────────────────────────────────────────────
+# As a sequence progresses the tracked object sweeps out more of the
+# environment map, so pose error should trend down over time. We bin every
+# valid frame from every sequence/reflectivity/depth-mode by its *normalised*
+# position in the trajectory (0 = first frame, 1 = last frame) and average
+# rotation/translation error within each bin. Normalising lets sequences of
+# different lengths share one x-axis.
+
+
+class _TimeSeriesAccumulator:
+    def __init__(self, n_bins: int = TIME_SERIES_BINS):
+        self.n_bins = n_bins
+        self.rot_sum = np.zeros(n_bins)
+        self.rot_cnt = np.zeros(n_bins)
+        self.trans_sum = np.zeros(n_bins)
+        self.trans_cnt = np.zeros(n_bins)
+
+    def add(self, rot_errs: np.ndarray, trans_errs: np.ndarray, valid: np.ndarray):
+        N = len(rot_errs)
+        if N == 0:
+            return
+        progress = np.arange(N) / max(N - 1, 1)  # [0, 1], single-frame seqs -> 0
+        bin_idx = np.clip((progress * self.n_bins).astype(int), 0, self.n_bins - 1)
+        for i in np.where(valid)[0]:
+            b = bin_idx[i]
+            self.rot_sum[b] += rot_errs[i]
+            self.rot_cnt[b] += 1
+            self.trans_sum[b] += trans_errs[i]
+            self.trans_cnt[b] += 1
+
+    def means(self):
+        with np.errstate(invalid="ignore"):
+            rot_mean = np.where(self.rot_cnt > 0, self.rot_sum / self.rot_cnt, np.nan)
+            trans_mean = np.where(
+                self.trans_cnt > 0, self.trans_sum / self.trans_cnt, np.nan
+            )
+        bin_centers = (np.arange(self.n_bins) + 0.5) / self.n_bins
+        return bin_centers, rot_mean, trans_mean
+
+
+def build_error_over_time_plot(accum: "_TimeSeriesAccumulator", out_path: str):
+    """Save a single PNG with rotation-error and translation-error curves vs.
+    normalised trajectory progress, averaged over all sequences/reflectivities."""
+    bin_centers, rot_mean, trans_mean = accum.means()
+    bin_centers_pct = bin_centers * 100.0
+
+    plt.rcParams.update(
+        {
+            "font.size": 11,
+            "axes.edgecolor": "#c3c2b7",
+            "axes.labelcolor": "#0b0b0b",
+            "text.color": "#0b0b0b",
+            "xtick.color": "#52514e",
+            "ytick.color": "#52514e",
+        }
+    )
+    fig, (ax_rot, ax_trans) = plt.subplots(
+        2, 1, figsize=(6, 6), sharex=True, facecolor="#fcfcfb"
+    )
+
+    for ax, y, color, ylabel, title in (
+        (ax_rot, rot_mean, "#2a78d6", "Rotation error (°)", "Relative rotation error over time"),
+        (ax_trans, trans_mean, "#eb6834", "Translation error (m)", "Relative translation error over time"),
+    ):
+        ax.set_facecolor("#fcfcfb")
+        ax.plot(bin_centers_pct, y, color=color, linewidth=2)
+        ax.scatter(bin_centers_pct, y, color=color, s=14, zorder=3)
+        ax.set_ylabel(ylabel)
+        ax.set_title(title, fontsize=11, loc="left", color="#0b0b0b")
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.grid(True, axis="y", color="#e1e0d9", linewidth=0.8)
+        ax.set_ylim(bottom=0)
+
+    ax_trans.set_xlabel("Trajectory progress")
+    ax_trans.set_xlim(0, 100)
+    ax_trans.xaxis.set_major_formatter(lambda x, _pos: f"{x:.0f}%")
+
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 
@@ -451,6 +545,7 @@ def run(
 
     all_metrics: dict = {}  # block → split → seq → metrics dict
     mesh_cache: dict = {}  # (split, seq) → model_pts
+    time_accum = _TimeSeriesAccumulator()
 
     for depth_mode, split, seq_name in tqdm(entries, desc="Evaluating"):
         if seq_name == "tomato_soup_can_yalehand0":
@@ -479,6 +574,8 @@ def run(
         model_pts = mesh_cache[key]
 
         metrics = eval_sequence(est_poses, gt_poses, model_pts)
+        rot_errs, trans_errs, valid = per_frame_pose_errors(est_poses, gt_poses)
+        time_accum.add(rot_errs, trans_errs, valid)
         if metrics["n_invalid"]:
             tqdm.write(
                 f"  WARN {depth_mode}/{split}/{seq_name}: "
@@ -527,10 +624,15 @@ def run(
     with open(txt_path, "w") as f:
         f.write(summary)
 
+    # ── error-over-time plot (averaged over all sequences & reflectivities) ──
+    plot_path = os.path.join(output_dir, "error_over_time.png")
+    build_error_over_time_plot(time_accum, plot_path)
+
     print(summary)
     print(f"Metrics  → {json_path}")
     print(f"LaTeX    → {tex_path}")
     print(f"Summary  → {txt_path}")
+    print(f"Plot     → {plot_path}")
     if qual_dir is not None:
         print(f"Qual viz → {qual_dir}")
 
