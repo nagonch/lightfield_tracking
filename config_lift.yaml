@@ -13,6 +13,27 @@ tracking:
   # LF plane-sweep depth is clean enough for a 20mm gate (sweeps_inlier.log;
   # 10mm was better still on textured scenes but regressed shiny_box).
   ransac_inlier_dist: 0.02
+  # 2D-3D PnP polish of the relative pose, "auto" = only on sequences where
+  # the alpha veto proved the features are albedo texture (teabox family:
+  # rot 8.09→3.98 / 18.71→13.51; hurts reflection-locked features, so never
+  # enabled on jug/shiny).
+  pnp_refine: auto
+
+# The luminance-std alpha estimator mis-reads high-contrast albedo texture as
+# reflectivity on real captures (teabox → alpha 0.4-0.6, phantom reflection
+# subtracted from the LoFTR input). The veto probes the reflection model's
+# explained cross-view variance and pins near-diffuse alpha when it explains
+# almost nothing. Thresholds from eval/sep_tune_lift frame-0 ratios:
+# jug 0.82-0.90 / shiny 0.892 (keep) vs teabox 0.905+ / box 0.958 (veto).
+alpha_veto:
+  enabled: true
+
+# Refinement engages only on reflective frames (alpha < 0.85, the same gate as
+# the relight stage): on proven-diffuse surfaces the tuned coarse tracker is at
+# its accuracy floor and photometric corrections only add appearance-model bias
+# (measured: +0.5° on teabox/jug_tilt, −0.1° on shiny_box).
+refine:
+  refine_alpha_max: 0.85
 
 # Refine as a pure per-frame overlay (paper design decision 1): on real data,
 # feeding the refined pose forward compounds its small translation bias

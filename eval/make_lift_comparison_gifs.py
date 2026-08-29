@@ -41,7 +41,7 @@ DEFAULT_METHODS = [
     ("PnP", "baselines_real/results_pnp/gt"),
     ("FoundationPose", "baselines_real/results_fp/gt"),
     ("BundleSDF", "baselines_real/results_bsdf/gt"),
-    ("Ours", "baselines_real/ablation_full_gt_mask/gt"),
+    ("Ours", "baselines_real/tuned_v3/lf"),
 ]
 
 

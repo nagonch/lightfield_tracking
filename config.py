@@ -57,6 +57,7 @@ REFINE_CFG = RefineConfig(
     lambda_depth=_r["lambda_depth"],
     diffuse_mode=_r["diffuse_mode"],
     diffuse_alpha_min=_r["diffuse_alpha_min"],
+    refine_alpha_max=float(_r.get("refine_alpha_max", 1.01)),
     scales=tuple(_r["scales"]),
     accept_on_loss=_r["accept_on_loss"],
     max_correction_deg=_r["max_correction_deg"],
@@ -64,6 +65,8 @@ REFINE_CFG = RefineConfig(
     patience_loss=_r["patience_loss"],
     min_rel_improve=_r["min_rel_improve"],
     update_every=_r["update_every"],
+    photo_loss=str(_r.get("photo_loss", "mse")),
+    anchor=str(_r.get("anchor", "prev")),
     drift_reset_deg=_r["drift_reset_deg"],
     drift_reset_trans=_r["drift_reset_trans"],
     drift_reset_alpha_min=_r["drift_reset_alpha_min"],
@@ -112,3 +115,26 @@ LOFTR_RESIZE: int = int(_C["tracking"].get("loftr_resize", 400))
 # matches the historical loftr_baseline.INLIER_DIST (BundleSDF's value, sized
 # for noisy synthetic depth); clean LF plane-sweep depth supports much tighter.
 RANSAC_INLIER_DIST: float = float(_C["tracking"].get("ransac_inlier_dist", 0.05))
+# Alpha veto: override a low estimated alpha with a near-diffuse clamp when a
+# probe separation shows the reflection model explains almost none of the
+# cross-view variance (texture-fooled estimator on real captures).
+_av = _C.get("alpha_veto", {})
+ALPHA_VETO_ENABLED: bool = bool(_av.get("enabled", False))
+ALPHA_VETO_RATIO: float = float(_av.get("ratio_min", 0.90))
+ALPHA_VETO_EST_MAX: float = float(_av.get("est_alpha_max", 0.85))
+ALPHA_VETO_CLAMP: float = float(_av.get("clamp_alpha", 0.95))
+ALPHA_VETO_PROBE: float = float(_av.get("probe_alpha", 0.8))
+
+# 2D-3D PnP polish of the LoFTR relative pose (see src/pose.py).
+# true/false, or "auto": enabled per sequence only when the alpha veto fires
+# (features proven to be albedo texture, so reprojection is trustworthy).
+_pnp = _C["tracking"].get("pnp_refine", False)
+PNP_MODE: str = str(_pnp).lower()
+PNP_REFINE: bool = _pnp is True
+# Keyframe-anchored coarse tracking (see config.yaml tracking section).
+TRACK_KEYFRAME: bool = bool(_C["tracking"].get("keyframe", False))
+KF_MAX_DEG: float = float(_C["tracking"].get("kf_max_deg", 12.0))
+KF_MAX_TRANS: float = float(_C["tracking"].get("kf_max_trans", 0.08))
+KF_MIN_INLIERS: int = int(_C["tracking"].get("kf_min_inliers", 60))
+KF_GROSS_DEG: float = float(_C["tracking"].get("kf_gross_deg", 30.0))
+KF_GROSS_TRANS: float = float(_C["tracking"].get("kf_gross_trans", 0.10))

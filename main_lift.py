@@ -108,6 +108,32 @@ def apply_overrides(sets: list[str], refine_cfg, lf_cfg):
             config_mod.LOFTR_RESIZE = int(val)
         elif key == "tracking.ransac_inlier_dist":
             config_mod.RANSAC_INLIER_DIST = float(val)
+        elif key == "tracking.keyframe":
+            config_mod.TRACK_KEYFRAME = bool(val)
+        elif key == "tracking.pnp_refine":
+            config_mod.PNP_MODE = str(val).lower()
+            config_mod.PNP_REFINE = val is True
+        elif key == "alpha_veto.enabled":
+            config_mod.ALPHA_VETO_ENABLED = bool(val)
+        elif key.startswith("alpha_veto."):
+            attr = {
+                "ratio_min": "ALPHA_VETO_RATIO",
+                "est_alpha_max": "ALPHA_VETO_EST_MAX",
+                "clamp_alpha": "ALPHA_VETO_CLAMP",
+                "probe_alpha": "ALPHA_VETO_PROBE",
+            }.get(key[len("alpha_veto."):])
+            if attr is None:
+                raise SystemExit(f"unknown --set key: {key}")
+            setattr(config_mod, attr, float(val))
+        elif key in (
+            "tracking.kf_max_deg",
+            "tracking.kf_max_trans",
+            "tracking.kf_gross_deg",
+            "tracking.kf_gross_trans",
+        ):
+            setattr(config_mod, key[len("tracking."):].upper(), float(val))
+        elif key == "tracking.kf_min_inliers":
+            config_mod.KF_MIN_INLIERS = int(val)
         elif key == "separation_iters":
             pipeline.SEPARATION_ITERS = int(val)
         elif key == "min_track_pixels":
@@ -117,6 +143,11 @@ def apply_overrides(sets: list[str], refine_cfg, lf_cfg):
         elif key == "refine_feed_forward":
             global FEED_FORWARD
             FEED_FORWARD = bool(val)
+        elif key == "blend_alpha":
+            # Decouple the LoFTR/ICP blend from the separation alpha: pinning a
+            # low separation alpha (to actually remove reflections from the
+            # LoFTR input) must not force ICP into the blend.
+            pipeline.BLEND_ALPHA = None if val is None else float(val)
         else:
             raise SystemExit(f"unknown --set key: {key}")
     return refine_cfg, lf_cfg
@@ -286,7 +317,13 @@ def main() -> None:
                     # mask source, so the cache is keyed by both.
                     "cache_dir": os.path.join(
                         f"{CACHE_ROOT}_lift",
-                        f"{depth_source}_{'gtmask' if args.gt_masks else 'segmask'}",
+                        f"{depth_source}_{'gtmask' if args.gt_masks else 'segmask'}"
+                        + ("" if args.alpha is None else f"_a{args.alpha:g}")
+                        + (
+                            "_avr"
+                            if getattr(config_mod, "ALPHA_VETO_ENABLED", False)
+                            else ""
+                        ),
                         seq,
                     ),
                     "tag": f"{depth_source}/{seq}",

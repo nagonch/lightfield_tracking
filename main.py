@@ -40,7 +40,8 @@ from src.photometric import (
     RefineConfig,
     refine_pose_photometric,
 )
-from src.pose import track_pose
+import config as _cfgmod
+from src.pose import track_pose, loftr_relative_pose
 from src.reflection import central_view, frame_diffuse
 from src.surface_light_field import SurfaceLightField
 from utils import linear_to_srgb
@@ -57,6 +58,11 @@ logging.basicConfig(
 # (ICP on an empty point cloud yields a singular transform). We can't track an
 # object we can't see, so we stop and pad the rest of the trajectory.
 MIN_TRACK_PIXELS = 200
+
+# When set, overrides the alpha used for the LoFTR/ICP blend in the coarse
+# tracker (not the separation/refine alpha). Lets a pinned separation alpha
+# remove reflections from the LoFTR input without dragging ICP into the blend.
+BLEND_ALPHA: float | None = None
 
 
 def _rot_err_deg(Ra: np.ndarray, Rb: np.ndarray) -> float:
@@ -157,11 +163,23 @@ def track_sequence(
     coarse_errs: list[tuple[float, float]] = []
     refined_errs: list[tuple[float, float]] = []
     prev = None  # (view, depth, mask, pc, color, env_map, slf, env_conf)
+    # Keyframe anchoring: hold one keyframe (frame 0 first — its pose is exact)
+    # and additionally match/refine against it, so error accumulates per
+    # keyframe hop instead of per frame. Promoted on viewpoint change or after
+    # repeated match failures.
+    use_kf = _cfgmod.TRACK_KEYFRAME
+    kf: dict | None = None
+    kf_missed = 0
     prev_env = None
     prev_env_conf = None
     alpha_history: list[float] = []
     alpha_stable = False
     prev_alpha_i: float | None = None
+    alpha_veto_checked = False
+    # pnp_refine "auto": off until this sequence's alpha veto proves the
+    # features are albedo texture (reprojection only trustworthy then).
+    if _cfgmod.PNP_MODE == "auto":
+        _cfgmod.PNP_REFINE = False
     # Set once the object is lost; the remaining frames repeat the last good pose.
     tracking_lost = False
 
@@ -266,6 +284,49 @@ def track_sequence(
                 alpha_eff = alpha_i
                 env_curr = prev_env if alpha_stable else None
                 env_conf_curr = prev_env_conf if alpha_stable else None
+
+                # Alpha veto: once the estimate stabilises low, probe whether the
+                # reflection model actually explains cross-view variance. If it
+                # explains almost none, the low alpha is texture-fooled — pin a
+                # near-diffuse alpha for the rest of the sequence instead of
+                # subtracting a phantom reflection from the LoFTR input.
+                if (
+                    _cfgmod.ALPHA_VETO_ENABLED
+                    and alpha is None
+                    and alpha_stable
+                    and not alpha_veto_checked
+                ):
+                    alpha_veto_checked = True
+                    if alpha_i < _cfgmod.ALPHA_VETO_EST_MAX:
+                        from reflection_separation import reflection_explained_ratio
+
+                        ratio = reflection_explained_ratio(
+                            slf,
+                            probe_alpha=_cfgmod.ALPHA_VETO_PROBE,
+                            iterations=SEPARATION_ITERS,
+                        )
+                        if ratio > _cfgmod.ALPHA_VETO_RATIO:
+                            alpha = _cfgmod.ALPHA_VETO_CLAMP
+                            if _cfgmod.PNP_MODE == "auto":
+                                _cfgmod.PNP_REFINE = True
+                            logging.info(
+                                "%s: alpha veto — est %.2f but reflection explains "
+                                "only %.1f%% of view variance (ratio %.3f) → pinned "
+                                "alpha %.2f",
+                                sequence_name,
+                                alpha_i,
+                                100 * (1 - ratio),
+                                ratio,
+                                alpha,
+                            )
+                        else:
+                            logging.info(
+                                "%s: alpha veto probe ratio %.3f — keeping "
+                                "estimated alpha %.2f",
+                                sequence_name,
+                                ratio,
+                                alpha_i,
+                            )
             else:
                 view = central_view(frame, s_size, t_size)
                 env_curr = None
@@ -301,7 +362,7 @@ def track_sequence(
                     mask_curr=mask_np,
                     K=K_np,
                     loftr=loftr,
-                    alpha=alpha_eff,
+                    alpha=(BLEND_ALPHA if BLEND_ALPHA is not None else alpha_eff),
                     pc_prev=prev[3],
                     pc_curr=pc,
                     color_prev=prev[4],
@@ -328,6 +389,44 @@ def track_sequence(
                     _pad_with_last()
                     continue
 
+                # Keyframe match: LoFTR against the held keyframe view gives a
+                # pose whose error is relative to the keyframe, not the drifted
+                # previous frame. Inlier-gated, plus a gross-failure gate against
+                # the frame-to-frame estimate (catches symmetry flips).
+                kf_used = False
+                kf_diag = ""
+                if use_kf and kf is not None:
+                    T_rel_kf, n_inl_kf = loftr_relative_pose(
+                        kf["view"],
+                        view,
+                        kf["depth"],
+                        depth_np,
+                        kf["mask"],
+                        mask_np,
+                        K_np,
+                        loftr,
+                        rng,
+                    )
+                    if T_rel_kf is not None and n_inl_kf >= _cfgmod.KF_MIN_INLIERS:
+                        kf_abs = (T_rel_kf @ kf["pose"]).astype(np.float64)
+                        d_deg = _rot_err_deg(kf_abs[:3, :3], coarse_pose[:3, :3])
+                        d_m = float(
+                            np.linalg.norm(kf_abs[:3, 3] - coarse_pose[:3, 3])
+                        )
+                        kf_diag = (
+                            f" [kfm n={n_inl_kf} d={d_deg:.1f}°/{d_m * 1000:.0f}mm]"
+                        )
+                        if (
+                            np.all(np.isfinite(kf_abs))
+                            and d_deg <= _cfgmod.KF_GROSS_DEG
+                            and d_m <= _cfgmod.KF_GROSS_TRANS
+                        ):
+                            coarse_pose = kf_abs
+                            kf_used = True
+                    else:
+                        kf_diag = f" [kfm n={n_inl_kf} fail]"
+                    kf_missed = 0 if kf_used else kf_missed + 1
+
                 # Propagate the independent LoFTR reference for the drift guard.
                 rel = coarse_pose @ np.linalg.inv(coarse_poses[-1])
                 loftr_ref_poses.append(rel @ loftr_ref_poses[-1])
@@ -350,6 +449,10 @@ def track_sequence(
                         cfg=refine_cfg,
                         viewer=viewer,
                         gt_pose_curr=gt_poses[i],
+                        slf_kf=(kf["slf"] if use_kf and kf is not None else None),
+                        abs_pose_kf=(
+                            kf["pose"] if use_kf and kf is not None else None
+                        ),
                     )
                     est_poses.append(refined_pose)
 
@@ -409,16 +512,46 @@ def track_sequence(
                     flag = ("↑rot" if rr > cr + 1e-6 else "") + (
                         " ↑trans" if rt > ct + 1e-6 else ""
                     )
+                    kf_tag = (" [kf]" if kf_used else "") + kf_diag if use_kf else ""
                     bar.write(
                         f"  f{i:3d}: loftr {cr:5.2f}° {ct * 1000:6.2f}mm "
                         f"→ refined {rr:5.2f}° {rt * 1000:6.2f}mm  "
                         f"| mean loftr {mc[0]:.2f}°/{mc[1] * 1000:.1f}mm "
-                        f"refined {mr[0]:.2f}°/{mr[1] * 1000:.1f}mm  {flag}"
+                        f"refined {mr[0]:.2f}°/{mr[1] * 1000:.1f}mm  {flag}{kf_tag}"
                     )
                 else:
                     est_poses.append(coarse_pose)
 
             prev = (view, depth_np, mask_np, pc, color, env_curr, slf, env_conf_curr)
+
+            # Keyframe promotion (after this frame's refine so it used the old
+            # keyframe): promote on viewpoint change beyond the caps, or after
+            # repeated match failures (overlap gone). The snapshot pose is this
+            # frame's best estimate, so keyframe-chain error grows only per hop.
+            if use_kf:
+                cur_est = est_poses[-1]
+                if kf is None:
+                    promote = True  # frame 0: pose is exact GT
+                else:
+                    d_deg = _rot_err_deg(cur_est[:3, :3], kf["pose"][:3, :3])
+                    d_m = float(np.linalg.norm(cur_est[:3, 3] - kf["pose"][:3, 3]))
+                    promote = (
+                        d_deg > _cfgmod.KF_MAX_DEG
+                        or d_m > _cfgmod.KF_MAX_TRANS
+                        or kf_missed >= 3
+                    )
+                if promote:
+                    kf = {
+                        "idx": i,
+                        "pose": cur_est.astype(np.float64).copy(),
+                        "view": view,
+                        "depth": depth_np,
+                        "mask": mask_np,
+                        "slf": slf,
+                    }
+                    kf_missed = 0
+                    if i > 0:
+                        bar.write(f"  [keyframe promoted at f{i}]")
 
             if measure_fps and i >= 1:
                 torch.cuda.synchronize()

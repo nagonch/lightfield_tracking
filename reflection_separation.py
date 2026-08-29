@@ -729,3 +729,57 @@ if __name__ == "__main__":
                 f"{split}/{seq}: alpha trace = "
                 + " -> ".join(f"{a:.2f}" for a in alpha_log)
             )
+
+
+# ---------------------------------------------------------------------------
+# Explained-variance probe for the alpha veto.
+#
+# The luminance-std alpha estimator mistakes high-contrast albedo texture
+# (plus sub-pixel cross-view misregistration) for reflectivity on real
+# captures. This probe asks the model itself: fit a separation at a fixed
+# probe alpha and measure what fraction of the cross-view variance the
+# reflection term actually explains. Matte textured surfaces come back with
+# a ratio near 1 (reflection explains ~nothing) even when the estimator
+# reads them as reflective — that contradiction triggers the veto.
+# ---------------------------------------------------------------------------
+
+
+def reflection_explained_ratio(slf, probe_alpha=0.8, iterations=300):
+    """Residual/original cross-view variance after removing the fitted
+    reflection term at ``probe_alpha`` (lower = reflection model explains
+    more). Points with >=4 valid views only."""
+    colors = slf.colors.permute(1, 0, 2)
+    view_dirs = slf.view_dirs.permute(1, 0, 2)
+    valid = slf.valid.permute(1, 0)
+    normals = slf.normals.float()
+    n_rep = normals[:, None, :].expand_as(view_dirs)
+    reflected = F.normalize(
+        view_dirs - 2.0 * (view_dirs * n_rep).sum(-1, keepdim=True) * n_rep, dim=-1
+    )
+    _, env, _, _ = separate_reflection(
+        colors=colors,
+        alpha=probe_alpha,
+        reflected_dirs=reflected,
+        valid=valid,
+        view_dirs=view_dirs,
+        normals=normals,
+        mask=slf.mask,
+        iterations=iterations,
+        verbose=False,
+    )
+    with torch.no_grad():
+        env_s = sample_environment_map(env.detach(), reflected.reshape(-1, 3)).reshape(
+            *reflected.shape[:2], 3
+        )
+        resid = colors - (1.0 - probe_alpha) * env_s
+        v = valid[..., None].float()
+        cnt = v.sum(1).clamp(min=1)
+
+        def _var(x):
+            mean = (x * v).sum(1, keepdim=True) / cnt[:, None]
+            return (((x - mean) ** 2) * v).sum(1) / cnt
+
+        keep = (valid.sum(1) >= 4)[:, None]
+        var_r = (_var(resid) * keep).sum()
+        var_o = (_var(colors) * keep).sum().clamp(min=1e-12)
+        return float(var_r / var_o)

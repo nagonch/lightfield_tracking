@@ -358,6 +358,7 @@ class PhotometricContext:
     lambda_depth: float
     lambda_rot: float
     lambda_trans: float
+    photo_loss: str = "mse"  # "mse" | "gain" | "affine" (exposure-invariant)
 
 
 def photometric_forward(
@@ -397,8 +398,37 @@ def photometric_forward(
         conf_w = ctx.conf_floor + (1.0 - ctx.conf_floor) * conf_img[..., 0]
         w = w * conf_w.detach()
 
+    # Exposure-invariant modes: the two renders come from SLFs of *different*
+    # captures, so a global exposure / white-balance shift between frames shows
+    # up as a per-channel gain (and small bias) that raw MSE converts into a
+    # pose bias on real data. Fit it by least squares over the overlap region
+    # (both objects present) and remove it before the residual. The fit is
+    # detached (re-estimated every iteration, IRLS-style) and applied only
+    # inside the source footprint, so background stays zero and the silhouette
+    # term keeps its gradient.
+    src_for_loss = src_img
+    if ctx.photo_loss in ("gain", "affine"):
+        with torch.no_grad():
+            ov = (src_mask & (ctx.roi > 0.5)).float()[..., None]  # [H, W, 1]
+            n = ov.sum().clamp(min=1.0)
+            s = src_img.detach()
+            t = ctx.tgt_img
+            if ctx.photo_loss == "affine":
+                mu_s = (s * ov).sum((0, 1)) / n
+                mu_t = (t * ov).sum((0, 1)) / n
+                cov = ((s - mu_s) * (t - mu_t) * ov).sum((0, 1)) / n
+                var = ((s - mu_s) ** 2 * ov).sum((0, 1)) / n
+                g = (cov / var.clamp(min=1e-8)).clamp(0.25, 4.0)
+                b = mu_t - g * mu_s
+            else:
+                num = (s * t * ov).sum((0, 1))
+                den = (s * s * ov).sum((0, 1)).clamp(min=1e-8)
+                g = (num / den).clamp(0.25, 4.0)
+                b = torch.zeros_like(g)
+        src_for_loss = g * src_img + b * src_mask.float()[..., None]
+
     w_sum = w.sum().clamp(min=1.0)
-    photo = (((src_img - ctx.tgt_img) ** 2).mean(-1) * w).sum() / w_sum
+    photo = (((src_for_loss - ctx.tgt_img) ** 2).mean(-1) * w).sum() / w_sum
 
     components: dict[str, torch.Tensor] = {"photo": photo}
     loss = photo
@@ -440,6 +470,7 @@ def build_photometric_context(
     mode: str = "auto",
     env_conf_prev: torch.Tensor | None = None,
     conf_floor: float = 0.1,
+    photo_loss: str = "mse",
 ) -> tuple[PhotometricContext, torch.Tensor]:
     """Build a PhotometricContext and render the target [H,W,3] once at ``scale``.
     Returns (ctx, tgt_img_hwc).
@@ -477,6 +508,7 @@ def build_photometric_context(
         lambda_depth=lambda_depth,
         lambda_rot=lambda_rot,
         lambda_trans=lambda_trans,
+        photo_loss=photo_loss,
     )
     return ctx, tgt_img.detach()
 
@@ -507,6 +539,11 @@ class RefineConfig:
     diffuse_alpha_min: float = (
         0.2  # skip diffuse stage on frames more specular than this
     )
+    # Skip refinement entirely on frames more diffuse than this: feature-based
+    # coarse tracking is already at its accuracy floor there, and photometric
+    # corrections only add appearance-model bias. Refinement engages where it
+    # matters — reflective surfaces, where features are unreliable. >1 = always.
+    refine_alpha_max: float = 1.01
     scales: tuple[float, ...] = (1.0,)
     accept_on_loss: bool = True  # keep result only if it lowered the loss it optimised
     max_correction_deg: float = (
@@ -516,6 +553,15 @@ class RefineConfig:
     patience_loss: int = 10
     min_rel_improve: float = 5e-3
     update_every: int = 1
+    # photometric residual: "mse" (raw), or exposure-invariant "gain"/"affine"
+    # (per-channel LS fit over the overlap removed before the residual; real
+    # captures have frame-to-frame exposure/WB drift that raw MSE converts
+    # into a pose bias).
+    photo_loss: str = "mse"
+    # Diffuse-stage reference: "prev" (adjacent frame, frame-relative correction)
+    # or "keyframe" (held keyframe SLF — corrections are then relative to a fixed
+    # reference, so they can remove drift accumulated since the keyframe).
+    anchor: str = "prev"
 
     # feed-forward drift guard
     drift_reset_deg: float = 1e9
@@ -602,6 +648,7 @@ def _optimise_stage(
             mode=mode,
             env_conf_prev=env_conf_prev,
             conf_floor=cfg.relight_conf_floor,
+            photo_loss=cfg.photo_loss,
         )
         if is_final_level and base_loss is None:
             with torch.no_grad():
@@ -694,6 +741,7 @@ def _optimise_stage(
                 mode=mode,
                 env_conf_prev=env_conf_prev,
                 conf_floor=cfg.relight_conf_floor,
+                photo_loss=cfg.photo_loss,
             )
             final_loss = photometric_forward(
                 ctx, torch.from_numpy(best_pose).float().to(device)
@@ -717,6 +765,8 @@ def refine_pose_photometric(
     diag: list[dict] | None = None,
     env_conf_prev: torch.Tensor | None = None,
     env_conf_curr: torch.Tensor | None = None,
+    slf_kf: SurfaceLightField | None = None,
+    abs_pose_kf: np.ndarray | None = None,
 ) -> tuple[np.ndarray, list[float]]:
     """Two-stage photometric pose refinement on top of the coarse (LoFTR/ICP) pose.
 
@@ -730,15 +780,26 @@ def refine_pose_photometric(
 
     pose = pose_coarse.astype(np.float64).copy()
 
+    # Alpha gate: on near-diffuse frames the coarse tracker is the more
+    # accurate instrument — return its pose untouched.
+    if alpha >= cfg.refine_alpha_max:
+        return pose, loss_history
+
     # Stage 1 — diffuse photometric (fine pose). Skipped on reflective frames,
-    # whose diffuse channel carries no usable pose signal.
+    # whose diffuse channel carries no usable pose signal. With anchor="keyframe"
+    # the reference is the held keyframe SLF instead of the adjacent frame: the
+    # separated diffuse is view-independent, so the render stays valid across the
+    # keyframe's viewpoint gap, and the correction becomes drift-removing.
+    slf_ref, pose_ref = slf_prev, abs_pose_prev
+    if cfg.anchor == "keyframe" and slf_kf is not None and abs_pose_kf is not None:
+        slf_ref, pose_ref = slf_kf, abs_pose_kf
     if (cfg.lr_rot > 0.0 or cfg.lr_trans > 0.0) and alpha > cfg.diffuse_alpha_min:
         pose = _optimise_stage(
-            slf_prev,
+            slf_ref,
             slf_curr,
             None,
             None,
-            abs_pose_prev,
+            pose_ref,
             pose,
             alpha=1.0,
             mode=cfg.diffuse_mode,

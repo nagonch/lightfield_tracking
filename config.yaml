@@ -33,6 +33,8 @@ refine:
   patience_loss: 10                          # early-stop after N non-improving steps per level
   min_rel_improve: 5.0e-3                    # minimum relative loss drop to count as improvement
   update_every: 1                            # viewer update frequency (iterations)
+  photo_loss: mse                            # mse | gain | affine (exposure-invariant residual)
+  anchor: prev                               # prev | keyframe (diffuse stage's reference SLF)
 
   # diffuse drift guard: reset backbone to pure-LoFTR when accumulated drift exceeds caps
   drift_reset_deg: 10.0                      # rotation cap (degrees)
@@ -76,6 +78,28 @@ slf:
 # ── pose tracking ─────────────────────────────────────────────────────────────
 tracking:
   min_loftr_inliers: 12                      # minimum LoFTR inliers to accept a relative pose
+  pnp_refine: false                          # polish the 3D-3D relative pose with 2D-3D PnP on the inliers
+  # Keyframe anchoring: additionally match the current frame against a held
+  # keyframe (promoted on viewpoint change), so pose error accumulates per
+  # keyframe hop instead of per frame. Frame-to-frame matching is kept as the
+  # fallback and gross-failure reference.
+  keyframe: false
+  kf_max_deg: 12.0                           # promote a new keyframe beyond this rotation
+  kf_max_trans: 0.08                         # ... or this translation (metres)
+  kf_min_inliers: 60                         # LoFTR inlier gate for accepting a keyframe match
+  kf_gross_deg: 30.0                         # reject keyframe pose this far from the frame-to-frame estimate
+  kf_gross_trans: 0.10                       # (gross-failure gate, metres)
+
+# ── alpha veto (default off; enabled by dataset overrides) ───────────────────
+# Overrides a low estimated alpha with a near-diffuse clamp when a probe
+# separation shows the reflection model explains almost none of the cross-view
+# variance (the luminance-std estimator is texture-fooled on real captures).
+alpha_veto:
+  enabled: false
+  ratio_min: 0.90                            # veto when residual/original variance ratio exceeds this
+  est_alpha_max: 0.85                        # only probe when the estimate is this low (claims reflective)
+  clamp_alpha: 0.95                          # alpha pinned when the veto fires
+  probe_alpha: 0.8                           # alpha of the probe separation fit
 
 # ── shading model (SoftPhong) ───────────────────────
 shading:

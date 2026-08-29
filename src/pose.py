@@ -59,12 +59,79 @@ def loftr_relative_pose(
     pts_prev, ok_prev = _backproject(uvs_prev, depth_prev, K)
     pts_curr, ok_curr = _backproject(uvs_curr[ok_prev], depth_curr, K)
     pts_prev = pts_prev[ok_curr]
+    uvs_curr_kept = uvs_curr[ok_prev][ok_curr]
     if len(pts_prev) < 3:
         return None, 0
 
     T_rel, inliers = _ransac_relative_pose(
         pts_prev, pts_curr, inlier_dist=_cfg.RANSAC_INLIER_DIST, rng=rng
     )
+
+    # 2D-3D PnP polish: the Kabsch pose above pays for depth noise in BOTH
+    # frames and its short 3D lever arms constrain rotation weakly. Re-solving
+    # the same inlier set as PnP (prev-frame 3D anchors → curr-frame pixels)
+    # replaces the curr-depth constraint with a pixel-accurate reprojection
+    # constraint. Initialised at the Kabsch pose, with one reprojection-based
+    # outlier trim.
+    if (
+        _cfg.PNP_REFINE
+        and T_rel is not None
+        and inliers is not None
+        and int(inliers.sum()) >= 6
+    ):
+        import cv2
+
+        obj = np.ascontiguousarray(pts_prev[inliers], dtype=np.float64)
+        img = np.ascontiguousarray(uvs_curr_kept[inliers], dtype=np.float64)
+        rvec0 = cv2.Rodrigues(T_rel[:3, :3].astype(np.float64))[0]
+        tvec0 = T_rel[:3, 3].astype(np.float64).reshape(3, 1).copy()
+        try:
+            for _ in range(2):
+                ok, rvec, tvec = cv2.solvePnP(
+                    obj,
+                    img,
+                    K,
+                    None,
+                    rvec0.copy(),
+                    tvec0.copy(),
+                    useExtrinsicGuess=True,
+                    flags=cv2.SOLVEPNP_ITERATIVE,
+                )
+                if not ok:
+                    break
+                proj = cv2.projectPoints(obj, rvec, tvec, K, None)[0][:, 0, :]
+                err = np.linalg.norm(proj - img, axis=1)
+                keep = err < max(3.0, float(np.median(err)) * 3.0)
+                rvec0, tvec0 = rvec, tvec
+                if keep.sum() < 6 or keep.all():
+                    break
+                obj, img = obj[keep], img[keep]
+            if ok and np.all(np.isfinite(rvec)) and np.all(np.isfinite(tvec)):
+                T_pnp = np.eye(4)
+                T_pnp[:3, :3] = cv2.Rodrigues(rvec)[0]
+                # Hybrid solve: rotation from reprojection (pixel-accurate
+                # bearings), translation re-solved from the 3D-3D inliers given
+                # that rotation (reprojection constrains depth-along-ray weakly;
+                # measured depth nails it). Robust per-axis median.
+                resid = pts_curr[inliers] - pts_prev[inliers] @ T_pnp[:3, :3].T
+                T_pnp[:3, 3] = np.median(resid, axis=0)
+                # Sanity gate: PnP from a degenerate 2D configuration can run
+                # off; keep it only near the Kabsch solution.
+                dR = np.degrees(
+                    np.arccos(
+                        np.clip(
+                            (np.trace(T_pnp[:3, :3] @ T_rel[:3, :3].T) - 1) / 2,
+                            -1,
+                            1,
+                        )
+                    )
+                )
+                dt = np.linalg.norm(T_pnp[:3, 3] - T_rel[:3, 3])
+                if dR < 15.0 and dt < 0.05:
+                    T_rel = T_pnp
+        except cv2.error:
+            pass
+
     return T_rel, int(inliers.sum()) if inliers is not None else 0
 
 
