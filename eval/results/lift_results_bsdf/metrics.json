@@ -1,0 +1,71 @@
+{
+  "per_sequence": {
+    "gt": {
+      "box_motion_prod": {
+        "add_auc": 0.861111111111111,
+        "adds_auc": 0.898989898989899,
+        "ate_rmse": 0.015621141700962439,
+        "mean_abs_rot_deg": 3.238651811909957,
+        "n_frames": 20,
+        "n_invalid": 0
+      },
+      "jug_motion_prod": {
+        "add_auc": 0.7126262626262626,
+        "adds_auc": 0.8984848484848484,
+        "ate_rmse": 0.013469810700676352,
+        "mean_abs_rot_deg": 40.01950783537886,
+        "n_frames": 20,
+        "n_invalid": 0
+      },
+      "jug_tilt_prod": {
+        "add_auc": 0.7679738562091503,
+        "adds_auc": 0.870172311348782,
+        "ate_rmse": 0.028697724039709493,
+        "mean_abs_rot_deg": 24.03728234948825,
+        "n_frames": 17,
+        "n_invalid": 0
+      },
+      "jug_translation_z_prod": {
+        "add_auc": 0.7666666666666666,
+        "adds_auc": 0.8464646464646464,
+        "ate_rmse": 0.011096674550149224,
+        "mean_abs_rot_deg": 41.244178723228636,
+        "n_frames": 20,
+        "n_invalid": 0
+      },
+      "shiny_box_tilt_prod": {
+        "add_auc": 0.551693404634581,
+        "adds_auc": 0.8060011883541295,
+        "ate_rmse": 0.03339953501617633,
+        "mean_abs_rot_deg": 26.988968682442962,
+        "n_frames": 17,
+        "n_invalid": 0
+      },
+      "teabox_tilt_prod": {
+        "add_auc": 0.7013468013468014,
+        "adds_auc": 0.8744107744107744,
+        "ate_rmse": 0.043526645010090015,
+        "mean_abs_rot_deg": 7.94944340701982,
+        "n_frames": 15,
+        "n_invalid": 0
+      },
+      "teabox_translation_prod": {
+        "add_auc": 0.8646464646464647,
+        "adds_auc": 0.9409090909090909,
+        "ate_rmse": 0.00576775647651279,
+        "mean_abs_rot_deg": 14.918399646450393,
+        "n_frames": 20,
+        "n_invalid": 0
+      }
+    }
+  },
+  "averages": {
+    "gt": {
+      "add_auc": 0.7465806524630054,
+      "adds_auc": 0.876490394137453,
+      "ate_rmse": 0.021654183927753805,
+      "mean_abs_rot_deg": 22.62806177941698
+    }
+  },
+  "model_points": "pseudo (frame-0 masked depth in object frame)"
+}
