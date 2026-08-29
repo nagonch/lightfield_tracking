@@ -1,4 +1,10 @@
-"""Load config.yaml and expose typed configs used across the pipeline."""
+"""Load config.yaml and expose typed configs used across the pipeline.
+
+If the CONFIG_OVERRIDES env var names a second yaml (e.g. config_lift.yaml,
+set by main_lift.py), its keys are deep-merged over config.yaml — so each
+dataset can carry its own tuned hyperparameters without forking the base
+config. main.py never sets it, keeping the synthetic pipeline untouched.
+"""
 import os
 import yaml
 from src.photometric import RefineConfig
@@ -8,6 +14,25 @@ _here = os.path.dirname(os.path.abspath(__file__))
 
 with open(os.path.join(_here, "config.yaml")) as _f:
     _C = yaml.safe_load(_f)
+
+
+def _deep_merge(dst: dict, src: dict) -> dict:
+    for k, v in src.items():
+        if isinstance(v, dict) and isinstance(dst.get(k), dict):
+            _deep_merge(dst[k], v)
+        else:
+            dst[k] = v
+    return dst
+
+
+_overrides = os.environ.get("CONFIG_OVERRIDES")
+if _overrides:
+    _ov_path = (
+        _overrides if os.path.isabs(_overrides) else os.path.join(_here, _overrides)
+    )
+    if os.path.exists(_ov_path):
+        with open(_ov_path) as _f:
+            _deep_merge(_C, yaml.safe_load(_f) or {})
 
 # ── paths / pipeline flags ────────────────────────────────────────────────────
 DATASET_ROOT: str = _C["dataset_root"]
@@ -79,3 +104,11 @@ SLF_SH_DEGREE: int = _C["slf"]["sh_degree"]
 
 # ── pose tracking ─────────────────────────────────────────────────────────────
 MIN_LOFTR_INLIERS: int = _C["tracking"]["min_loftr_inliers"]
+# Short-edge target for LoFTR input in the tracking backbone. 400 matches the
+# historical loftr_wrapper._RESIZE (synthetic 640x480); the real 1280x720
+# capture needs more to keep the object at a useful scale.
+LOFTR_RESIZE: int = int(_C["tracking"].get("loftr_resize", 400))
+# 3D-3D RANSAC inlier threshold (metres) for the LoFTR relative pose. 0.05
+# matches the historical loftr_baseline.INLIER_DIST (BundleSDF's value, sized
+# for noisy synthetic depth); clean LF plane-sweep depth supports much tighter.
+RANSAC_INLIER_DIST: float = float(_C["tracking"].get("ransac_inlier_dist", 0.05))

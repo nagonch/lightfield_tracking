@@ -38,12 +38,18 @@ import logging
 import os
 from dataclasses import asdict, replace
 
+# The real dataset carries its own tuned hyperparameters: config.py deep-merges
+# config_lift.yaml over config.yaml. Must be set before config/main are
+# imported (they read the config at import time).
+os.environ.setdefault("CONFIG_OVERRIDES", "config_lift.yaml")
+
 import numpy as np
 import torch
 import yaml
 from PIL import Image
 from tqdm import tqdm
 
+import config as config_mod
 import main as pipeline  # reuse track_sequence + its module-level knobs
 from config import (
     CACHE_ROOT,
@@ -95,6 +101,10 @@ def apply_overrides(sets: list[str], refine_cfg, lf_cfg):
             refine_cfg = replace(refine_cfg, **{key[len("refine."):]: val})
         elif key.startswith("lf_depth."):
             lf_cfg = replace(lf_cfg, **{key[len("lf_depth."):]: val})
+        elif key == "tracking.loftr_resize":
+            config_mod.LOFTR_RESIZE = int(val)
+        elif key == "tracking.ransac_inlier_dist":
+            config_mod.RANSAC_INLIER_DIST = float(val)
         elif key == "separation_iters":
             pipeline.SEPARATION_ITERS = int(val)
         elif key == "min_track_pixels":
@@ -287,6 +297,8 @@ def main() -> None:
                 "lf_depth_cfg": asdict(lf_cfg),
                 "separation_iters": pipeline.SEPARATION_ITERS,
                 "min_track_pixels": pipeline.MIN_TRACK_PIXELS,
+                "loftr_resize": config_mod.LOFTR_RESIZE,
+                "config_overrides": os.environ.get("CONFIG_OVERRIDES"),
             },
             f,
             indent=2,

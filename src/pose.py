@@ -14,12 +14,13 @@ from loftr_baseline import (
     _ransac_relative_pose,
     _resize_for_loftr,
 )
-from loftr_wrapper import LoftrRunner, _RESIZE
+from loftr_wrapper import LoftrRunner
 from icp import (
     get_coarsest_pose,
     run_explorative_icp_with_centering,
 )
 
+import config as _cfg
 from config import MIN_LOFTR_INLIERS as MIN_INLIERS
 
 
@@ -43,8 +44,10 @@ def loftr_relative_pose(
     depth_prev = _filter_depth_percentile(depth_prev, mask_prev)
     depth_curr = _filter_depth_percentile(depth_curr, mask_curr)
 
-    small_prev, scale_prev = _resize_for_loftr(rgb_prev, _RESIZE)
-    small_curr, scale_curr = _resize_for_loftr(rgb_curr, _RESIZE)
+    # Read at call time (not import time) so per-dataset configs and --set
+    # tracking.loftr_resize overrides take effect.
+    small_prev, scale_prev = _resize_for_loftr(rgb_prev, _cfg.LOFTR_RESIZE)
+    small_curr, scale_curr = _resize_for_loftr(rgb_curr, _cfg.LOFTR_RESIZE)
 
     corres = loftr.predict(small_prev[None], small_curr[None])[0]  # [M, 5]
     if len(corres) < 3:
@@ -59,7 +62,9 @@ def loftr_relative_pose(
     if len(pts_prev) < 3:
         return None, 0
 
-    T_rel, inliers = _ransac_relative_pose(pts_prev, pts_curr, rng=rng)
+    T_rel, inliers = _ransac_relative_pose(
+        pts_prev, pts_curr, inlier_dist=_cfg.RANSAC_INLIER_DIST, rng=rng
+    )
     return T_rel, int(inliers.sum()) if inliers is not None else 0
 
 
