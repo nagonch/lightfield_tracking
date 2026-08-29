@@ -1,0 +1,11 @@
+LiFT real (gt depth)
+─────────────────────────────────────────────────────────────
+                        ADD↑ AUC ADD-S↑ AUC ATE↓ (m) Rot↓ (°)
+box_motion_prod           0.8652     0.9364   0.0182     6.25
+jug_motion_prod           0.5955     0.7778   0.0193    45.99
+jug_tilt_prod             0.7579     0.8624   0.0437    30.06
+jug_translation_z_prod    0.7717     0.8556   0.0163    39.65
+shiny_box_tilt_prod       0.4409     0.6607   0.0597    29.51
+teabox_tilt_prod          0.6973     0.8731   0.0364     2.91
+teabox_translation_prod   0.7859     0.9106   0.0225     5.12
+── Average ──             0.7020     0.8395   0.0309    22.79
