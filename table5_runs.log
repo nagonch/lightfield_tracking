@@ -1,0 +1,1011 @@
++ python -u main_lift.py --gt-masks --depth lf --name baselines_real/tuned_no_refine
+05:57:01  INFO     sequences (7): box_motion_prod, jug_motion_prod, jug_tilt_prod, jug_translation_z_prod, shiny_box_tilt_prod, teabox_tilt_prod, teabox_translation_prod
+05:57:01  INFO     refine=False  separation=True  depth=['lf']  stride=2  scale=1.00  alpha=est  → baselines_real/tuned_no_refine
+05:57:01  INFO     masks: GT (dataset)
+sequences:   0%|          | 0/7 [00:00<?, ?seq/s]sequences:   0%|          | 0/7 [00:00<?, ?seq/s, lf/box_motion_prod]
+  frames:   0%|          | 0/20 [00:00<?, ?fr/s][A
+  frames:   0%|          | 0/20 [00:02<?, ?fr/s, fr=0, stage=separate][A/usr/local/lib/python3.10/dist-packages/torch/functional.py:505: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at /pytorch/aten/src/ATen/native/TensorShape.cpp:4381.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+
+  frames:   5%|▌         | 1/20 [00:02<00:45,  2.37s/fr, fr=0, stage=separate][A
+  frames:   5%|▌         | 1/20 [00:04<00:45,  2.37s/fr, fr=1, stage=separate][A
+  frames:   5%|▌         | 1/20 [00:04<00:45,  2.37s/fr, fr=1, stage=loftr]   [A
+  frames:  10%|█         | 2/20 [00:04<00:43,  2.40s/fr, fr=1, stage=loftr][A
+  frames:  10%|█         | 2/20 [00:06<00:43,  2.40s/fr, fr=2, stage=separate][A
+  frames:  10%|█         | 2/20 [00:06<00:43,  2.40s/fr, fr=2, stage=loftr]   [A
+  frames:  15%|█▌        | 3/20 [00:07<00:41,  2.43s/fr, fr=2, stage=loftr][A
+  frames:  15%|█▌        | 3/20 [00:09<00:41,  2.43s/fr, fr=3, stage=separate][A
+  frames:  15%|█▌        | 3/20 [00:09<00:41,  2.43s/fr, fr=3, stage=loftr]   [A
+  frames:  20%|██        | 4/20 [00:10<00:42,  2.64s/fr, fr=3, stage=loftr][A
+  frames:  20%|██        | 4/20 [00:12<00:42,  2.64s/fr, fr=4, stage=separate][A
+  frames:  20%|██        | 4/20 [00:12<00:42,  2.64s/fr, fr=4, stage=loftr]   [A
+  frames:  25%|██▌       | 5/20 [00:12<00:39,  2.63s/fr, fr=4, stage=loftr][A
+  frames:  25%|██▌       | 5/20 [00:14<00:39,  2.63s/fr, fr=5, stage=separate][A
+  frames:  25%|██▌       | 5/20 [00:14<00:39,  2.63s/fr, fr=5, stage=loftr]   [A
+  frames:  30%|███       | 6/20 [00:15<00:37,  2.65s/fr, fr=5, stage=loftr][A
+  frames:  30%|███       | 6/20 [00:17<00:37,  2.65s/fr, fr=6, stage=separate][A
+  frames:  30%|███       | 6/20 [00:17<00:37,  2.65s/fr, fr=6, stage=loftr]   [A
+  frames:  35%|███▌      | 7/20 [00:17<00:33,  2.54s/fr, fr=6, stage=loftr][A
+  frames:  35%|███▌      | 7/20 [00:19<00:33,  2.54s/fr, fr=7, stage=separate][A
+  frames:  35%|███▌      | 7/20 [00:19<00:33,  2.54s/fr, fr=7, stage=loftr]   [A
+  frames:  40%|████      | 8/20 [00:20<00:31,  2.63s/fr, fr=7, stage=loftr][A
+  frames:  40%|████      | 8/20 [00:22<00:31,  2.63s/fr, fr=8, stage=separate][A
+  frames:  40%|████      | 8/20 [00:22<00:31,  2.63s/fr, fr=8, stage=loftr]   [A
+  frames:  45%|████▌     | 9/20 [00:23<00:29,  2.64s/fr, fr=8, stage=loftr][A
+  frames:  45%|████▌     | 9/20 [00:25<00:29,  2.64s/fr, fr=9, stage=separate][A
+  frames:  45%|████▌     | 9/20 [00:25<00:29,  2.64s/fr, fr=9, stage=loftr]   [A
+  frames:  50%|█████     | 10/20 [00:25<00:25,  2.58s/fr, fr=9, stage=loftr][A
+  frames:  50%|█████     | 10/20 [00:27<00:25,  2.58s/fr, fr=10, stage=separate][A
+  frames:  50%|█████     | 10/20 [00:27<00:25,  2.58s/fr, fr=10, stage=loftr]   [A
+  frames:  55%|█████▌    | 11/20 [00:28<00:23,  2.57s/fr, fr=10, stage=loftr][A
+  frames:  55%|█████▌    | 11/20 [00:30<00:23,  2.57s/fr, fr=11, stage=separate][A
+  frames:  55%|█████▌    | 11/20 [00:30<00:23,  2.57s/fr, fr=11, stage=loftr]   [A
+  frames:  60%|██████    | 12/20 [00:30<00:19,  2.49s/fr, fr=11, stage=loftr][A
+  frames:  60%|██████    | 12/20 [00:32<00:19,  2.49s/fr, fr=12, stage=separate][A
+  frames:  60%|██████    | 12/20 [00:32<00:19,  2.49s/fr, fr=12, stage=loftr]   [A
+  frames:  65%|██████▌   | 13/20 [00:33<00:17,  2.50s/fr, fr=12, stage=loftr][A
+  frames:  65%|██████▌   | 13/20 [00:35<00:17,  2.50s/fr, fr=13, stage=separate][A
+  frames:  65%|██████▌   | 13/20 [00:35<00:17,  2.50s/fr, fr=13, stage=loftr]   [A
+  frames:  70%|███████   | 14/20 [00:35<00:15,  2.59s/fr, fr=13, stage=loftr][A
+  frames:  70%|███████   | 14/20 [00:38<00:15,  2.59s/fr, fr=14, stage=separate][A
+  frames:  70%|███████   | 14/20 [00:38<00:15,  2.59s/fr, fr=14, stage=loftr]   [A
+  frames:  75%|███████▌  | 15/20 [00:38<00:13,  2.68s/fr, fr=14, stage=loftr][A
+  frames:  75%|███████▌  | 15/20 [00:40<00:13,  2.68s/fr, fr=15, stage=separate][A
+  frames:  75%|███████▌  | 15/20 [00:41<00:13,  2.68s/fr, fr=15, stage=loftr]   [A
+  frames:  80%|████████  | 16/20 [00:41<00:11,  2.77s/fr, fr=15, stage=loftr][A
+  frames:  80%|████████  | 16/20 [00:43<00:11,  2.77s/fr, fr=16, stage=separate][A
+  frames:  80%|████████  | 16/20 [00:44<00:11,  2.77s/fr, fr=16, stage=loftr]   [A
+  frames:  85%|████████▌ | 17/20 [00:44<00:08,  2.78s/fr, fr=16, stage=loftr][A
+  frames:  85%|████████▌ | 17/20 [00:46<00:08,  2.78s/fr, fr=17, stage=separate][A
+  frames:  85%|████████▌ | 17/20 [00:46<00:08,  2.78s/fr, fr=17, stage=loftr]   [A
+  frames:  90%|█████████ | 18/20 [00:47<00:05,  2.75s/fr, fr=17, stage=loftr][A
+  frames:  90%|█████████ | 18/20 [00:48<00:05,  2.75s/fr, fr=18, stage=separate][A
+  frames:  90%|█████████ | 18/20 [00:49<00:05,  2.75s/fr, fr=18, stage=loftr]   [A
+  frames:  95%|█████████▌| 19/20 [00:49<00:02,  2.72s/fr, fr=18, stage=loftr][A
+  frames:  95%|█████████▌| 19/20 [00:51<00:02,  2.72s/fr, fr=19, stage=separate][A
+  frames:  95%|█████████▌| 19/20 [00:51<00:02,  2.72s/fr, fr=19, stage=loftr]   [A
+  frames: 100%|██████████| 20/20 [00:52<00:00,  2.60s/fr, fr=19, stage=loftr][A
+                                                                             [A05:57:54  INFO     box_motion_prod: (20, 4, 4) → baselines_real/tuned_no_refine/lf/box_motion_prod.npy
+sequences:  14%|█▍        | 1/7 [00:52<05:13, 52.29s/seq, lf/box_motion_prod]sequences:  14%|█▍        | 1/7 [00:52<05:13, 52.29s/seq, lf/jug_motion_prod]
+  frames:   0%|          | 0/20 [00:00<?, ?fr/s][A
+  frames:   0%|          | 0/20 [00:02<?, ?fr/s, fr=0, stage=separate][A
+  frames:   5%|▌         | 1/20 [00:02<00:48,  2.53s/fr, fr=0, stage=separate][A
+  frames:   5%|▌         | 1/20 [00:04<00:48,  2.53s/fr, fr=1, stage=separate][A
+  frames:   5%|▌         | 1/20 [00:04<00:48,  2.53s/fr, fr=1, stage=loftr]   [A
+  frames:  10%|█         | 2/20 [00:05<00:47,  2.63s/fr, fr=1, stage=loftr][A
+  frames:  10%|█         | 2/20 [00:07<00:47,  2.63s/fr, fr=2, stage=separate][A
+  frames:  10%|█         | 2/20 [00:07<00:47,  2.63s/fr, fr=2, stage=loftr]   [A
+  frames:  15%|█▌        | 3/20 [00:07<00:43,  2.54s/fr, fr=2, stage=loftr][A
+  frames:  15%|█▌        | 3/20 [00:10<00:43,  2.54s/fr, fr=3, stage=separate][A
+  frames:  15%|█▌        | 3/20 [00:10<00:43,  2.54s/fr, fr=3, stage=loftr]   [A
+  frames:  20%|██        | 4/20 [00:10<00:41,  2.58s/fr, fr=3, stage=loftr][A
+  frames:  20%|██        | 4/20 [00:12<00:41,  2.58s/fr, fr=4, stage=separate][A
+  frames:  20%|██        | 4/20 [00:12<00:41,  2.58s/fr, fr=4, stage=loftr]   [A
+  frames:  25%|██▌       | 5/20 [00:13<00:40,  2.67s/fr, fr=4, stage=loftr][A
+  frames:  25%|██▌       | 5/20 [00:15<00:40,  2.67s/fr, fr=5, stage=separate][A
+  frames:  25%|██▌       | 5/20 [00:15<00:40,  2.67s/fr, fr=5, stage=loftr]   [A
+  frames:  30%|███       | 6/20 [00:15<00:37,  2.69s/fr, fr=5, stage=loftr][A
+  frames:  30%|███       | 6/20 [00:18<00:37,  2.69s/fr, fr=6, stage=separate][A
+  frames:  30%|███       | 6/20 [00:18<00:37,  2.69s/fr, fr=6, stage=loftr]   [A
+  frames:  35%|███▌      | 7/20 [00:18<00:35,  2.75s/fr, fr=6, stage=loftr][A
+  frames:  35%|███▌      | 7/20 [00:20<00:35,  2.75s/fr, fr=7, stage=separate][A
+  frames:  35%|███▌      | 7/20 [00:20<00:35,  2.75s/fr, fr=7, stage=loftr]   [A
+  frames:  40%|████      | 8/20 [00:21<00:33,  2.76s/fr, fr=7, stage=loftr][A
+  frames:  40%|████      | 8/20 [00:23<00:33,  2.76s/fr, fr=8, stage=separate][A
+  frames:  40%|████      | 8/20 [00:23<00:33,  2.76s/fr, fr=8, stage=loftr]   [A
+  frames:  45%|████▌     | 9/20 [00:24<00:30,  2.80s/fr, fr=8, stage=loftr][A
+  frames:  45%|████▌     | 9/20 [00:26<00:30,  2.80s/fr, fr=9, stage=separate][A
+  frames:  45%|████▌     | 9/20 [00:26<00:30,  2.80s/fr, fr=9, stage=loftr]   [A
+  frames:  50%|█████     | 10/20 [00:26<00:26,  2.68s/fr, fr=9, stage=loftr][A
+  frames:  50%|█████     | 10/20 [00:28<00:26,  2.68s/fr, fr=10, stage=separate][A
+  frames:  50%|█████     | 10/20 [00:28<00:26,  2.68s/fr, fr=10, stage=loftr]   [A
+  frames:  55%|█████▌    | 11/20 [00:29<00:23,  2.60s/fr, fr=10, stage=loftr][A
+  frames:  55%|█████▌    | 11/20 [00:31<00:23,  2.60s/fr, fr=11, stage=separate][A
+  frames:  55%|█████▌    | 11/20 [00:31<00:23,  2.60s/fr, fr=11, stage=loftr]   [A
+  frames:  60%|██████    | 12/20 [00:31<00:20,  2.61s/fr, fr=11, stage=loftr][A
+  frames:  60%|██████    | 12/20 [00:34<00:20,  2.61s/fr, fr=12, stage=separate][A
+  frames:  60%|██████    | 12/20 [00:34<00:20,  2.61s/fr, fr=12, stage=loftr]   [A
+  frames:  65%|██████▌   | 13/20 [00:34<00:18,  2.69s/fr, fr=12, stage=loftr][A
+  frames:  65%|██████▌   | 13/20 [00:37<00:18,  2.69s/fr, fr=13, stage=separate][A
+  frames:  65%|██████▌   | 13/20 [00:37<00:18,  2.69s/fr, fr=13, stage=loftr]   [A
+  frames:  70%|███████   | 14/20 [00:37<00:16,  2.79s/fr, fr=13, stage=loftr][A
+  frames:  70%|███████   | 14/20 [00:40<00:16,  2.79s/fr, fr=14, stage=separate][A
+  frames:  70%|███████   | 14/20 [00:40<00:16,  2.79s/fr, fr=14, stage=loftr]   [A
+  frames:  75%|███████▌  | 15/20 [00:40<00:13,  2.74s/fr, fr=14, stage=loftr][A
+  frames:  75%|███████▌  | 15/20 [00:42<00:13,  2.74s/fr, fr=15, stage=separate][A
+  frames:  75%|███████▌  | 15/20 [00:42<00:13,  2.74s/fr, fr=15, stage=loftr]   [A
+  frames:  80%|████████  | 16/20 [00:42<00:10,  2.67s/fr, fr=15, stage=loftr][A
+  frames:  80%|████████  | 16/20 [00:45<00:10,  2.67s/fr, fr=16, stage=separate][A
+  frames:  80%|████████  | 16/20 [00:45<00:10,  2.67s/fr, fr=16, stage=loftr]   [A
+  frames:  85%|████████▌ | 17/20 [00:45<00:08,  2.73s/fr, fr=16, stage=loftr][A
+  frames:  85%|████████▌ | 17/20 [00:48<00:08,  2.73s/fr, fr=17, stage=separate][A
+  frames:  85%|████████▌ | 17/20 [00:48<00:08,  2.73s/fr, fr=17, stage=loftr]   [A
+  frames:  90%|█████████ | 18/20 [00:48<00:05,  2.77s/fr, fr=17, stage=loftr][A
+  frames:  90%|█████████ | 18/20 [00:51<00:05,  2.77s/fr, fr=18, stage=separate][A
+  frames:  90%|█████████ | 18/20 [00:51<00:05,  2.77s/fr, fr=18, stage=loftr]   [A
+  frames:  95%|█████████▌| 19/20 [00:51<00:02,  2.84s/fr, fr=18, stage=loftr][A
+  frames:  95%|█████████▌| 19/20 [00:53<00:02,  2.84s/fr, fr=19, stage=separate][A
+  frames:  95%|█████████▌| 19/20 [00:53<00:02,  2.84s/fr, fr=19, stage=loftr]   [A
+  frames: 100%|██████████| 20/20 [00:54<00:00,  2.71s/fr, fr=19, stage=loftr][A
+                                                                             [A05:58:48  INFO     jug_motion_prod: (20, 4, 4) → baselines_real/tuned_no_refine/lf/jug_motion_prod.npy
+sequences:  29%|██▊       | 2/7 [01:46<04:26, 53.33s/seq, lf/jug_motion_prod]sequences:  29%|██▊       | 2/7 [01:46<04:26, 53.33s/seq, lf/jug_tilt_prod]  
+  frames:   0%|          | 0/17 [00:00<?, ?fr/s][A
+  frames:   0%|          | 0/17 [00:02<?, ?fr/s, fr=0, stage=separate][A
+  frames:   6%|▌         | 1/17 [00:02<00:32,  2.03s/fr, fr=0, stage=separate][A
+  frames:   6%|▌         | 1/17 [00:03<00:32,  2.03s/fr, fr=1, stage=separate][A
+  frames:   6%|▌         | 1/17 [00:04<00:32,  2.03s/fr, fr=1, stage=loftr]   [A
+  frames:  12%|█▏        | 2/17 [00:04<00:31,  2.12s/fr, fr=1, stage=loftr][A
+  frames:  12%|█▏        | 2/17 [00:05<00:31,  2.12s/fr, fr=2, stage=separate][A
+  frames:  12%|█▏        | 2/17 [00:06<00:31,  2.12s/fr, fr=2, stage=loftr]   [A
+  frames:  18%|█▊        | 3/17 [00:06<00:28,  2.06s/fr, fr=2, stage=loftr][A
+  frames:  18%|█▊        | 3/17 [00:08<00:28,  2.06s/fr, fr=3, stage=separate][A
+  frames:  18%|█▊        | 3/17 [00:08<00:28,  2.06s/fr, fr=3, stage=loftr]   [A
+  frames:  24%|██▎       | 4/17 [00:08<00:28,  2.23s/fr, fr=3, stage=loftr][A
+  frames:  24%|██▎       | 4/17 [00:10<00:28,  2.23s/fr, fr=4, stage=separate][A
+  frames:  24%|██▎       | 4/17 [00:10<00:28,  2.23s/fr, fr=4, stage=loftr]   [A
+  frames:  29%|██▉       | 5/17 [00:10<00:26,  2.20s/fr, fr=4, stage=loftr][A
+  frames:  29%|██▉       | 5/17 [00:12<00:26,  2.20s/fr, fr=5, stage=separate][A
+  frames:  29%|██▉       | 5/17 [00:12<00:26,  2.20s/fr, fr=5, stage=loftr]   [A
+  frames:  35%|███▌      | 6/17 [00:12<00:23,  2.12s/fr, fr=5, stage=loftr][A
+  frames:  35%|███▌      | 6/17 [00:14<00:23,  2.12s/fr, fr=6, stage=separate][A
+  frames:  35%|███▌      | 6/17 [00:14<00:23,  2.12s/fr, fr=6, stage=loftr]   [A
+  frames:  41%|████      | 7/17 [00:15<00:21,  2.18s/fr, fr=6, stage=loftr][A
+  frames:  41%|████      | 7/17 [00:17<00:21,  2.18s/fr, fr=7, stage=separate][A
+  frames:  41%|████      | 7/17 [00:17<00:21,  2.18s/fr, fr=7, stage=loftr]   [A
+  frames:  47%|████▋     | 8/17 [00:17<00:19,  2.18s/fr, fr=7, stage=loftr][A
+  frames:  47%|████▋     | 8/17 [00:19<00:19,  2.18s/fr, fr=8, stage=separate][A
+  frames:  47%|████▋     | 8/17 [00:19<00:19,  2.18s/fr, fr=8, stage=loftr]   [A
+  frames:  53%|█████▎    | 9/17 [00:19<00:16,  2.12s/fr, fr=8, stage=loftr][A
+  frames:  53%|█████▎    | 9/17 [00:21<00:16,  2.12s/fr, fr=9, stage=separate][A
+  frames:  53%|█████▎    | 9/17 [00:21<00:16,  2.12s/fr, fr=9, stage=loftr]   [A
+  frames:  59%|█████▉    | 10/17 [00:21<00:15,  2.17s/fr, fr=9, stage=loftr][A
+  frames:  59%|█████▉    | 10/17 [00:23<00:15,  2.17s/fr, fr=10, stage=separate][A
+  frames:  59%|█████▉    | 10/17 [00:23<00:15,  2.17s/fr, fr=10, stage=loftr]   [A
+  frames:  65%|██████▍   | 11/17 [00:23<00:12,  2.09s/fr, fr=10, stage=loftr][A
+  frames:  65%|██████▍   | 11/17 [00:25<00:12,  2.09s/fr, fr=11, stage=separate][A
+  frames:  65%|██████▍   | 11/17 [00:25<00:12,  2.09s/fr, fr=11, stage=loftr]   [A
+  frames:  71%|███████   | 12/17 [00:25<00:11,  2.21s/fr, fr=11, stage=loftr][A
+  frames:  71%|███████   | 12/17 [00:28<00:11,  2.21s/fr, fr=12, stage=separate][A
+  frames:  71%|███████   | 12/17 [00:28<00:11,  2.21s/fr, fr=12, stage=loftr]   [A
+  frames:  76%|███████▋  | 13/17 [00:28<00:09,  2.31s/fr, fr=12, stage=loftr][A
+  frames:  76%|███████▋  | 13/17 [00:30<00:09,  2.31s/fr, fr=13, stage=separate][A
+  frames:  76%|███████▋  | 13/17 [00:30<00:09,  2.31s/fr, fr=13, stage=loftr]   [A
+  frames:  82%|████████▏ | 14/17 [00:30<00:07,  2.36s/fr, fr=13, stage=loftr][A
+  frames:  82%|████████▏ | 14/17 [00:32<00:07,  2.36s/fr, fr=14, stage=separate][A
+  frames:  82%|████████▏ | 14/17 [00:32<00:07,  2.36s/fr, fr=14, stage=loftr]   [A
+  frames:  88%|████████▊ | 15/17 [00:32<00:04,  2.25s/fr, fr=14, stage=loftr][A
+  frames:  88%|████████▊ | 15/17 [00:34<00:04,  2.25s/fr, fr=15, stage=separate][A
+  frames:  88%|████████▊ | 15/17 [00:34<00:04,  2.25s/fr, fr=15, stage=loftr]   [A
+  frames:  94%|█████████▍| 16/17 [00:34<00:02,  2.14s/fr, fr=15, stage=loftr][A
+  frames:  94%|█████████▍| 16/17 [00:36<00:02,  2.14s/fr, fr=16, stage=separate][A
+  frames:  94%|█████████▍| 16/17 [00:36<00:02,  2.14s/fr, fr=16, stage=loftr]   [A
+  frames: 100%|██████████| 17/17 [00:36<00:00,  2.08s/fr, fr=16, stage=loftr][A
+                                                                             [A05:59:25  INFO     jug_tilt_prod: (17, 4, 4) → baselines_real/tuned_no_refine/lf/jug_tilt_prod.npy
+sequences:  43%|████▎     | 3/7 [02:23<03:03, 45.77s/seq, lf/jug_tilt_prod]sequences:  43%|████▎     | 3/7 [02:23<03:03, 45.77s/seq, lf/jug_translation_z_prod]
+  frames:   0%|          | 0/20 [00:00<?, ?fr/s][A
+  frames:   0%|          | 0/20 [00:01<?, ?fr/s, fr=0, stage=separate][A
+  frames:   5%|▌         | 1/20 [00:01<00:30,  1.61s/fr, fr=0, stage=separate][A
+  frames:   5%|▌         | 1/20 [00:03<00:30,  1.61s/fr, fr=1, stage=separate][A
+  frames:   5%|▌         | 1/20 [00:03<00:30,  1.61s/fr, fr=1, stage=loftr]   [A
+  frames:  10%|█         | 2/20 [00:03<00:32,  1.78s/fr, fr=1, stage=loftr][A
+  frames:  10%|█         | 2/20 [00:05<00:32,  1.78s/fr, fr=2, stage=separate][A
+  frames:  10%|█         | 2/20 [00:05<00:32,  1.78s/fr, fr=2, stage=loftr]   [A
+  frames:  15%|█▌        | 3/20 [00:05<00:31,  1.88s/fr, fr=2, stage=loftr][A
+  frames:  15%|█▌        | 3/20 [00:07<00:31,  1.88s/fr, fr=3, stage=separate][A
+  frames:  15%|█▌        | 3/20 [00:07<00:31,  1.88s/fr, fr=3, stage=loftr]   [A
+  frames:  20%|██        | 4/20 [00:07<00:29,  1.87s/fr, fr=3, stage=loftr][A
+  frames:  20%|██        | 4/20 [00:08<00:29,  1.87s/fr, fr=4, stage=separate][A
+  frames:  20%|██        | 4/20 [00:08<00:29,  1.87s/fr, fr=4, stage=loftr]   [A
+  frames:  25%|██▌       | 5/20 [00:09<00:27,  1.83s/fr, fr=4, stage=loftr][A
+  frames:  25%|██▌       | 5/20 [00:10<00:27,  1.83s/fr, fr=5, stage=separate][A
+  frames:  25%|██▌       | 5/20 [00:10<00:27,  1.83s/fr, fr=5, stage=loftr]   [A
+  frames:  30%|███       | 6/20 [00:10<00:25,  1.81s/fr, fr=5, stage=loftr][A
+  frames:  30%|███       | 6/20 [00:12<00:25,  1.81s/fr, fr=6, stage=separate][A
+  frames:  30%|███       | 6/20 [00:12<00:25,  1.81s/fr, fr=6, stage=loftr]   [A
+  frames:  35%|███▌      | 7/20 [00:12<00:23,  1.80s/fr, fr=6, stage=loftr][A
+  frames:  35%|███▌      | 7/20 [00:14<00:23,  1.80s/fr, fr=7, stage=separate][A
+  frames:  35%|███▌      | 7/20 [00:14<00:23,  1.80s/fr, fr=7, stage=loftr]   [A
+  frames:  40%|████      | 8/20 [00:14<00:21,  1.79s/fr, fr=7, stage=loftr][A
+  frames:  40%|████      | 8/20 [00:16<00:21,  1.79s/fr, fr=8, stage=separate][A
+  frames:  40%|████      | 8/20 [00:16<00:21,  1.79s/fr, fr=8, stage=loftr]   [A
+  frames:  45%|████▌     | 9/20 [00:16<00:20,  1.83s/fr, fr=8, stage=loftr][A
+  frames:  45%|████▌     | 9/20 [00:17<00:20,  1.83s/fr, fr=9, stage=separate][A
+  frames:  45%|████▌     | 9/20 [00:17<00:20,  1.83s/fr, fr=9, stage=loftr]   [A
+  frames:  50%|█████     | 10/20 [00:18<00:18,  1.86s/fr, fr=9, stage=loftr][A
+  frames:  50%|█████     | 10/20 [00:19<00:18,  1.86s/fr, fr=10, stage=separate][A
+  frames:  50%|█████     | 10/20 [00:19<00:18,  1.86s/fr, fr=10, stage=loftr]   [A
+  frames:  55%|█████▌    | 11/20 [00:20<00:16,  1.84s/fr, fr=10, stage=loftr][A
+  frames:  55%|█████▌    | 11/20 [00:21<00:16,  1.84s/fr, fr=11, stage=separate][A
+  frames:  55%|█████▌    | 11/20 [00:21<00:16,  1.84s/fr, fr=11, stage=loftr]   [A
+  frames:  60%|██████    | 12/20 [00:21<00:14,  1.82s/fr, fr=11, stage=loftr][A
+  frames:  60%|██████    | 12/20 [00:23<00:14,  1.82s/fr, fr=12, stage=separate][A
+  frames:  60%|██████    | 12/20 [00:23<00:14,  1.82s/fr, fr=12, stage=loftr]   [A
+  frames:  65%|██████▌   | 13/20 [00:23<00:12,  1.82s/fr, fr=12, stage=loftr][A
+  frames:  65%|██████▌   | 13/20 [00:25<00:12,  1.82s/fr, fr=13, stage=separate][A
+  frames:  65%|██████▌   | 13/20 [00:25<00:12,  1.82s/fr, fr=13, stage=loftr]   [A
+  frames:  70%|███████   | 14/20 [00:25<00:10,  1.82s/fr, fr=13, stage=loftr][A
+  frames:  70%|███████   | 14/20 [00:27<00:10,  1.82s/fr, fr=14, stage=separate][A
+  frames:  70%|███████   | 14/20 [00:27<00:10,  1.82s/fr, fr=14, stage=loftr]   [A
+  frames:  75%|███████▌  | 15/20 [00:27<00:09,  1.80s/fr, fr=14, stage=loftr][A
+  frames:  75%|███████▌  | 15/20 [00:28<00:09,  1.80s/fr, fr=15, stage=separate][A
+  frames:  75%|███████▌  | 15/20 [00:28<00:09,  1.80s/fr, fr=15, stage=loftr]   [A
+  frames:  80%|████████  | 16/20 [00:29<00:07,  1.85s/fr, fr=15, stage=loftr][A
+  frames:  80%|████████  | 16/20 [00:30<00:07,  1.85s/fr, fr=16, stage=separate][A
+  frames:  80%|████████  | 16/20 [00:30<00:07,  1.85s/fr, fr=16, stage=loftr]   [A
+  frames:  85%|████████▌ | 17/20 [00:31<00:05,  1.83s/fr, fr=16, stage=loftr][A
+  frames:  85%|████████▌ | 17/20 [00:32<00:05,  1.83s/fr, fr=17, stage=separate][A
+  frames:  85%|████████▌ | 17/20 [00:32<00:05,  1.83s/fr, fr=17, stage=loftr]   [A
+  frames:  90%|█████████ | 18/20 [00:32<00:03,  1.81s/fr, fr=17, stage=loftr][A
+  frames:  90%|█████████ | 18/20 [00:34<00:03,  1.81s/fr, fr=18, stage=separate][A
+  frames:  90%|█████████ | 18/20 [00:34<00:03,  1.81s/fr, fr=18, stage=loftr]   [A
+  frames:  95%|█████████▌| 19/20 [00:34<00:01,  1.84s/fr, fr=18, stage=loftr][A
+  frames:  95%|█████████▌| 19/20 [00:36<00:01,  1.84s/fr, fr=19, stage=separate][A
+  frames:  95%|█████████▌| 19/20 [00:36<00:01,  1.84s/fr, fr=19, stage=loftr]   [A
+  frames: 100%|██████████| 20/20 [00:36<00:00,  1.86s/fr, fr=19, stage=loftr][A
+                                                                             [A06:00:01  INFO     jug_translation_z_prod: (20, 4, 4) → baselines_real/tuned_no_refine/lf/jug_translation_z_prod.npy
+sequences:  57%|█████▋    | 4/7 [02:59<02:06, 42.15s/seq, lf/jug_translation_z_prod]sequences:  57%|█████▋    | 4/7 [02:59<02:06, 42.15s/seq, lf/shiny_box_tilt_prod]   
+  frames:   0%|          | 0/17 [00:00<?, ?fr/s][A
+  frames:   0%|          | 0/17 [00:01<?, ?fr/s, fr=0, stage=separate][A
+  frames:   6%|▌         | 1/17 [00:01<00:26,  1.67s/fr, fr=0, stage=separate][A
+  frames:   6%|▌         | 1/17 [00:03<00:26,  1.67s/fr, fr=1, stage=separate][A
+  frames:   6%|▌         | 1/17 [00:03<00:26,  1.67s/fr, fr=1, stage=loftr]   [A
+  frames:  12%|█▏        | 2/17 [00:03<00:28,  1.93s/fr, fr=1, stage=loftr][A
+  frames:  12%|█▏        | 2/17 [00:05<00:28,  1.93s/fr, fr=2, stage=separate][A
+  frames:  12%|█▏        | 2/17 [00:05<00:28,  1.93s/fr, fr=2, stage=loftr]   [A
+  frames:  18%|█▊        | 3/17 [00:05<00:28,  2.03s/fr, fr=2, stage=loftr][A
+  frames:  18%|█▊        | 3/17 [00:07<00:28,  2.03s/fr, fr=3, stage=separate][A
+  frames:  18%|█▊        | 3/17 [00:07<00:28,  2.03s/fr, fr=3, stage=loftr]   [A
+  frames:  24%|██▎       | 4/17 [00:08<00:27,  2.09s/fr, fr=3, stage=loftr][A
+  frames:  24%|██▎       | 4/17 [00:09<00:27,  2.09s/fr, fr=4, stage=separate][A
+  frames:  24%|██▎       | 4/17 [00:09<00:27,  2.09s/fr, fr=4, stage=loftr]   [A
+  frames:  29%|██▉       | 5/17 [00:10<00:25,  2.10s/fr, fr=4, stage=loftr][A
+  frames:  29%|██▉       | 5/17 [00:11<00:25,  2.10s/fr, fr=5, stage=separate][A
+  frames:  29%|██▉       | 5/17 [00:11<00:25,  2.10s/fr, fr=5, stage=loftr]   [A
+  frames:  35%|███▌      | 6/17 [00:12<00:23,  2.13s/fr, fr=5, stage=loftr][A
+  frames:  35%|███▌      | 6/17 [00:14<00:23,  2.13s/fr, fr=6, stage=separate][A
+  frames:  35%|███▌      | 6/17 [00:14<00:23,  2.13s/fr, fr=6, stage=loftr]   [A
+  frames:  41%|████      | 7/17 [00:14<00:21,  2.16s/fr, fr=6, stage=loftr][A
+  frames:  41%|████      | 7/17 [00:16<00:21,  2.16s/fr, fr=7, stage=separate][A
+  frames:  41%|████      | 7/17 [00:16<00:21,  2.16s/fr, fr=7, stage=loftr]   [A
+  frames:  47%|████▋     | 8/17 [00:16<00:19,  2.17s/fr, fr=7, stage=loftr][A
+  frames:  47%|████▋     | 8/17 [00:18<00:19,  2.17s/fr, fr=8, stage=separate][A
+  frames:  47%|████▋     | 8/17 [00:18<00:19,  2.17s/fr, fr=8, stage=loftr]   [A
+  frames:  53%|█████▎    | 9/17 [00:19<00:17,  2.17s/fr, fr=8, stage=loftr][A
+  frames:  53%|█████▎    | 9/17 [00:20<00:17,  2.17s/fr, fr=9, stage=separate][A
+  frames:  53%|█████▎    | 9/17 [00:20<00:17,  2.17s/fr, fr=9, stage=loftr]   [A
+  frames:  59%|█████▉    | 10/17 [00:21<00:15,  2.18s/fr, fr=9, stage=loftr][A
+  frames:  59%|█████▉    | 10/17 [00:22<00:15,  2.18s/fr, fr=10, stage=separate][A
+  frames:  59%|█████▉    | 10/17 [00:22<00:15,  2.18s/fr, fr=10, stage=loftr]   [A
+  frames:  65%|██████▍   | 11/17 [00:23<00:13,  2.23s/fr, fr=10, stage=loftr][A
+  frames:  65%|██████▍   | 11/17 [00:25<00:13,  2.23s/fr, fr=11, stage=separate][A
+  frames:  65%|██████▍   | 11/17 [00:25<00:13,  2.23s/fr, fr=11, stage=loftr]   [A
+  frames:  71%|███████   | 12/17 [00:25<00:11,  2.21s/fr, fr=11, stage=loftr][A
+  frames:  71%|███████   | 12/17 [00:27<00:11,  2.21s/fr, fr=12, stage=separate][A
+  frames:  71%|███████   | 12/17 [00:27<00:11,  2.21s/fr, fr=12, stage=loftr]   [A
+  frames:  76%|███████▋  | 13/17 [00:27<00:08,  2.18s/fr, fr=12, stage=loftr][A
+  frames:  76%|███████▋  | 13/17 [00:29<00:08,  2.18s/fr, fr=13, stage=separate][A
+  frames:  76%|███████▋  | 13/17 [00:29<00:08,  2.18s/fr, fr=13, stage=loftr]   [A
+  frames:  82%|████████▏ | 14/17 [00:29<00:06,  2.16s/fr, fr=13, stage=loftr][A
+  frames:  82%|████████▏ | 14/17 [00:31<00:06,  2.16s/fr, fr=14, stage=separate][A
+  frames:  82%|████████▏ | 14/17 [00:31<00:06,  2.16s/fr, fr=14, stage=loftr]   [A
+  frames:  88%|████████▊ | 15/17 [00:32<00:04,  2.18s/fr, fr=14, stage=loftr][A
+  frames:  88%|████████▊ | 15/17 [00:33<00:04,  2.18s/fr, fr=15, stage=separate][A
+  frames:  88%|████████▊ | 15/17 [00:33<00:04,  2.18s/fr, fr=15, stage=loftr]   [A
+  frames:  94%|█████████▍| 16/17 [00:34<00:02,  2.17s/fr, fr=15, stage=loftr][A
+  frames:  94%|█████████▍| 16/17 [00:35<00:02,  2.17s/fr, fr=16, stage=separate][A
+  frames:  94%|█████████▍| 16/17 [00:35<00:02,  2.17s/fr, fr=16, stage=loftr]   [A
+  frames: 100%|██████████| 17/17 [00:36<00:00,  2.18s/fr, fr=16, stage=loftr][A
+                                                                             [A06:00:38  INFO     shiny_box_tilt_prod: (17, 4, 4) → baselines_real/tuned_no_refine/lf/shiny_box_tilt_prod.npy
+sequences:  71%|███████▏  | 5/7 [03:36<01:20, 40.12s/seq, lf/shiny_box_tilt_prod]sequences:  71%|███████▏  | 5/7 [03:36<01:20, 40.12s/seq, lf/teabox_tilt_prod]   
+  frames:   0%|          | 0/15 [00:00<?, ?fr/s][A
+  frames:   0%|          | 0/15 [00:01<?, ?fr/s, fr=0, stage=separate][A
+  frames:   7%|▋         | 1/15 [00:02<00:29,  2.11s/fr, fr=0, stage=separate][A
+  frames:   7%|▋         | 1/15 [00:03<00:29,  2.11s/fr, fr=1, stage=separate][A
+  frames:   7%|▋         | 1/15 [00:03<00:29,  2.11s/fr, fr=1, stage=loftr]   [A
+  frames:  13%|█▎        | 2/15 [00:04<00:26,  2.06s/fr, fr=1, stage=loftr][A
+  frames:  13%|█▎        | 2/15 [00:05<00:26,  2.06s/fr, fr=2, stage=separate][A
+  frames:  13%|█▎        | 2/15 [00:05<00:26,  2.06s/fr, fr=2, stage=loftr]   [A
+  frames:  20%|██        | 3/15 [00:06<00:24,  2.06s/fr, fr=2, stage=loftr][A
+  frames:  20%|██        | 3/15 [00:07<00:24,  2.06s/fr, fr=3, stage=separate][A
+  frames:  20%|██        | 3/15 [00:07<00:24,  2.06s/fr, fr=3, stage=loftr]   [A
+  frames:  27%|██▋       | 4/15 [00:08<00:22,  2.05s/fr, fr=3, stage=loftr][A
+  frames:  27%|██▋       | 4/15 [00:09<00:22,  2.05s/fr, fr=4, stage=separate][A
+  frames:  27%|██▋       | 4/15 [00:09<00:22,  2.05s/fr, fr=4, stage=loftr]   [A
+  frames:  33%|███▎      | 5/15 [00:10<00:20,  2.03s/fr, fr=4, stage=loftr][A
+  frames:  33%|███▎      | 5/15 [00:11<00:20,  2.03s/fr, fr=5, stage=separate][A
+  frames:  33%|███▎      | 5/15 [00:11<00:20,  2.03s/fr, fr=5, stage=loftr]   [A
+  frames:  40%|████      | 6/15 [00:12<00:18,  2.03s/fr, fr=5, stage=loftr][A
+  frames:  40%|████      | 6/15 [00:13<00:18,  2.03s/fr, fr=6, stage=separate][A
+  frames:  40%|████      | 6/15 [00:13<00:18,  2.03s/fr, fr=6, stage=loftr]   [A
+  frames:  47%|████▋     | 7/15 [00:14<00:16,  2.04s/fr, fr=6, stage=loftr][A
+  frames:  47%|████▋     | 7/15 [00:15<00:16,  2.04s/fr, fr=7, stage=separate][A
+  frames:  47%|████▋     | 7/15 [00:15<00:16,  2.04s/fr, fr=7, stage=loftr]   [A
+  frames:  53%|█████▎    | 8/15 [00:16<00:14,  2.06s/fr, fr=7, stage=loftr][A
+  frames:  53%|█████▎    | 8/15 [00:18<00:14,  2.06s/fr, fr=8, stage=separate][A
+  frames:  53%|█████▎    | 8/15 [00:18<00:14,  2.06s/fr, fr=8, stage=loftr]   [A
+  frames:  60%|██████    | 9/15 [00:18<00:12,  2.07s/fr, fr=8, stage=loftr][A
+  frames:  60%|██████    | 9/15 [00:20<00:12,  2.07s/fr, fr=9, stage=separate][A
+  frames:  60%|██████    | 9/15 [00:20<00:12,  2.07s/fr, fr=9, stage=loftr]   [A
+  frames:  67%|██████▋   | 10/15 [00:20<00:10,  2.07s/fr, fr=9, stage=loftr][A
+  frames:  67%|██████▋   | 10/15 [00:22<00:10,  2.07s/fr, fr=10, stage=separate][A
+  frames:  67%|██████▋   | 10/15 [00:22<00:10,  2.07s/fr, fr=10, stage=loftr]   [A
+  frames:  73%|███████▎  | 11/15 [00:22<00:08,  2.09s/fr, fr=10, stage=loftr][A
+  frames:  73%|███████▎  | 11/15 [00:24<00:08,  2.09s/fr, fr=11, stage=separate][A
+  frames:  73%|███████▎  | 11/15 [00:24<00:08,  2.09s/fr, fr=11, stage=loftr]   [A
+  frames:  80%|████████  | 12/15 [00:24<00:06,  2.06s/fr, fr=11, stage=loftr][A
+  frames:  80%|████████  | 12/15 [00:26<00:06,  2.06s/fr, fr=12, stage=separate][A
+  frames:  80%|████████  | 12/15 [00:26<00:06,  2.06s/fr, fr=12, stage=loftr]   [A
+  frames:  87%|████████▋ | 13/15 [00:26<00:04,  2.08s/fr, fr=12, stage=loftr][A
+  frames:  87%|████████▋ | 13/15 [00:28<00:04,  2.08s/fr, fr=13, stage=separate][A
+  frames:  87%|████████▋ | 13/15 [00:28<00:04,  2.08s/fr, fr=13, stage=loftr]   [A
+  frames:  93%|█████████▎| 14/15 [00:28<00:02,  2.03s/fr, fr=13, stage=loftr][A
+  frames:  93%|█████████▎| 14/15 [00:30<00:02,  2.03s/fr, fr=14, stage=separate][A
+  frames:  93%|█████████▎| 14/15 [00:30<00:02,  2.03s/fr, fr=14, stage=loftr]   [A
+  frames: 100%|██████████| 15/15 [00:30<00:00,  2.02s/fr, fr=14, stage=loftr][A
+                                                                             [A06:01:08  INFO     teabox_tilt_prod: (15, 4, 4) → baselines_real/tuned_no_refine/lf/teabox_tilt_prod.npy
+sequences:  86%|████████▌ | 6/7 [04:06<00:36, 36.94s/seq, lf/teabox_tilt_prod]sequences:  86%|████████▌ | 6/7 [04:06<00:36, 36.94s/seq, lf/teabox_translation_prod]
+  frames:   0%|          | 0/20 [00:00<?, ?fr/s][A
+  frames:   0%|          | 0/20 [00:01<?, ?fr/s, fr=0, stage=separate][A
+  frames:   5%|▌         | 1/20 [00:01<00:30,  1.63s/fr, fr=0, stage=separate][A
+  frames:   5%|▌         | 1/20 [00:03<00:30,  1.63s/fr, fr=1, stage=separate][A
+  frames:   5%|▌         | 1/20 [00:03<00:30,  1.63s/fr, fr=1, stage=loftr]   [A
+  frames:  10%|█         | 2/20 [00:03<00:33,  1.86s/fr, fr=1, stage=loftr][A
+  frames:  10%|█         | 2/20 [00:05<00:33,  1.86s/fr, fr=2, stage=separate][A
+  frames:  10%|█         | 2/20 [00:05<00:33,  1.86s/fr, fr=2, stage=loftr]   [A
+  frames:  15%|█▌        | 3/20 [00:05<00:33,  1.98s/fr, fr=2, stage=loftr][A
+  frames:  15%|█▌        | 3/20 [00:07<00:33,  1.98s/fr, fr=3, stage=separate][A
+  frames:  15%|█▌        | 3/20 [00:07<00:33,  1.98s/fr, fr=3, stage=loftr]   [A
+  frames:  20%|██        | 4/20 [00:07<00:32,  2.01s/fr, fr=3, stage=loftr][A
+  frames:  20%|██        | 4/20 [00:09<00:32,  2.01s/fr, fr=4, stage=separate][A
+  frames:  20%|██        | 4/20 [00:09<00:32,  2.01s/fr, fr=4, stage=loftr]   [A
+  frames:  25%|██▌       | 5/20 [00:09<00:30,  2.05s/fr, fr=4, stage=loftr][A
+  frames:  25%|██▌       | 5/20 [00:11<00:30,  2.05s/fr, fr=5, stage=separate][A
+  frames:  25%|██▌       | 5/20 [00:11<00:30,  2.05s/fr, fr=5, stage=loftr]   [A
+  frames:  30%|███       | 6/20 [00:12<00:29,  2.07s/fr, fr=5, stage=loftr][A
+  frames:  30%|███       | 6/20 [00:13<00:29,  2.07s/fr, fr=6, stage=separate][A
+  frames:  30%|███       | 6/20 [00:13<00:29,  2.07s/fr, fr=6, stage=loftr]   [A
+  frames:  35%|███▌      | 7/20 [00:14<00:27,  2.08s/fr, fr=6, stage=loftr][A
+  frames:  35%|███▌      | 7/20 [00:15<00:27,  2.08s/fr, fr=7, stage=separate][A
+  frames:  35%|███▌      | 7/20 [00:15<00:27,  2.08s/fr, fr=7, stage=loftr]   [A
+  frames:  40%|████      | 8/20 [00:16<00:25,  2.09s/fr, fr=7, stage=loftr][A
+  frames:  40%|████      | 8/20 [00:17<00:25,  2.09s/fr, fr=8, stage=separate][A
+  frames:  40%|████      | 8/20 [00:17<00:25,  2.09s/fr, fr=8, stage=loftr]   [A
+  frames:  45%|████▌     | 9/20 [00:18<00:22,  2.09s/fr, fr=8, stage=loftr][A
+  frames:  45%|████▌     | 9/20 [00:20<00:22,  2.09s/fr, fr=9, stage=separate][A
+  frames:  45%|████▌     | 9/20 [00:20<00:22,  2.09s/fr, fr=9, stage=loftr]   [A
+  frames:  50%|█████     | 10/20 [00:20<00:20,  2.05s/fr, fr=9, stage=loftr][A
+  frames:  50%|█████     | 10/20 [00:21<00:20,  2.05s/fr, fr=10, stage=separate][A
+  frames:  50%|█████     | 10/20 [00:22<00:20,  2.05s/fr, fr=10, stage=loftr]   [A
+  frames:  55%|█████▌    | 11/20 [00:22<00:18,  2.07s/fr, fr=10, stage=loftr][A
+  frames:  55%|█████▌    | 11/20 [00:24<00:18,  2.07s/fr, fr=11, stage=separate][A
+  frames:  55%|█████▌    | 11/20 [00:24<00:18,  2.07s/fr, fr=11, stage=loftr]   [A
+  frames:  60%|██████    | 12/20 [00:24<00:16,  2.04s/fr, fr=11, stage=loftr][A
+  frames:  60%|██████    | 12/20 [00:26<00:16,  2.04s/fr, fr=12, stage=separate][A
+  frames:  60%|██████    | 12/20 [00:26<00:16,  2.04s/fr, fr=12, stage=loftr]   [A
+  frames:  65%|██████▌   | 13/20 [00:26<00:14,  2.07s/fr, fr=12, stage=loftr][A
+  frames:  65%|██████▌   | 13/20 [00:28<00:14,  2.07s/fr, fr=13, stage=separate][A
+  frames:  65%|██████▌   | 13/20 [00:28<00:14,  2.07s/fr, fr=13, stage=loftr]   [A
+  frames:  70%|███████   | 14/20 [00:28<00:12,  2.07s/fr, fr=13, stage=loftr][A
+  frames:  70%|███████   | 14/20 [00:30<00:12,  2.07s/fr, fr=14, stage=separate][A
+  frames:  70%|███████   | 14/20 [00:30<00:12,  2.07s/fr, fr=14, stage=loftr]   [A
+  frames:  75%|███████▌  | 15/20 [00:30<00:10,  2.02s/fr, fr=14, stage=loftr][A
+  frames:  75%|███████▌  | 15/20 [00:32<00:10,  2.02s/fr, fr=15, stage=separate][A
+  frames:  75%|███████▌  | 15/20 [00:32<00:10,  2.02s/fr, fr=15, stage=loftr]   [A
+  frames:  80%|████████  | 16/20 [00:32<00:08,  2.04s/fr, fr=15, stage=loftr][A
+  frames:  80%|████████  | 16/20 [00:34<00:08,  2.04s/fr, fr=16, stage=separate][A
+  frames:  80%|████████  | 16/20 [00:34<00:08,  2.04s/fr, fr=16, stage=loftr]   [A
+  frames:  85%|████████▌ | 17/20 [00:34<00:06,  2.06s/fr, fr=16, stage=loftr][A
+  frames:  85%|████████▌ | 17/20 [00:36<00:06,  2.06s/fr, fr=17, stage=separate][A
+  frames:  85%|████████▌ | 17/20 [00:36<00:06,  2.06s/fr, fr=17, stage=loftr]   [A
+  frames:  90%|█████████ | 18/20 [00:36<00:04,  2.08s/fr, fr=17, stage=loftr][A
+  frames:  90%|█████████ | 18/20 [00:38<00:04,  2.08s/fr, fr=18, stage=separate][A
+  frames:  90%|█████████ | 18/20 [00:38<00:04,  2.08s/fr, fr=18, stage=loftr]   [A
+  frames:  95%|█████████▌| 19/20 [00:38<00:02,  2.08s/fr, fr=18, stage=loftr][A
+  frames:  95%|█████████▌| 19/20 [00:40<00:02,  2.08s/fr, fr=19, stage=separate][A
+  frames:  95%|█████████▌| 19/20 [00:40<00:02,  2.08s/fr, fr=19, stage=loftr]   [A
+  frames: 100%|██████████| 20/20 [00:41<00:00,  2.08s/fr, fr=19, stage=loftr][A
+                                                                             [A06:01:49  INFO     teabox_translation_prod: (20, 4, 4) → baselines_real/tuned_no_refine/lf/teabox_translation_prod.npy
+sequences: 100%|██████████| 7/7 [04:48<00:00, 38.27s/seq, lf/teabox_translation_prod]sequences: 100%|██████████| 7/7 [04:48<00:00, 41.14s/seq, lf/teabox_translation_prod]
++ python -u main_lift.py --gt-masks --depth lf --no-separation --name baselines_real/tuned_no_separation
+06:01:53  INFO     sequences (7): box_motion_prod, jug_motion_prod, jug_tilt_prod, jug_translation_z_prod, shiny_box_tilt_prod, teabox_tilt_prod, teabox_translation_prod
+06:01:53  INFO     refine=False  separation=False  depth=['lf']  stride=2  scale=1.00  alpha=est  → baselines_real/tuned_no_separation
+06:01:53  INFO     masks: GT (dataset)
+sequences:   0%|          | 0/7 [00:00<?, ?seq/s]sequences:   0%|          | 0/7 [00:00<?, ?seq/s, lf/box_motion_prod]
+  frames:   0%|          | 0/20 [00:00<?, ?fr/s][A/usr/local/lib/python3.10/dist-packages/torch/functional.py:505: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at /pytorch/aten/src/ATen/native/TensorShape.cpp:4381.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+
+  frames:   5%|▌         | 1/20 [00:01<00:33,  1.79s/fr][A
+  frames:   5%|▌         | 1/20 [00:03<00:33,  1.79s/fr, fr=1, stage=loftr][A
+  frames:  10%|█         | 2/20 [00:03<00:33,  1.84s/fr, fr=1, stage=loftr][A
+  frames:  10%|█         | 2/20 [00:05<00:33,  1.84s/fr, fr=2, stage=loftr][A
+  frames:  15%|█▌        | 3/20 [00:05<00:30,  1.79s/fr, fr=2, stage=loftr][A
+  frames:  15%|█▌        | 3/20 [00:07<00:30,  1.79s/fr, fr=3, stage=loftr][A
+  frames:  20%|██        | 4/20 [00:07<00:29,  1.86s/fr, fr=3, stage=loftr][A
+  frames:  20%|██        | 4/20 [00:09<00:29,  1.86s/fr, fr=4, stage=loftr][A
+  frames:  25%|██▌       | 5/20 [00:09<00:27,  1.82s/fr, fr=4, stage=loftr][A
+  frames:  25%|██▌       | 5/20 [00:10<00:27,  1.82s/fr, fr=5, stage=loftr][A
+  frames:  30%|███       | 6/20 [00:10<00:25,  1.80s/fr, fr=5, stage=loftr][A
+  frames:  30%|███       | 6/20 [00:12<00:25,  1.80s/fr, fr=6, stage=loftr][A
+  frames:  35%|███▌      | 7/20 [00:12<00:23,  1.84s/fr, fr=6, stage=loftr][A
+  frames:  35%|███▌      | 7/20 [00:14<00:23,  1.84s/fr, fr=7, stage=loftr][A
+  frames:  40%|████      | 8/20 [00:14<00:21,  1.83s/fr, fr=7, stage=loftr][A
+  frames:  40%|████      | 8/20 [00:16<00:21,  1.83s/fr, fr=8, stage=loftr][A
+  frames:  45%|████▌     | 9/20 [00:16<00:20,  1.86s/fr, fr=8, stage=loftr][A
+  frames:  45%|████▌     | 9/20 [00:18<00:20,  1.86s/fr, fr=9, stage=loftr][A
+  frames:  50%|█████     | 10/20 [00:18<00:18,  1.82s/fr, fr=9, stage=loftr][A
+  frames:  50%|█████     | 10/20 [00:19<00:18,  1.82s/fr, fr=10, stage=loftr][A
+  frames:  55%|█████▌    | 11/20 [00:20<00:16,  1.85s/fr, fr=10, stage=loftr][A
+  frames:  55%|█████▌    | 11/20 [00:21<00:16,  1.85s/fr, fr=11, stage=loftr][A
+  frames:  60%|██████    | 12/20 [00:22<00:15,  1.88s/fr, fr=11, stage=loftr][A
+  frames:  60%|██████    | 12/20 [00:23<00:15,  1.88s/fr, fr=12, stage=loftr][A
+  frames:  65%|██████▌   | 13/20 [00:24<00:13,  1.89s/fr, fr=12, stage=loftr][A
+  frames:  65%|██████▌   | 13/20 [00:25<00:13,  1.89s/fr, fr=13, stage=loftr][A
+  frames:  70%|███████   | 14/20 [00:26<00:11,  1.94s/fr, fr=13, stage=loftr][A
+  frames:  70%|███████   | 14/20 [00:27<00:11,  1.94s/fr, fr=14, stage=loftr][A
+  frames:  75%|███████▌  | 15/20 [00:27<00:09,  1.93s/fr, fr=14, stage=loftr][A
+  frames:  75%|███████▌  | 15/20 [00:29<00:09,  1.93s/fr, fr=15, stage=loftr][A
+  frames:  80%|████████  | 16/20 [00:29<00:07,  1.92s/fr, fr=15, stage=loftr][A
+  frames:  80%|████████  | 16/20 [00:31<00:07,  1.92s/fr, fr=16, stage=loftr][A
+  frames:  85%|████████▌ | 17/20 [00:31<00:05,  1.90s/fr, fr=16, stage=loftr][A
+  frames:  85%|████████▌ | 17/20 [00:33<00:05,  1.90s/fr, fr=17, stage=loftr][A
+  frames:  90%|█████████ | 18/20 [00:33<00:03,  1.90s/fr, fr=17, stage=loftr][A
+  frames:  90%|█████████ | 18/20 [00:35<00:03,  1.90s/fr, fr=18, stage=loftr][A
+  frames:  95%|█████████▌| 19/20 [00:35<00:01,  1.89s/fr, fr=18, stage=loftr][A
+  frames:  95%|█████████▌| 19/20 [00:37<00:01,  1.89s/fr, fr=19, stage=loftr][A
+  frames: 100%|██████████| 20/20 [00:37<00:00,  1.85s/fr, fr=19, stage=loftr][A
+                                                                             [A06:02:30  INFO     box_motion_prod: (20, 4, 4) → baselines_real/tuned_no_separation/lf/box_motion_prod.npy
+sequences:  14%|█▍        | 1/7 [00:37<03:43, 37.29s/seq, lf/box_motion_prod]sequences:  14%|█▍        | 1/7 [00:37<03:43, 37.29s/seq, lf/jug_motion_prod]
+  frames:   0%|          | 0/20 [00:00<?, ?fr/s][A
+  frames:   5%|▌         | 1/20 [00:02<00:38,  2.03s/fr][A
+  frames:   5%|▌         | 1/20 [00:03<00:38,  2.03s/fr, fr=1, stage=loftr][A
+  frames:  10%|█         | 2/20 [00:04<00:37,  2.09s/fr, fr=1, stage=loftr][A
+  frames:  10%|█         | 2/20 [00:06<00:37,  2.09s/fr, fr=2, stage=loftr][A
+  frames:  15%|█▌        | 3/20 [00:06<00:36,  2.16s/fr, fr=2, stage=loftr][A
+  frames:  15%|█▌        | 3/20 [00:08<00:36,  2.16s/fr, fr=3, stage=loftr][A
+  frames:  20%|██        | 4/20 [00:08<00:35,  2.19s/fr, fr=3, stage=loftr][A
+  frames:  20%|██        | 4/20 [00:10<00:35,  2.19s/fr, fr=4, stage=loftr][A
+  frames:  25%|██▌       | 5/20 [00:10<00:33,  2.21s/fr, fr=4, stage=loftr][A
+  frames:  25%|██▌       | 5/20 [00:12<00:33,  2.21s/fr, fr=5, stage=loftr][A
+  frames:  30%|███       | 6/20 [00:13<00:30,  2.20s/fr, fr=5, stage=loftr][A
+  frames:  30%|███       | 6/20 [00:15<00:30,  2.20s/fr, fr=6, stage=loftr][A
+  frames:  35%|███▌      | 7/20 [00:15<00:29,  2.24s/fr, fr=6, stage=loftr][A
+  frames:  35%|███▌      | 7/20 [00:17<00:29,  2.24s/fr, fr=7, stage=loftr][A
+  frames:  40%|████      | 8/20 [00:17<00:26,  2.24s/fr, fr=7, stage=loftr][A
+  frames:  40%|████      | 8/20 [00:19<00:26,  2.24s/fr, fr=8, stage=loftr][A
+  frames:  45%|████▌     | 9/20 [00:19<00:24,  2.24s/fr, fr=8, stage=loftr][A
+  frames:  45%|████▌     | 9/20 [00:21<00:24,  2.24s/fr, fr=9, stage=loftr][A
+  frames:  50%|█████     | 10/20 [00:22<00:22,  2.22s/fr, fr=9, stage=loftr][A
+  frames:  50%|█████     | 10/20 [00:23<00:22,  2.22s/fr, fr=10, stage=loftr][A
+  frames:  55%|█████▌    | 11/20 [00:24<00:19,  2.16s/fr, fr=10, stage=loftr][A
+  frames:  55%|█████▌    | 11/20 [00:25<00:19,  2.16s/fr, fr=11, stage=loftr][A
+  frames:  60%|██████    | 12/20 [00:26<00:17,  2.18s/fr, fr=11, stage=loftr][A
+  frames:  60%|██████    | 12/20 [00:28<00:17,  2.18s/fr, fr=12, stage=loftr][A
+  frames:  65%|██████▌   | 13/20 [00:28<00:15,  2.20s/fr, fr=12, stage=loftr][A
+  frames:  65%|██████▌   | 13/20 [00:30<00:15,  2.20s/fr, fr=13, stage=loftr][A
+  frames:  70%|███████   | 14/20 [00:30<00:13,  2.25s/fr, fr=13, stage=loftr][A
+  frames:  70%|███████   | 14/20 [00:32<00:13,  2.25s/fr, fr=14, stage=loftr][A
+  frames:  75%|███████▌  | 15/20 [00:33<00:11,  2.27s/fr, fr=14, stage=loftr][A
+  frames:  75%|███████▌  | 15/20 [00:35<00:11,  2.27s/fr, fr=15, stage=loftr][A
+  frames:  80%|████████  | 16/20 [00:35<00:09,  2.26s/fr, fr=15, stage=loftr][A
+  frames:  80%|████████  | 16/20 [00:37<00:09,  2.26s/fr, fr=16, stage=loftr][A
+  frames:  85%|████████▌ | 17/20 [00:37<00:06,  2.26s/fr, fr=16, stage=loftr][A
+  frames:  85%|████████▌ | 17/20 [00:39<00:06,  2.26s/fr, fr=17, stage=loftr][A
+  frames:  90%|█████████ | 18/20 [00:40<00:04,  2.27s/fr, fr=17, stage=loftr][A
+  frames:  90%|█████████ | 18/20 [00:42<00:04,  2.27s/fr, fr=18, stage=loftr][A
+  frames:  95%|█████████▌| 19/20 [00:42<00:02,  2.29s/fr, fr=18, stage=loftr][A
+  frames:  95%|█████████▌| 19/20 [00:44<00:02,  2.29s/fr, fr=19, stage=loftr][A
+  frames: 100%|██████████| 20/20 [00:44<00:00,  2.30s/fr, fr=19, stage=loftr][A
+                                                                             [A06:03:15  INFO     jug_motion_prod: (20, 4, 4) → baselines_real/tuned_no_separation/lf/jug_motion_prod.npy
+sequences:  29%|██▊       | 2/7 [01:21<03:28, 41.65s/seq, lf/jug_motion_prod]sequences:  29%|██▊       | 2/7 [01:21<03:28, 41.65s/seq, lf/jug_tilt_prod]  
+  frames:   0%|          | 0/17 [00:00<?, ?fr/s][A
+  frames:   6%|▌         | 1/17 [00:01<00:26,  1.63s/fr][A
+  frames:   6%|▌         | 1/17 [00:03<00:26,  1.63s/fr, fr=1, stage=loftr][A
+  frames:  12%|█▏        | 2/17 [00:03<00:25,  1.69s/fr, fr=1, stage=loftr][A
+  frames:  12%|█▏        | 2/17 [00:05<00:25,  1.69s/fr, fr=2, stage=loftr][A
+  frames:  18%|█▊        | 3/17 [00:05<00:24,  1.78s/fr, fr=2, stage=loftr][A
+  frames:  18%|█▊        | 3/17 [00:06<00:24,  1.78s/fr, fr=3, stage=loftr][A
+  frames:  24%|██▎       | 4/17 [00:06<00:22,  1.76s/fr, fr=3, stage=loftr][A
+  frames:  24%|██▎       | 4/17 [00:08<00:22,  1.76s/fr, fr=4, stage=loftr][A
+  frames:  29%|██▉       | 5/17 [00:08<00:21,  1.80s/fr, fr=4, stage=loftr][A
+  frames:  29%|██▉       | 5/17 [00:10<00:21,  1.80s/fr, fr=5, stage=loftr][A
+  frames:  35%|███▌      | 6/17 [00:10<00:19,  1.77s/fr, fr=5, stage=loftr][A
+  frames:  35%|███▌      | 6/17 [00:12<00:19,  1.77s/fr, fr=6, stage=loftr][A
+  frames:  41%|████      | 7/17 [00:12<00:18,  1.82s/fr, fr=6, stage=loftr][A
+  frames:  41%|████      | 7/17 [00:14<00:18,  1.82s/fr, fr=7, stage=loftr][A
+  frames:  47%|████▋     | 8/17 [00:14<00:16,  1.85s/fr, fr=7, stage=loftr][A
+  frames:  47%|████▋     | 8/17 [00:15<00:16,  1.85s/fr, fr=8, stage=loftr][A
+  frames:  53%|█████▎    | 9/17 [00:16<00:14,  1.87s/fr, fr=8, stage=loftr][A
+  frames:  53%|█████▎    | 9/17 [00:17<00:14,  1.87s/fr, fr=9, stage=loftr][A
+  frames:  59%|█████▉    | 10/17 [00:18<00:13,  1.88s/fr, fr=9, stage=loftr][A
+  frames:  59%|█████▉    | 10/17 [00:19<00:13,  1.88s/fr, fr=10, stage=loftr][A
+  frames:  65%|██████▍   | 11/17 [00:20<00:11,  1.91s/fr, fr=10, stage=loftr][A
+  frames:  65%|██████▍   | 11/17 [00:21<00:11,  1.91s/fr, fr=11, stage=loftr][A
+  frames:  71%|███████   | 12/17 [00:22<00:09,  1.92s/fr, fr=11, stage=loftr][A
+  frames:  71%|███████   | 12/17 [00:23<00:09,  1.92s/fr, fr=12, stage=loftr][A
+  frames:  76%|███████▋  | 13/17 [00:24<00:07,  1.93s/fr, fr=12, stage=loftr][A
+  frames:  76%|███████▋  | 13/17 [00:25<00:07,  1.93s/fr, fr=13, stage=loftr][A
+  frames:  82%|████████▏ | 14/17 [00:26<00:05,  1.94s/fr, fr=13, stage=loftr][A
+  frames:  82%|████████▏ | 14/17 [00:27<00:05,  1.94s/fr, fr=14, stage=loftr][A
+  frames:  88%|████████▊ | 15/17 [00:27<00:03,  1.93s/fr, fr=14, stage=loftr][A
+  frames:  88%|████████▊ | 15/17 [00:29<00:03,  1.93s/fr, fr=15, stage=loftr][A
+  frames:  94%|█████████▍| 16/17 [00:29<00:01,  1.94s/fr, fr=15, stage=loftr][A
+  frames:  94%|█████████▍| 16/17 [00:31<00:01,  1.94s/fr, fr=16, stage=loftr][A
+  frames: 100%|██████████| 17/17 [00:31<00:00,  1.94s/fr, fr=16, stage=loftr][A
+                                                                             [A06:03:47  INFO     jug_tilt_prod: (17, 4, 4) → baselines_real/tuned_no_separation/lf/jug_tilt_prod.npy
+sequences:  43%|████▎     | 3/7 [01:53<02:28, 37.17s/seq, lf/jug_tilt_prod]sequences:  43%|████▎     | 3/7 [01:53<02:28, 37.17s/seq, lf/jug_translation_z_prod]
+  frames:   0%|          | 0/20 [00:00<?, ?fr/s][A
+  frames:   5%|▌         | 1/20 [00:01<00:30,  1.63s/fr][A
+  frames:   5%|▌         | 1/20 [00:03<00:30,  1.63s/fr, fr=1, stage=loftr][A
+  frames:  10%|█         | 2/20 [00:03<00:32,  1.79s/fr, fr=1, stage=loftr][A
+  frames:  10%|█         | 2/20 [00:05<00:32,  1.79s/fr, fr=2, stage=loftr][A
+  frames:  15%|█▌        | 3/20 [00:05<00:31,  1.83s/fr, fr=2, stage=loftr][A
+  frames:  15%|█▌        | 3/20 [00:07<00:31,  1.83s/fr, fr=3, stage=loftr][A
+  frames:  20%|██        | 4/20 [00:07<00:29,  1.85s/fr, fr=3, stage=loftr][A
+  frames:  20%|██        | 4/20 [00:08<00:29,  1.85s/fr, fr=4, stage=loftr][A
+  frames:  25%|██▌       | 5/20 [00:09<00:27,  1.86s/fr, fr=4, stage=loftr][A
+  frames:  25%|██▌       | 5/20 [00:10<00:27,  1.86s/fr, fr=5, stage=loftr][A
+  frames:  30%|███       | 6/20 [00:11<00:26,  1.87s/fr, fr=5, stage=loftr][A
+  frames:  30%|███       | 6/20 [00:12<00:26,  1.87s/fr, fr=6, stage=loftr][A
+  frames:  35%|███▌      | 7/20 [00:12<00:24,  1.88s/fr, fr=6, stage=loftr][A
+  frames:  35%|███▌      | 7/20 [00:14<00:24,  1.88s/fr, fr=7, stage=loftr][A
+  frames:  40%|████      | 8/20 [00:14<00:22,  1.88s/fr, fr=7, stage=loftr][A
+  frames:  40%|████      | 8/20 [00:16<00:22,  1.88s/fr, fr=8, stage=loftr][A
+  frames:  45%|████▌     | 9/20 [00:16<00:20,  1.88s/fr, fr=8, stage=loftr][A
+  frames:  45%|████▌     | 9/20 [00:18<00:20,  1.88s/fr, fr=9, stage=loftr][A
+  frames:  50%|█████     | 10/20 [00:18<00:18,  1.88s/fr, fr=9, stage=loftr][A
+  frames:  50%|█████     | 10/20 [00:20<00:18,  1.88s/fr, fr=10, stage=loftr][A
+  frames:  55%|█████▌    | 11/20 [00:20<00:16,  1.87s/fr, fr=10, stage=loftr][A
+  frames:  55%|█████▌    | 11/20 [00:22<00:16,  1.87s/fr, fr=11, stage=loftr][A
+  frames:  60%|██████    | 12/20 [00:22<00:14,  1.87s/fr, fr=11, stage=loftr][A
+  frames:  60%|██████    | 12/20 [00:23<00:14,  1.87s/fr, fr=12, stage=loftr][A
+  frames:  65%|██████▌   | 13/20 [00:24<00:13,  1.88s/fr, fr=12, stage=loftr][A
+  frames:  65%|██████▌   | 13/20 [00:25<00:13,  1.88s/fr, fr=13, stage=loftr][A
+  frames:  70%|███████   | 14/20 [00:26<00:11,  1.88s/fr, fr=13, stage=loftr][A
+  frames:  70%|███████   | 14/20 [00:27<00:11,  1.88s/fr, fr=14, stage=loftr][A
+  frames:  75%|███████▌  | 15/20 [00:27<00:09,  1.88s/fr, fr=14, stage=loftr][A
+  frames:  75%|███████▌  | 15/20 [00:29<00:09,  1.88s/fr, fr=15, stage=loftr][A
+  frames:  80%|████████  | 16/20 [00:29<00:07,  1.89s/fr, fr=15, stage=loftr][A
+  frames:  80%|████████  | 16/20 [00:31<00:07,  1.89s/fr, fr=16, stage=loftr][A
+  frames:  85%|████████▌ | 17/20 [00:31<00:05,  1.89s/fr, fr=16, stage=loftr][A
+  frames:  85%|████████▌ | 17/20 [00:33<00:05,  1.89s/fr, fr=17, stage=loftr][A
+  frames:  90%|█████████ | 18/20 [00:33<00:03,  1.89s/fr, fr=17, stage=loftr][A
+  frames:  90%|█████████ | 18/20 [00:35<00:03,  1.89s/fr, fr=18, stage=loftr][A
+  frames:  95%|█████████▌| 19/20 [00:35<00:01,  1.88s/fr, fr=18, stage=loftr][A
+  frames:  95%|█████████▌| 19/20 [00:37<00:01,  1.88s/fr, fr=19, stage=loftr][A
+  frames: 100%|██████████| 20/20 [00:37<00:00,  1.88s/fr, fr=19, stage=loftr][A
+                                                                             [A06:04:24  INFO     jug_translation_z_prod: (20, 4, 4) → baselines_real/tuned_no_separation/lf/jug_translation_z_prod.npy
+sequences:  57%|█████▋    | 4/7 [02:31<01:51, 37.26s/seq, lf/jug_translation_z_prod]sequences:  57%|█████▋    | 4/7 [02:31<01:51, 37.26s/seq, lf/shiny_box_tilt_prod]   
+  frames:   0%|          | 0/17 [00:00<?, ?fr/s][A
+  frames:   6%|▌         | 1/17 [00:01<00:26,  1.66s/fr][A
+  frames:   6%|▌         | 1/17 [00:03<00:26,  1.66s/fr, fr=1, stage=loftr][A
+  frames:  12%|█▏        | 2/17 [00:03<00:27,  1.84s/fr, fr=1, stage=loftr][A
+  frames:  12%|█▏        | 2/17 [00:05<00:27,  1.84s/fr, fr=2, stage=loftr][A
+  frames:  18%|█▊        | 3/17 [00:05<00:26,  1.88s/fr, fr=2, stage=loftr][A
+  frames:  18%|█▊        | 3/17 [00:07<00:26,  1.88s/fr, fr=3, stage=loftr][A
+  frames:  24%|██▎       | 4/17 [00:07<00:24,  1.91s/fr, fr=3, stage=loftr][A
+  frames:  24%|██▎       | 4/17 [00:09<00:24,  1.91s/fr, fr=4, stage=loftr][A
+  frames:  29%|██▉       | 5/17 [00:09<00:23,  1.93s/fr, fr=4, stage=loftr][A
+  frames:  29%|██▉       | 5/17 [00:11<00:23,  1.93s/fr, fr=5, stage=loftr][A
+  frames:  35%|███▌      | 6/17 [00:11<00:21,  1.94s/fr, fr=5, stage=loftr][A
+  frames:  35%|███▌      | 6/17 [00:13<00:21,  1.94s/fr, fr=6, stage=loftr][A
+  frames:  41%|████      | 7/17 [00:13<00:19,  1.95s/fr, fr=6, stage=loftr][A
+  frames:  41%|████      | 7/17 [00:15<00:19,  1.95s/fr, fr=7, stage=loftr][A
+  frames:  47%|████▋     | 8/17 [00:15<00:17,  1.96s/fr, fr=7, stage=loftr][A
+  frames:  47%|████▋     | 8/17 [00:17<00:17,  1.96s/fr, fr=8, stage=loftr][A
+  frames:  53%|█████▎    | 9/17 [00:17<00:15,  1.97s/fr, fr=8, stage=loftr][A
+  frames:  53%|█████▎    | 9/17 [00:19<00:15,  1.97s/fr, fr=9, stage=loftr][A
+  frames:  59%|█████▉    | 10/17 [00:19<00:13,  1.99s/fr, fr=9, stage=loftr][A
+  frames:  59%|█████▉    | 10/17 [00:21<00:13,  1.99s/fr, fr=10, stage=loftr][A
+  frames:  65%|██████▍   | 11/17 [00:21<00:11,  1.99s/fr, fr=10, stage=loftr][A
+  frames:  65%|██████▍   | 11/17 [00:23<00:11,  1.99s/fr, fr=11, stage=loftr][A
+  frames:  71%|███████   | 12/17 [00:23<00:09,  2.00s/fr, fr=11, stage=loftr][A
+  frames:  71%|███████   | 12/17 [00:25<00:09,  2.00s/fr, fr=12, stage=loftr][A
+  frames:  76%|███████▋  | 13/17 [00:25<00:07,  2.00s/fr, fr=12, stage=loftr][A
+  frames:  76%|███████▋  | 13/17 [00:27<00:07,  2.00s/fr, fr=13, stage=loftr][A
+  frames:  82%|████████▏ | 14/17 [00:27<00:05,  1.99s/fr, fr=13, stage=loftr][A
+  frames:  82%|████████▏ | 14/17 [00:29<00:05,  1.99s/fr, fr=14, stage=loftr][A
+  frames:  88%|████████▊ | 15/17 [00:29<00:03,  1.98s/fr, fr=14, stage=loftr][A
+  frames:  88%|████████▊ | 15/17 [00:31<00:03,  1.98s/fr, fr=15, stage=loftr][A
+  frames:  94%|█████████▍| 16/17 [00:31<00:01,  1.98s/fr, fr=15, stage=loftr][A
+  frames:  94%|█████████▍| 16/17 [00:33<00:01,  1.98s/fr, fr=16, stage=loftr][A
+  frames: 100%|██████████| 17/17 [00:33<00:00,  1.99s/fr, fr=16, stage=loftr][A
+                                                                             [A06:04:57  INFO     shiny_box_tilt_prod: (17, 4, 4) → baselines_real/tuned_no_separation/lf/shiny_box_tilt_prod.npy
+sequences:  71%|███████▏  | 5/7 [03:04<01:11, 35.84s/seq, lf/shiny_box_tilt_prod]sequences:  71%|███████▏  | 5/7 [03:04<01:11, 35.84s/seq, lf/teabox_tilt_prod]   
+  frames:   0%|          | 0/15 [00:00<?, ?fr/s][A
+  frames:   7%|▋         | 1/15 [00:02<00:28,  2.07s/fr][A
+  frames:   7%|▋         | 1/15 [00:03<00:28,  2.07s/fr, fr=1, stage=loftr][A
+  frames:  13%|█▎        | 2/15 [00:04<00:26,  2.00s/fr, fr=1, stage=loftr][A
+  frames:  13%|█▎        | 2/15 [00:05<00:26,  2.00s/fr, fr=2, stage=loftr][A
+  frames:  20%|██        | 3/15 [00:05<00:23,  1.98s/fr, fr=2, stage=loftr][A
+  frames:  20%|██        | 3/15 [00:07<00:23,  1.98s/fr, fr=3, stage=loftr][A
+  frames:  27%|██▋       | 4/15 [00:07<00:21,  1.99s/fr, fr=3, stage=loftr][A
+  frames:  27%|██▋       | 4/15 [00:09<00:21,  1.99s/fr, fr=4, stage=loftr][A
+  frames:  33%|███▎      | 5/15 [00:09<00:19,  1.97s/fr, fr=4, stage=loftr][A
+  frames:  33%|███▎      | 5/15 [00:11<00:19,  1.97s/fr, fr=5, stage=loftr][A
+  frames:  40%|████      | 6/15 [00:11<00:17,  1.96s/fr, fr=5, stage=loftr][A
+  frames:  40%|████      | 6/15 [00:13<00:17,  1.96s/fr, fr=6, stage=loftr][A
+  frames:  47%|████▋     | 7/15 [00:13<00:15,  1.95s/fr, fr=6, stage=loftr][A
+  frames:  47%|████▋     | 7/15 [00:15<00:15,  1.95s/fr, fr=7, stage=loftr][A
+  frames:  53%|█████▎    | 8/15 [00:15<00:13,  1.94s/fr, fr=7, stage=loftr][A
+  frames:  53%|█████▎    | 8/15 [00:17<00:13,  1.94s/fr, fr=8, stage=loftr][A
+  frames:  60%|██████    | 9/15 [00:17<00:11,  1.94s/fr, fr=8, stage=loftr][A
+  frames:  60%|██████    | 9/15 [00:19<00:11,  1.94s/fr, fr=9, stage=loftr][A
+  frames:  67%|██████▋   | 10/15 [00:19<00:09,  1.95s/fr, fr=9, stage=loftr][A
+  frames:  67%|██████▋   | 10/15 [00:21<00:09,  1.95s/fr, fr=10, stage=loftr][A
+  frames:  73%|███████▎  | 11/15 [00:21<00:07,  1.94s/fr, fr=10, stage=loftr][A
+  frames:  73%|███████▎  | 11/15 [00:23<00:07,  1.94s/fr, fr=11, stage=loftr][A
+  frames:  80%|████████  | 12/15 [00:23<00:05,  1.94s/fr, fr=11, stage=loftr][A
+  frames:  80%|████████  | 12/15 [00:25<00:05,  1.94s/fr, fr=12, stage=loftr][A
+  frames:  87%|████████▋ | 13/15 [00:25<00:03,  1.93s/fr, fr=12, stage=loftr][A
+  frames:  87%|████████▋ | 13/15 [00:27<00:03,  1.93s/fr, fr=13, stage=loftr][A
+  frames:  93%|█████████▎| 14/15 [00:27<00:01,  1.88s/fr, fr=13, stage=loftr][A
+  frames:  93%|█████████▎| 14/15 [00:28<00:01,  1.88s/fr, fr=14, stage=loftr][A
+  frames: 100%|██████████| 15/15 [00:29<00:00,  1.90s/fr, fr=14, stage=loftr][A
+                                                                             [A06:05:27  INFO     teabox_tilt_prod: (15, 4, 4) → baselines_real/tuned_no_separation/lf/teabox_tilt_prod.npy
+sequences:  86%|████████▌ | 6/7 [03:33<00:33, 33.54s/seq, lf/teabox_tilt_prod]sequences:  86%|████████▌ | 6/7 [03:33<00:33, 33.54s/seq, lf/teabox_translation_prod]
+  frames:   0%|          | 0/20 [00:00<?, ?fr/s][A
+  frames:   5%|▌         | 1/20 [00:01<00:30,  1.61s/fr][A
+  frames:   5%|▌         | 1/20 [00:03<00:30,  1.61s/fr, fr=1, stage=loftr][A
+  frames:  10%|█         | 2/20 [00:03<00:32,  1.79s/fr, fr=1, stage=loftr][A
+  frames:  10%|█         | 2/20 [00:05<00:32,  1.79s/fr, fr=2, stage=loftr][A
+  frames:  15%|█▌        | 3/20 [00:05<00:31,  1.87s/fr, fr=2, stage=loftr][A
+  frames:  15%|█▌        | 3/20 [00:07<00:31,  1.87s/fr, fr=3, stage=loftr][A
+  frames:  20%|██        | 4/20 [00:07<00:30,  1.91s/fr, fr=3, stage=loftr][A
+  frames:  20%|██        | 4/20 [00:09<00:30,  1.91s/fr, fr=4, stage=loftr][A
+  frames:  25%|██▌       | 5/20 [00:09<00:28,  1.92s/fr, fr=4, stage=loftr][A
+  frames:  25%|██▌       | 5/20 [00:11<00:28,  1.92s/fr, fr=5, stage=loftr][A
+  frames:  30%|███       | 6/20 [00:11<00:27,  1.94s/fr, fr=5, stage=loftr][A
+  frames:  30%|███       | 6/20 [00:13<00:27,  1.94s/fr, fr=6, stage=loftr][A
+  frames:  35%|███▌      | 7/20 [00:13<00:25,  1.94s/fr, fr=6, stage=loftr][A
+  frames:  35%|███▌      | 7/20 [00:14<00:25,  1.94s/fr, fr=7, stage=loftr][A
+  frames:  40%|████      | 8/20 [00:15<00:23,  1.95s/fr, fr=7, stage=loftr][A
+  frames:  40%|████      | 8/20 [00:16<00:23,  1.95s/fr, fr=8, stage=loftr][A
+  frames:  45%|████▌     | 9/20 [00:17<00:21,  1.95s/fr, fr=8, stage=loftr][A
+  frames:  45%|████▌     | 9/20 [00:18<00:21,  1.95s/fr, fr=9, stage=loftr][A
+  frames:  50%|█████     | 10/20 [00:19<00:19,  1.95s/fr, fr=9, stage=loftr][A
+  frames:  50%|█████     | 10/20 [00:20<00:19,  1.95s/fr, fr=10, stage=loftr][A
+  frames:  55%|█████▌    | 11/20 [00:21<00:17,  1.96s/fr, fr=10, stage=loftr][A
+  frames:  55%|█████▌    | 11/20 [00:22<00:17,  1.96s/fr, fr=11, stage=loftr][A
+  frames:  60%|██████    | 12/20 [00:23<00:15,  1.96s/fr, fr=11, stage=loftr][A
+  frames:  60%|██████    | 12/20 [00:24<00:15,  1.96s/fr, fr=12, stage=loftr][A
+  frames:  65%|██████▌   | 13/20 [00:25<00:13,  1.96s/fr, fr=12, stage=loftr][A
+  frames:  65%|██████▌   | 13/20 [00:26<00:13,  1.96s/fr, fr=13, stage=loftr][A
+  frames:  70%|███████   | 14/20 [00:27<00:11,  1.96s/fr, fr=13, stage=loftr][A
+  frames:  70%|███████   | 14/20 [00:28<00:11,  1.96s/fr, fr=14, stage=loftr][A
+  frames:  75%|███████▌  | 15/20 [00:28<00:09,  1.89s/fr, fr=14, stage=loftr][A
+  frames:  75%|███████▌  | 15/20 [00:30<00:09,  1.89s/fr, fr=15, stage=loftr][A
+  frames:  80%|████████  | 16/20 [00:30<00:07,  1.91s/fr, fr=15, stage=loftr][A
+  frames:  80%|████████  | 16/20 [00:32<00:07,  1.91s/fr, fr=16, stage=loftr][A
+  frames:  85%|████████▌ | 17/20 [00:32<00:05,  1.92s/fr, fr=16, stage=loftr][A
+  frames:  85%|████████▌ | 17/20 [00:34<00:05,  1.92s/fr, fr=17, stage=loftr][A
+  frames:  90%|█████████ | 18/20 [00:34<00:03,  1.93s/fr, fr=17, stage=loftr][A
+  frames:  90%|█████████ | 18/20 [00:36<00:03,  1.93s/fr, fr=18, stage=loftr][A
+  frames:  95%|█████████▌| 19/20 [00:36<00:01,  1.94s/fr, fr=18, stage=loftr][A
+  frames:  95%|█████████▌| 19/20 [00:38<00:01,  1.94s/fr, fr=19, stage=loftr][A
+  frames: 100%|██████████| 20/20 [00:38<00:00,  1.95s/fr, fr=19, stage=loftr][A
+                                                                             [A06:06:05  INFO     teabox_translation_prod: (20, 4, 4) → baselines_real/tuned_no_separation/lf/teabox_translation_prod.npy
+sequences: 100%|██████████| 7/7 [04:12<00:00, 35.18s/seq, lf/teabox_translation_prod]sequences: 100%|██████████| 7/7 [04:12<00:00, 36.03s/seq, lf/teabox_translation_prod]
++ python -u main_lift.py --gt-masks --depth gt --no-separation --name baselines_real/tuned_no_lfdepth
+06:06:08  INFO     sequences (7): box_motion_prod, jug_motion_prod, jug_tilt_prod, jug_translation_z_prod, shiny_box_tilt_prod, teabox_tilt_prod, teabox_translation_prod
+06:06:08  INFO     refine=False  separation=False  depth=['gt']  stride=2  scale=1.00  alpha=est  → baselines_real/tuned_no_lfdepth
+06:06:08  INFO     masks: GT (dataset)
+sequences:   0%|          | 0/7 [00:00<?, ?seq/s]sequences:   0%|          | 0/7 [00:00<?, ?seq/s, gt/box_motion_prod]
+  frames:   0%|          | 0/20 [00:00<?, ?fr/s][A/usr/local/lib/python3.10/dist-packages/torch/functional.py:505: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at /pytorch/aten/src/ATen/native/TensorShape.cpp:4381.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+
+  frames:   5%|▌         | 1/20 [00:01<00:34,  1.80s/fr][A
+  frames:   5%|▌         | 1/20 [00:03<00:34,  1.80s/fr, fr=1, stage=loftr][A
+  frames:  10%|█         | 2/20 [00:03<00:33,  1.83s/fr, fr=1, stage=loftr][A
+  frames:  10%|█         | 2/20 [00:05<00:33,  1.83s/fr, fr=2, stage=loftr][A
+  frames:  15%|█▌        | 3/20 [00:05<00:31,  1.87s/fr, fr=2, stage=loftr][A
+  frames:  15%|█▌        | 3/20 [00:07<00:31,  1.87s/fr, fr=3, stage=loftr][A
+  frames:  20%|██        | 4/20 [00:07<00:30,  1.89s/fr, fr=3, stage=loftr][A
+  frames:  20%|██        | 4/20 [00:09<00:30,  1.89s/fr, fr=4, stage=loftr][A
+  frames:  25%|██▌       | 5/20 [00:09<00:27,  1.83s/fr, fr=4, stage=loftr][A
+  frames:  25%|██▌       | 5/20 [00:10<00:27,  1.83s/fr, fr=5, stage=loftr][A
+  frames:  30%|███       | 6/20 [00:10<00:25,  1.80s/fr, fr=5, stage=loftr][A
+  frames:  30%|███       | 6/20 [00:12<00:25,  1.80s/fr, fr=6, stage=loftr][A
+  frames:  35%|███▌      | 7/20 [00:12<00:23,  1.85s/fr, fr=6, stage=loftr][A
+  frames:  35%|███▌      | 7/20 [00:14<00:23,  1.85s/fr, fr=7, stage=loftr][A
+  frames:  40%|████      | 8/20 [00:14<00:22,  1.87s/fr, fr=7, stage=loftr][A
+  frames:  40%|████      | 8/20 [00:16<00:22,  1.87s/fr, fr=8, stage=loftr][A
+  frames:  45%|████▌     | 9/20 [00:16<00:20,  1.90s/fr, fr=8, stage=loftr][A
+  frames:  45%|████▌     | 9/20 [00:18<00:20,  1.90s/fr, fr=9, stage=loftr][A
+  frames:  50%|█████     | 10/20 [00:18<00:19,  1.92s/fr, fr=9, stage=loftr][A
+  frames:  50%|█████     | 10/20 [00:20<00:19,  1.92s/fr, fr=10, stage=loftr][A
+  frames:  55%|█████▌    | 11/20 [00:20<00:17,  1.94s/fr, fr=10, stage=loftr][A
+  frames:  55%|█████▌    | 11/20 [00:22<00:17,  1.94s/fr, fr=11, stage=loftr][A
+  frames:  60%|██████    | 12/20 [00:22<00:15,  1.93s/fr, fr=11, stage=loftr][A
+  frames:  60%|██████    | 12/20 [00:24<00:15,  1.93s/fr, fr=12, stage=loftr][A
+  frames:  65%|██████▌   | 13/20 [00:24<00:13,  1.93s/fr, fr=12, stage=loftr][A
+  frames:  65%|██████▌   | 13/20 [00:26<00:13,  1.93s/fr, fr=13, stage=loftr][A
+  frames:  70%|███████   | 14/20 [00:26<00:11,  1.92s/fr, fr=13, stage=loftr][A
+  frames:  70%|███████   | 14/20 [00:28<00:11,  1.92s/fr, fr=14, stage=loftr][A
+  frames:  75%|███████▌  | 15/20 [00:28<00:09,  1.92s/fr, fr=14, stage=loftr][A
+  frames:  75%|███████▌  | 15/20 [00:29<00:09,  1.92s/fr, fr=15, stage=loftr][A
+  frames:  80%|████████  | 16/20 [00:30<00:07,  1.90s/fr, fr=15, stage=loftr][A
+  frames:  80%|████████  | 16/20 [00:31<00:07,  1.90s/fr, fr=16, stage=loftr][A
+  frames:  85%|████████▌ | 17/20 [00:32<00:05,  1.90s/fr, fr=16, stage=loftr][A
+  frames:  85%|████████▌ | 17/20 [00:33<00:05,  1.90s/fr, fr=17, stage=loftr][A
+  frames:  90%|█████████ | 18/20 [00:34<00:03,  1.90s/fr, fr=17, stage=loftr][A
+  frames:  90%|█████████ | 18/20 [00:35<00:03,  1.90s/fr, fr=18, stage=loftr][A
+  frames:  95%|█████████▌| 19/20 [00:35<00:01,  1.89s/fr, fr=18, stage=loftr][A
+  frames:  95%|█████████▌| 19/20 [00:37<00:01,  1.89s/fr, fr=19, stage=loftr][A
+  frames: 100%|██████████| 20/20 [00:37<00:00,  1.89s/fr, fr=19, stage=loftr][A
+                                                                             [A06:06:46  INFO     box_motion_prod: (20, 4, 4) → baselines_real/tuned_no_lfdepth/gt/box_motion_prod.npy
+sequences:  14%|█▍        | 1/7 [00:37<03:46, 37.80s/seq, gt/box_motion_prod]sequences:  14%|█▍        | 1/7 [00:37<03:46, 37.80s/seq, gt/jug_motion_prod]
+  frames:   0%|          | 0/20 [00:00<?, ?fr/s][A
+  frames:   5%|▌         | 1/20 [00:02<00:38,  2.04s/fr][A
+  frames:   5%|▌         | 1/20 [00:03<00:38,  2.04s/fr, fr=1, stage=loftr][A
+  frames:  10%|█         | 2/20 [00:04<00:37,  2.07s/fr, fr=1, stage=loftr][A
+  frames:  10%|█         | 2/20 [00:06<00:37,  2.07s/fr, fr=2, stage=loftr][A
+  frames:  15%|█▌        | 3/20 [00:06<00:36,  2.13s/fr, fr=2, stage=loftr][A
+  frames:  15%|█▌        | 3/20 [00:08<00:36,  2.13s/fr, fr=3, stage=loftr][A
+  frames:  20%|██        | 4/20 [00:08<00:34,  2.17s/fr, fr=3, stage=loftr][A
+  frames:  20%|██        | 4/20 [00:10<00:34,  2.17s/fr, fr=4, stage=loftr][A
+  frames:  25%|██▌       | 5/20 [00:10<00:32,  2.18s/fr, fr=4, stage=loftr][A
+  frames:  25%|██▌       | 5/20 [00:12<00:32,  2.18s/fr, fr=5, stage=loftr][A
+  frames:  30%|███       | 6/20 [00:12<00:30,  2.17s/fr, fr=5, stage=loftr][A
+  frames:  30%|███       | 6/20 [00:14<00:30,  2.17s/fr, fr=6, stage=loftr][A
+  frames:  35%|███▌      | 7/20 [00:15<00:28,  2.19s/fr, fr=6, stage=loftr][A
+  frames:  35%|███▌      | 7/20 [00:17<00:28,  2.19s/fr, fr=7, stage=loftr][A
+  frames:  40%|████      | 8/20 [00:17<00:26,  2.21s/fr, fr=7, stage=loftr][A
+  frames:  40%|████      | 8/20 [00:19<00:26,  2.21s/fr, fr=8, stage=loftr][A
+  frames:  45%|████▌     | 9/20 [00:19<00:24,  2.22s/fr, fr=8, stage=loftr][A
+  frames:  45%|████▌     | 9/20 [00:21<00:24,  2.22s/fr, fr=9, stage=loftr][A
+  frames:  50%|█████     | 10/20 [00:21<00:22,  2.20s/fr, fr=9, stage=loftr][A
+  frames:  50%|█████     | 10/20 [00:23<00:22,  2.20s/fr, fr=10, stage=loftr][A
+  frames:  55%|█████▌    | 11/20 [00:24<00:19,  2.22s/fr, fr=10, stage=loftr][A
+  frames:  55%|█████▌    | 11/20 [00:25<00:19,  2.22s/fr, fr=11, stage=loftr][A
+  frames:  60%|██████    | 12/20 [00:26<00:17,  2.22s/fr, fr=11, stage=loftr][A
+  frames:  60%|██████    | 12/20 [00:28<00:17,  2.22s/fr, fr=12, stage=loftr][A
+  frames:  65%|██████▌   | 13/20 [00:28<00:15,  2.22s/fr, fr=12, stage=loftr][A
+  frames:  65%|██████▌   | 13/20 [00:30<00:15,  2.22s/fr, fr=13, stage=loftr][A
+  frames:  70%|███████   | 14/20 [00:30<00:13,  2.24s/fr, fr=13, stage=loftr][A
+  frames:  70%|███████   | 14/20 [00:32<00:13,  2.24s/fr, fr=14, stage=loftr][A
+  frames:  75%|███████▌  | 15/20 [00:33<00:11,  2.25s/fr, fr=14, stage=loftr][A
+  frames:  75%|███████▌  | 15/20 [00:35<00:11,  2.25s/fr, fr=15, stage=loftr][A
+  frames:  80%|████████  | 16/20 [00:35<00:08,  2.20s/fr, fr=15, stage=loftr][A
+  frames:  80%|████████  | 16/20 [00:37<00:08,  2.20s/fr, fr=16, stage=loftr][A
+  frames:  85%|████████▌ | 17/20 [00:37<00:06,  2.24s/fr, fr=16, stage=loftr][A
+  frames:  85%|████████▌ | 17/20 [00:39<00:06,  2.24s/fr, fr=17, stage=loftr][A
+  frames:  90%|█████████ | 18/20 [00:39<00:04,  2.26s/fr, fr=17, stage=loftr][A
+  frames:  90%|█████████ | 18/20 [00:41<00:04,  2.26s/fr, fr=18, stage=loftr][A
+  frames:  95%|█████████▌| 19/20 [00:41<00:02,  2.22s/fr, fr=18, stage=loftr][A
+  frames:  95%|█████████▌| 19/20 [00:43<00:02,  2.22s/fr, fr=19, stage=loftr][A
+  frames: 100%|██████████| 20/20 [00:44<00:00,  2.24s/fr, fr=19, stage=loftr][A
+                                                                             [A06:07:31  INFO     jug_motion_prod: (20, 4, 4) → baselines_real/tuned_no_lfdepth/gt/jug_motion_prod.npy
+sequences:  29%|██▊       | 2/7 [01:21<03:27, 41.56s/seq, gt/jug_motion_prod]sequences:  29%|██▊       | 2/7 [01:21<03:27, 41.56s/seq, gt/jug_tilt_prod]  
+  frames:   0%|          | 0/17 [00:00<?, ?fr/s][A
+  frames:   6%|▌         | 1/17 [00:01<00:25,  1.61s/fr][A
+  frames:   6%|▌         | 1/17 [00:03<00:25,  1.61s/fr, fr=1, stage=loftr][A
+  frames:  12%|█▏        | 2/17 [00:03<00:26,  1.75s/fr, fr=1, stage=loftr][A
+  frames:  12%|█▏        | 2/17 [00:05<00:26,  1.75s/fr, fr=2, stage=loftr][A
+  frames:  18%|█▊        | 3/17 [00:05<00:24,  1.72s/fr, fr=2, stage=loftr][A
+  frames:  18%|█▊        | 3/17 [00:06<00:24,  1.72s/fr, fr=3, stage=loftr][A
+  frames:  24%|██▎       | 4/17 [00:07<00:23,  1.78s/fr, fr=3, stage=loftr][A
+  frames:  24%|██▎       | 4/17 [00:08<00:23,  1.78s/fr, fr=4, stage=loftr][A
+  frames:  29%|██▉       | 5/17 [00:08<00:21,  1.80s/fr, fr=4, stage=loftr][A
+  frames:  29%|██▉       | 5/17 [00:10<00:21,  1.80s/fr, fr=5, stage=loftr][A
+  frames:  35%|███▌      | 6/17 [00:10<00:20,  1.82s/fr, fr=5, stage=loftr][A
+  frames:  35%|███▌      | 6/17 [00:12<00:20,  1.82s/fr, fr=6, stage=loftr][A
+  frames:  41%|████      | 7/17 [00:12<00:18,  1.83s/fr, fr=6, stage=loftr][A
+  frames:  41%|████      | 7/17 [00:14<00:18,  1.83s/fr, fr=7, stage=loftr][A
+  frames:  47%|████▋     | 8/17 [00:14<00:16,  1.84s/fr, fr=7, stage=loftr][A
+  frames:  47%|████▋     | 8/17 [00:16<00:16,  1.84s/fr, fr=8, stage=loftr][A
+  frames:  53%|█████▎    | 9/17 [00:16<00:14,  1.85s/fr, fr=8, stage=loftr][A
+  frames:  53%|█████▎    | 9/17 [00:17<00:14,  1.85s/fr, fr=9, stage=loftr][A
+  frames:  59%|█████▉    | 10/17 [00:18<00:12,  1.86s/fr, fr=9, stage=loftr][A
+  frames:  59%|█████▉    | 10/17 [00:19<00:12,  1.86s/fr, fr=10, stage=loftr][A
+  frames:  65%|██████▍   | 11/17 [00:20<00:11,  1.86s/fr, fr=10, stage=loftr][A
+  frames:  65%|██████▍   | 11/17 [00:21<00:11,  1.86s/fr, fr=11, stage=loftr][A
+  frames:  71%|███████   | 12/17 [00:21<00:09,  1.87s/fr, fr=11, stage=loftr][A
+  frames:  71%|███████   | 12/17 [00:23<00:09,  1.87s/fr, fr=12, stage=loftr][A
+  frames:  76%|███████▋  | 13/17 [00:23<00:07,  1.88s/fr, fr=12, stage=loftr][A
+  frames:  76%|███████▋  | 13/17 [00:25<00:07,  1.88s/fr, fr=13, stage=loftr][A
+  frames:  82%|████████▏ | 14/17 [00:25<00:05,  1.89s/fr, fr=13, stage=loftr][A
+  frames:  82%|████████▏ | 14/17 [00:27<00:05,  1.89s/fr, fr=14, stage=loftr][A
+  frames:  88%|████████▊ | 15/17 [00:27<00:03,  1.90s/fr, fr=14, stage=loftr][A
+  frames:  88%|████████▊ | 15/17 [00:29<00:03,  1.90s/fr, fr=15, stage=loftr][A
+  frames:  94%|█████████▍| 16/17 [00:29<00:01,  1.91s/fr, fr=15, stage=loftr][A
+  frames:  94%|█████████▍| 16/17 [00:31<00:01,  1.91s/fr, fr=16, stage=loftr][A
+  frames: 100%|██████████| 17/17 [00:31<00:00,  1.92s/fr, fr=16, stage=loftr][A
+                                                                             [A06:08:02  INFO     jug_tilt_prod: (17, 4, 4) → baselines_real/tuned_no_lfdepth/gt/jug_tilt_prod.npy
+sequences:  43%|████▎     | 3/7 [01:53<02:27, 36.99s/seq, gt/jug_tilt_prod]sequences:  43%|████▎     | 3/7 [01:53<02:27, 36.99s/seq, gt/jug_translation_z_prod]
+  frames:   0%|          | 0/20 [00:00<?, ?fr/s][A
+  frames:   5%|▌         | 1/20 [00:01<00:30,  1.59s/fr][A
+  frames:   5%|▌         | 1/20 [00:03<00:30,  1.59s/fr, fr=1, stage=loftr][A
+  frames:  10%|█         | 2/20 [00:03<00:29,  1.63s/fr, fr=1, stage=loftr][A
+  frames:  10%|█         | 2/20 [00:04<00:29,  1.63s/fr, fr=2, stage=loftr][A
+  frames:  15%|█▌        | 3/20 [00:05<00:29,  1.73s/fr, fr=2, stage=loftr][A
+  frames:  15%|█▌        | 3/20 [00:06<00:29,  1.73s/fr, fr=3, stage=loftr][A
+  frames:  20%|██        | 4/20 [00:06<00:28,  1.78s/fr, fr=3, stage=loftr][A
+  frames:  20%|██        | 4/20 [00:08<00:28,  1.78s/fr, fr=4, stage=loftr][A
+  frames:  25%|██▌       | 5/20 [00:08<00:27,  1.81s/fr, fr=4, stage=loftr][A
+  frames:  25%|██▌       | 5/20 [00:10<00:27,  1.81s/fr, fr=5, stage=loftr][A
+  frames:  30%|███       | 6/20 [00:10<00:25,  1.83s/fr, fr=5, stage=loftr][A
+  frames:  30%|███       | 6/20 [00:12<00:25,  1.83s/fr, fr=6, stage=loftr][A
+  frames:  35%|███▌      | 7/20 [00:12<00:23,  1.83s/fr, fr=6, stage=loftr][A
+  frames:  35%|███▌      | 7/20 [00:14<00:23,  1.83s/fr, fr=7, stage=loftr][A
+  frames:  40%|████      | 8/20 [00:14<00:22,  1.84s/fr, fr=7, stage=loftr][A
+  frames:  40%|████      | 8/20 [00:15<00:22,  1.84s/fr, fr=8, stage=loftr][A
+  frames:  45%|████▌     | 9/20 [00:16<00:20,  1.84s/fr, fr=8, stage=loftr][A
+  frames:  45%|████▌     | 9/20 [00:17<00:20,  1.84s/fr, fr=9, stage=loftr][A
+  frames:  50%|█████     | 10/20 [00:18<00:18,  1.85s/fr, fr=9, stage=loftr][A
+  frames:  50%|█████     | 10/20 [00:19<00:18,  1.85s/fr, fr=10, stage=loftr][A
+  frames:  55%|█████▌    | 11/20 [00:19<00:16,  1.85s/fr, fr=10, stage=loftr][A
+  frames:  55%|█████▌    | 11/20 [00:21<00:16,  1.85s/fr, fr=11, stage=loftr][A
+  frames:  60%|██████    | 12/20 [00:21<00:14,  1.85s/fr, fr=11, stage=loftr][A
+  frames:  60%|██████    | 12/20 [00:23<00:14,  1.85s/fr, fr=12, stage=loftr][A
+  frames:  65%|██████▌   | 13/20 [00:23<00:12,  1.84s/fr, fr=12, stage=loftr][A
+  frames:  65%|██████▌   | 13/20 [00:25<00:12,  1.84s/fr, fr=13, stage=loftr][A
+  frames:  70%|███████   | 14/20 [00:25<00:11,  1.85s/fr, fr=13, stage=loftr][A
+  frames:  70%|███████   | 14/20 [00:27<00:11,  1.85s/fr, fr=14, stage=loftr][A
+  frames:  75%|███████▌  | 15/20 [00:27<00:09,  1.84s/fr, fr=14, stage=loftr][A
+  frames:  75%|███████▌  | 15/20 [00:28<00:09,  1.84s/fr, fr=15, stage=loftr][A
+  frames:  80%|████████  | 16/20 [00:29<00:07,  1.84s/fr, fr=15, stage=loftr][A
+  frames:  80%|████████  | 16/20 [00:30<00:07,  1.84s/fr, fr=16, stage=loftr][A
+  frames:  85%|████████▌ | 17/20 [00:30<00:05,  1.84s/fr, fr=16, stage=loftr][A
+  frames:  85%|████████▌ | 17/20 [00:32<00:05,  1.84s/fr, fr=17, stage=loftr][A
+  frames:  90%|█████████ | 18/20 [00:32<00:03,  1.85s/fr, fr=17, stage=loftr][A
+  frames:  90%|█████████ | 18/20 [00:34<00:03,  1.85s/fr, fr=18, stage=loftr][A
+  frames:  95%|█████████▌| 19/20 [00:34<00:01,  1.85s/fr, fr=18, stage=loftr][A
+  frames:  95%|█████████▌| 19/20 [00:36<00:01,  1.85s/fr, fr=19, stage=loftr][A
+  frames: 100%|██████████| 20/20 [00:36<00:00,  1.85s/fr, fr=19, stage=loftr][A
+                                                                             [A06:08:39  INFO     jug_translation_z_prod: (20, 4, 4) → baselines_real/tuned_no_lfdepth/gt/jug_translation_z_prod.npy
+sequences:  57%|█████▋    | 4/7 [02:30<01:50, 36.82s/seq, gt/jug_translation_z_prod]sequences:  57%|█████▋    | 4/7 [02:30<01:50, 36.82s/seq, gt/shiny_box_tilt_prod]   
+  frames:   0%|          | 0/17 [00:00<?, ?fr/s][A
+  frames:   6%|▌         | 1/17 [00:01<00:25,  1.60s/fr][A
+  frames:   6%|▌         | 1/17 [00:03<00:25,  1.60s/fr, fr=1, stage=loftr][A
+  frames:  12%|█▏        | 2/17 [00:03<00:27,  1.80s/fr, fr=1, stage=loftr][A
+  frames:  12%|█▏        | 2/17 [00:05<00:27,  1.80s/fr, fr=2, stage=loftr][A
+  frames:  18%|█▊        | 3/17 [00:05<00:26,  1.86s/fr, fr=2, stage=loftr][A
+  frames:  18%|█▊        | 3/17 [00:07<00:26,  1.86s/fr, fr=3, stage=loftr][A
+  frames:  24%|██▎       | 4/17 [00:07<00:24,  1.90s/fr, fr=3, stage=loftr][A
+  frames:  24%|██▎       | 4/17 [00:09<00:24,  1.90s/fr, fr=4, stage=loftr][A
+  frames:  29%|██▉       | 5/17 [00:09<00:23,  1.93s/fr, fr=4, stage=loftr][A
+  frames:  29%|██▉       | 5/17 [00:11<00:23,  1.93s/fr, fr=5, stage=loftr][A
+  frames:  35%|███▌      | 6/17 [00:11<00:21,  1.94s/fr, fr=5, stage=loftr][A
+  frames:  35%|███▌      | 6/17 [00:13<00:21,  1.94s/fr, fr=6, stage=loftr][A
+  frames:  41%|████      | 7/17 [00:13<00:19,  1.96s/fr, fr=6, stage=loftr][A
+  frames:  41%|████      | 7/17 [00:15<00:19,  1.96s/fr, fr=7, stage=loftr][A
+  frames:  47%|████▋     | 8/17 [00:15<00:17,  1.98s/fr, fr=7, stage=loftr][A
+  frames:  47%|████▋     | 8/17 [00:17<00:17,  1.98s/fr, fr=8, stage=loftr][A
+  frames:  53%|█████▎    | 9/17 [00:17<00:15,  1.99s/fr, fr=8, stage=loftr][A
+  frames:  53%|█████▎    | 9/17 [00:19<00:15,  1.99s/fr, fr=9, stage=loftr][A
+  frames:  59%|█████▉    | 10/17 [00:19<00:13,  2.00s/fr, fr=9, stage=loftr][A
+  frames:  59%|█████▉    | 10/17 [00:21<00:13,  2.00s/fr, fr=10, stage=loftr][A
+  frames:  65%|██████▍   | 11/17 [00:21<00:11,  2.00s/fr, fr=10, stage=loftr][A
+  frames:  65%|██████▍   | 11/17 [00:23<00:11,  2.00s/fr, fr=11, stage=loftr][A
+  frames:  71%|███████   | 12/17 [00:23<00:09,  1.99s/fr, fr=11, stage=loftr][A
+  frames:  71%|███████   | 12/17 [00:25<00:09,  1.99s/fr, fr=12, stage=loftr][A
+  frames:  76%|███████▋  | 13/17 [00:25<00:08,  2.00s/fr, fr=12, stage=loftr][A
+  frames:  76%|███████▋  | 13/17 [00:27<00:08,  2.00s/fr, fr=13, stage=loftr][A
+  frames:  82%|████████▏ | 14/17 [00:27<00:05,  2.00s/fr, fr=13, stage=loftr][A
+  frames:  82%|████████▏ | 14/17 [00:29<00:05,  2.00s/fr, fr=14, stage=loftr][A
+  frames:  88%|████████▊ | 15/17 [00:29<00:03,  2.00s/fr, fr=14, stage=loftr][A
+  frames:  88%|████████▊ | 15/17 [00:31<00:03,  2.00s/fr, fr=15, stage=loftr][A
+  frames:  94%|█████████▍| 16/17 [00:31<00:01,  1.99s/fr, fr=15, stage=loftr][A
+  frames:  94%|█████████▍| 16/17 [00:33<00:01,  1.99s/fr, fr=16, stage=loftr][A
+  frames: 100%|██████████| 17/17 [00:33<00:00,  1.99s/fr, fr=16, stage=loftr][A
+                                                                             [A06:09:12  INFO     shiny_box_tilt_prod: (17, 4, 4) → baselines_real/tuned_no_lfdepth/gt/shiny_box_tilt_prod.npy
+sequences:  71%|███████▏  | 5/7 [03:03<01:11, 35.58s/seq, gt/shiny_box_tilt_prod]sequences:  71%|███████▏  | 5/7 [03:03<01:11, 35.58s/seq, gt/teabox_tilt_prod]   
+  frames:   0%|          | 0/15 [00:00<?, ?fr/s][A
+  frames:   7%|▋         | 1/15 [00:02<00:28,  2.06s/fr][A
+  frames:   7%|▋         | 1/15 [00:03<00:28,  2.06s/fr, fr=1, stage=loftr][A
+  frames:  13%|█▎        | 2/15 [00:03<00:25,  1.95s/fr, fr=1, stage=loftr][A
+  frames:  13%|█▎        | 2/15 [00:05<00:25,  1.95s/fr, fr=2, stage=loftr][A
+  frames:  20%|██        | 3/15 [00:05<00:23,  1.93s/fr, fr=2, stage=loftr][A
+  frames:  20%|██        | 3/15 [00:07<00:23,  1.93s/fr, fr=3, stage=loftr][A
+  frames:  27%|██▋       | 4/15 [00:07<00:21,  1.92s/fr, fr=3, stage=loftr][A
+  frames:  27%|██▋       | 4/15 [00:09<00:21,  1.92s/fr, fr=4, stage=loftr][A
+  frames:  33%|███▎      | 5/15 [00:09<00:19,  1.92s/fr, fr=4, stage=loftr][A
+  frames:  33%|███▎      | 5/15 [00:11<00:19,  1.92s/fr, fr=5, stage=loftr][A
+  frames:  40%|████      | 6/15 [00:11<00:17,  1.91s/fr, fr=5, stage=loftr][A
+  frames:  40%|████      | 6/15 [00:13<00:17,  1.91s/fr, fr=6, stage=loftr][A
+  frames:  47%|████▋     | 7/15 [00:13<00:15,  1.91s/fr, fr=6, stage=loftr][A
+  frames:  47%|████▋     | 7/15 [00:15<00:15,  1.91s/fr, fr=7, stage=loftr][A
+  frames:  53%|█████▎    | 8/15 [00:15<00:13,  1.91s/fr, fr=7, stage=loftr][A
+  frames:  53%|█████▎    | 8/15 [00:17<00:13,  1.91s/fr, fr=8, stage=loftr][A
+  frames:  60%|██████    | 9/15 [00:17<00:11,  1.86s/fr, fr=8, stage=loftr][A
+  frames:  60%|██████    | 9/15 [00:18<00:11,  1.86s/fr, fr=9, stage=loftr][A
+  frames:  67%|██████▋   | 10/15 [00:19<00:09,  1.88s/fr, fr=9, stage=loftr][A
+  frames:  67%|██████▋   | 10/15 [00:20<00:09,  1.88s/fr, fr=10, stage=loftr][A
+  frames:  73%|███████▎  | 11/15 [00:20<00:07,  1.89s/fr, fr=10, stage=loftr][A
+  frames:  73%|███████▎  | 11/15 [00:22<00:07,  1.89s/fr, fr=11, stage=loftr][A
+  frames:  80%|████████  | 12/15 [00:22<00:05,  1.90s/fr, fr=11, stage=loftr][A
+  frames:  80%|████████  | 12/15 [00:24<00:05,  1.90s/fr, fr=12, stage=loftr][A
+  frames:  87%|████████▋ | 13/15 [00:24<00:03,  1.91s/fr, fr=12, stage=loftr][A
+  frames:  87%|████████▋ | 13/15 [00:26<00:03,  1.91s/fr, fr=13, stage=loftr][A
+  frames:  93%|█████████▎| 14/15 [00:26<00:01,  1.85s/fr, fr=13, stage=loftr][A
+  frames:  93%|█████████▎| 14/15 [00:28<00:01,  1.85s/fr, fr=14, stage=loftr][A
+  frames: 100%|██████████| 15/15 [00:28<00:00,  1.87s/fr, fr=14, stage=loftr][A
+                                                                             [A06:09:40  INFO     teabox_tilt_prod: (15, 4, 4) → baselines_real/tuned_no_lfdepth/gt/teabox_tilt_prod.npy
+sequences:  86%|████████▌ | 6/7 [03:31<00:33, 33.15s/seq, gt/teabox_tilt_prod]sequences:  86%|████████▌ | 6/7 [03:31<00:33, 33.15s/seq, gt/teabox_translation_prod]
+  frames:   0%|          | 0/20 [00:00<?, ?fr/s][A
+  frames:   5%|▌         | 1/20 [00:01<00:30,  1.63s/fr][A
+  frames:   5%|▌         | 1/20 [00:03<00:30,  1.63s/fr, fr=1, stage=loftr][A
+  frames:  10%|█         | 2/20 [00:03<00:30,  1.67s/fr, fr=1, stage=loftr][A
+  frames:  10%|█         | 2/20 [00:04<00:30,  1.67s/fr, fr=2, stage=loftr][A
+  frames:  15%|█▌        | 3/20 [00:05<00:30,  1.78s/fr, fr=2, stage=loftr][A
+  frames:  15%|█▌        | 3/20 [00:06<00:30,  1.78s/fr, fr=3, stage=loftr][A
+  frames:  20%|██        | 4/20 [00:07<00:29,  1.83s/fr, fr=3, stage=loftr][A
+  frames:  20%|██        | 4/20 [00:08<00:29,  1.83s/fr, fr=4, stage=loftr][A
+  frames:  25%|██▌       | 5/20 [00:09<00:28,  1.87s/fr, fr=4, stage=loftr][A
+  frames:  25%|██▌       | 5/20 [00:10<00:28,  1.87s/fr, fr=5, stage=loftr][A
+  frames:  30%|███       | 6/20 [00:11<00:26,  1.89s/fr, fr=5, stage=loftr][A
+  frames:  30%|███       | 6/20 [00:12<00:26,  1.89s/fr, fr=6, stage=loftr][A
+  frames:  35%|███▌      | 7/20 [00:12<00:24,  1.89s/fr, fr=6, stage=loftr][A
+  frames:  35%|███▌      | 7/20 [00:14<00:24,  1.89s/fr, fr=7, stage=loftr][A
+  frames:  40%|████      | 8/20 [00:14<00:22,  1.90s/fr, fr=7, stage=loftr][A
+  frames:  40%|████      | 8/20 [00:16<00:22,  1.90s/fr, fr=8, stage=loftr][A
+  frames:  45%|████▌     | 9/20 [00:16<00:21,  1.92s/fr, fr=8, stage=loftr][A
+  frames:  45%|████▌     | 9/20 [00:18<00:21,  1.92s/fr, fr=9, stage=loftr][A
+  frames:  50%|█████     | 10/20 [00:18<00:19,  1.92s/fr, fr=9, stage=loftr][A
+  frames:  50%|█████     | 10/20 [00:20<00:19,  1.92s/fr, fr=10, stage=loftr][A
+  frames:  55%|█████▌    | 11/20 [00:20<00:17,  1.92s/fr, fr=10, stage=loftr][A
+  frames:  55%|█████▌    | 11/20 [00:22<00:17,  1.92s/fr, fr=11, stage=loftr][A
+  frames:  60%|██████    | 12/20 [00:22<00:15,  1.92s/fr, fr=11, stage=loftr][A
+  frames:  60%|██████    | 12/20 [00:24<00:15,  1.92s/fr, fr=12, stage=loftr][A
+  frames:  65%|██████▌   | 13/20 [00:24<00:13,  1.93s/fr, fr=12, stage=loftr][A
+  frames:  65%|██████▌   | 13/20 [00:26<00:13,  1.93s/fr, fr=13, stage=loftr][A
+  frames:  70%|███████   | 14/20 [00:26<00:11,  1.93s/fr, fr=13, stage=loftr][A
+  frames:  70%|███████   | 14/20 [00:28<00:11,  1.93s/fr, fr=14, stage=loftr][A
+  frames:  75%|███████▌  | 15/20 [00:28<00:09,  1.93s/fr, fr=14, stage=loftr][A
+  frames:  75%|███████▌  | 15/20 [00:29<00:09,  1.93s/fr, fr=15, stage=loftr][A
+  frames:  80%|████████  | 16/20 [00:30<00:07,  1.92s/fr, fr=15, stage=loftr][A
+  frames:  80%|████████  | 16/20 [00:31<00:07,  1.92s/fr, fr=16, stage=loftr][A
+  frames:  85%|████████▌ | 17/20 [00:32<00:05,  1.92s/fr, fr=16, stage=loftr][A
+  frames:  85%|████████▌ | 17/20 [00:33<00:05,  1.92s/fr, fr=17, stage=loftr][A
+  frames:  90%|█████████ | 18/20 [00:34<00:03,  1.92s/fr, fr=17, stage=loftr][A
+  frames:  90%|█████████ | 18/20 [00:35<00:03,  1.92s/fr, fr=18, stage=loftr][A
+  frames:  95%|█████████▌| 19/20 [00:36<00:01,  1.92s/fr, fr=18, stage=loftr][A
+  frames:  95%|█████████▌| 19/20 [00:37<00:01,  1.92s/fr, fr=19, stage=loftr][A
+  frames: 100%|██████████| 20/20 [00:37<00:00,  1.93s/fr, fr=19, stage=loftr][A
+                                                                             [A06:10:18  INFO     teabox_translation_prod: (20, 4, 4) → baselines_real/tuned_no_lfdepth/gt/teabox_translation_prod.npy
+sequences: 100%|██████████| 7/7 [04:09<00:00, 34.73s/seq, gt/teabox_translation_prod]sequences: 100%|██████████| 7/7 [04:09<00:00, 35.70s/seq, gt/teabox_translation_prod]
+Evaluating:   0%|          | 0/7 [00:00<?, ?it/s]Evaluating:  29%|██▊       | 2/7 [00:00<00:00, 18.25it/s]Evaluating:  71%|███████▏  | 5/7 [00:00<00:00, 22.21it/s]Evaluating: 100%|██████████| 7/7 [00:00<00:00, 22.15it/s]
+LiFT real (lf depth)
+─────────────────────────────────────────────────────────────
+                        ADD↑ AUC ADD-S↑ AUC ATE↓ (m) Rot↓ (°)
+box_motion_prod           0.9106     0.9298   0.0095     4.67
+jug_motion_prod           0.7197     0.8753   0.0139    36.52
+jug_tilt_prod             0.8012     0.8945   0.0249    18.73
+jug_translation_z_prod    0.8258     0.8687   0.0146    23.22
+shiny_box_tilt_prod       0.7674     0.9106   0.0217    10.64
+teabox_tilt_prod          0.7236     0.8798   0.0419     7.78
+teabox_translation_prod   0.7641     0.9121   0.0088    18.59
+── Average ──             0.7875     0.8958   0.0193    17.16
+
+Metrics  → eval/results/lift_tuned_no_refine/metrics.json
+Outputs  → eval/results/lift_tuned_no_refine
+Evaluating:   0%|          | 0/7 [00:00<?, ?it/s]Evaluating:  29%|██▊       | 2/7 [00:00<00:00, 19.52it/s]Evaluating:  71%|███████▏  | 5/7 [00:00<00:00, 20.44it/s]Evaluating: 100%|██████████| 7/7 [00:00<00:00, 20.75it/s]
+LiFT real (lf depth)
+─────────────────────────────────────────────────────────────
+                        ADD↑ AUC ADD-S↑ AUC ATE↓ (m) Rot↓ (°)
+box_motion_prod           0.7247     0.8601   0.0112    28.98
+jug_motion_prod           0.6702     0.8717   0.0131    44.30
+jug_tilt_prod             0.7543     0.8583   0.0364    38.77
+jug_translation_z_prod    0.7258     0.8626   0.0198    47.83
+shiny_box_tilt_prod       0.4388     0.7763   0.0401    38.60
+teabox_tilt_prod          0.7498     0.8758   0.0446    20.63
+teabox_translation_prod   0.5808     0.8076   0.0059    46.45
+── Average ──             0.6635     0.8446   0.0245    37.94
+
+Metrics  → eval/results/lift_tuned_no_separation/metrics.json
+Outputs  → eval/results/lift_tuned_no_separation
+Evaluating:   0%|          | 0/7 [00:00<?, ?it/s]Evaluating:  29%|██▊       | 2/7 [00:00<00:00, 16.99it/s]Evaluating:  71%|███████▏  | 5/7 [00:00<00:00, 21.25it/s]Evaluating: 100%|██████████| 7/7 [00:00<00:00, 22.00it/s]
+LiFT real (gt depth)
+─────────────────────────────────────────────────────────────
+                        ADD↑ AUC ADD-S↑ AUC ATE↓ (m) Rot↓ (°)
+box_motion_prod           0.7025     0.8520   0.0136    32.06
+jug_motion_prod           0.6980     0.8949   0.0089    45.90
+jug_tilt_prod             0.7442     0.8488   0.0347    39.30
+jug_translation_z_prod    0.7227     0.8636   0.0205    47.89
+shiny_box_tilt_prod       0.3431     0.7026   0.0478    41.21
+teabox_tilt_prod          0.7646     0.8852   0.0412    20.71
+teabox_translation_prod   0.6242     0.8308   0.0102    47.03
+── Average ──             0.6571     0.8397   0.0253    39.16
+
+Metrics  → eval/results/lift_tuned_no_lfdepth/metrics.json
+Outputs  → eval/results/lift_tuned_no_lfdepth

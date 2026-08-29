@@ -66,6 +66,9 @@ from src.photometric import PhotometricRefineViewer
 
 # Absolute (not ~-based): the container runs with HOME=/root but /home mounted.
 LIFT_ROOT = "/home/ngoncharov/cvpr2026/datasets/LiFT_dataset"
+# Overridable via --set refine_feed_forward=false (refine as pure per-frame
+# overlay: coarse pose fed forward, per NOTES_FOR_PAPER design decision 1).
+FEED_FORWARD = REFINE_FEED_FORWARD
 
 logging.basicConfig(
     format="%(asctime)s  %(levelname)-7s  %(message)s",
@@ -111,6 +114,9 @@ def apply_overrides(sets: list[str], refine_cfg, lf_cfg):
             pipeline.MIN_TRACK_PIXELS = int(val)
         elif key == "alpha_stable_tol":
             pipeline.ALPHA_STABLE_TOL = float(val)
+        elif key == "refine_feed_forward":
+            global FEED_FORWARD
+            FEED_FORWARD = bool(val)
         else:
             raise SystemExit(f"unknown --set key: {key}")
     return refine_cfg, lf_cfg
@@ -343,7 +349,7 @@ def main() -> None:
                     gt0_seq_path=None,
                     reflectivity=0.0,
                     gt_env=None,
-                    feed_forward=REFINE_FEED_FORWARD,
+                    feed_forward=FEED_FORWARD,
                     no_cache_separation=args.no_cache_separation,
                     depth_estimator=depth_estimator,
                     gt_masks=args.gt_masks,

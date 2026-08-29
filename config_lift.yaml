@@ -14,6 +14,15 @@ tracking:
   # 10mm was better still on textured scenes but regressed shiny_box).
   ransac_inlier_dist: 0.02
 
+# Refine as a pure per-frame overlay (paper design decision 1): on real data,
+# feeding the refined pose forward compounds its small translation bias
+# (ADD 0.787->0.768, ATE 19.5->22.5mm measured); the overlay keeps the coarse
+# backbone as anchor and reports the per-frame correction.
+refine_feed_forward: false
+
 # Refine sweep (sweeps_refine.log): num_iters/lambda_depth/lr_rot variants all
 # moved results <0.2° (below LoFTR run-to-run noise), so the refine keeps the
-# synthetic-tuned defaults from config.yaml.
+# synthetic-tuned defaults from config.yaml. Alpha stays ESTIMATED: pinning the
+# variance-ratio optimum (0.8, experiments/tune_separation_lift.py) helps
+# separation on the jug but forces 20% ICP into the blend on a rotationally
+# symmetric object — net negative (17.5 vs 17.2 deg).

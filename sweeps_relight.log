@@ -1,0 +1,792 @@
++ python -u main_lift.py --refine --gt-masks --depth lf --seqs shiny_box,box_motion --set refine.lr_rot_relight=6.0e-3 --name sweeps/lift_relight_lr6
+05:46:37  INFO     sequences (2): box_motion_prod, shiny_box_tilt_prod
+05:46:37  INFO     refine=True  separation=True  depth=['lf']  stride=2  scale=1.00  alpha=est  → sweeps/lift_relight_lr6
+05:46:37  INFO     masks: GT (dataset)
+sequences:   0%|          | 0/2 [00:00<?, ?seq/s]sequences:   0%|          | 0/2 [00:00<?, ?seq/s, lf/box_motion_prod]
+  frames:   0%|          | 0/20 [00:00<?, ?fr/s][A
+  frames:   0%|          | 0/20 [00:01<?, ?fr/s, fr=0, stage=separate][A/usr/local/lib/python3.10/dist-packages/torch/functional.py:505: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at /pytorch/aten/src/ATen/native/TensorShape.cpp:4381.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+
+  frames:   5%|▌         | 1/20 [00:01<00:37,  1.99s/fr, fr=0, stage=separate][A
+  frames:   5%|▌         | 1/20 [00:03<00:37,  1.99s/fr, fr=1, stage=separate][A
+  frames:   5%|▌         | 1/20 [00:03<00:37,  1.99s/fr, fr=1, stage=loftr]   [A
+  frames:   5%|▌         | 1/20 [00:04<00:37,  1.99s/fr, fr=1, stage=photometric][A                                                                     
+                                                                                 [A  f  1: loftr  0.31°   1.57mm → refined  0.15°   0.26mm  | mean loftr 0.31°/1.6mm refined 0.15°/0.3mm  
+sequences:   0%|          | 0/2 [00:04<?, ?seq/s, lf/box_motion_prod]
+  frames:   5%|▌         | 1/20 [00:04<00:37,  1.99s/fr, fr=1, stage=photometric][A
+  frames:  10%|█         | 2/20 [00:04<00:44,  2.48s/fr, fr=1, stage=photometric][A
+  frames:  10%|█         | 2/20 [00:06<00:44,  2.48s/fr, fr=2, stage=separate]   [A
+  frames:  10%|█         | 2/20 [00:06<00:44,  2.48s/fr, fr=2, stage=loftr]   [A
+  frames:  10%|█         | 2/20 [00:07<00:44,  2.48s/fr, fr=2, stage=photometric][A                                                                     
+                                                                                   f  2: loftr  0.72°   0.72mm → refined  0.73°   0.48mm  | mean loftr 0.51°/1.1mm refined 0.44°/0.4mm  ↑rot
+[Asequences:   0%|          | 0/2 [00:07<?, ?seq/s, lf/box_motion_prod]
+  frames:  10%|█         | 2/20 [00:07<00:44,  2.48s/fr, fr=2, stage=photometric][A
+  frames:  15%|█▌        | 3/20 [00:07<00:47,  2.78s/fr, fr=2, stage=photometric][A
+  frames:  15%|█▌        | 3/20 [00:09<00:47,  2.78s/fr, fr=3, stage=separate]   [A
+  frames:  15%|█▌        | 3/20 [00:09<00:47,  2.78s/fr, fr=3, stage=loftr]   [A
+  frames:  15%|█▌        | 3/20 [00:10<00:47,  2.78s/fr, fr=3, stage=photometric][A  f  3: loftr  1.59°   0.68mm → refined  1.90°   0.68mm  | mean loftr 0.87°/1.0mm refined 0.92°/0.5mm  ↑rot ↑trans
+                                                                     
+                                                                                 [Asequences:   0%|          | 0/2 [00:11<?, ?seq/s, lf/box_motion_prod]
+  frames:  15%|█▌        | 3/20 [00:11<00:47,  2.78s/fr, fr=3, stage=photometric][A
+  frames:  20%|██        | 4/20 [00:11<00:49,  3.12s/fr, fr=3, stage=photometric][A
+  frames:  20%|██        | 4/20 [00:13<00:49,  3.12s/fr, fr=4, stage=separate]   [A
+  frames:  20%|██        | 4/20 [00:13<00:49,  3.12s/fr, fr=4, stage=loftr]   [A
+  frames:  20%|██        | 4/20 [00:14<00:49,  3.12s/fr, fr=4, stage=photometric][A  f  4: loftr  2.47°   1.37mm → refined  2.57°   1.12mm  | mean loftr 1.27°/1.1mm refined 1.34°/0.6mm  ↑rot
+                                                                     
+                                                                                 [Asequences:   0%|          | 0/2 [00:14<?, ?seq/s, lf/box_motion_prod]
+  frames:  20%|██        | 4/20 [00:14<00:49,  3.12s/fr, fr=4, stage=photometric][A
+  frames:  25%|██▌       | 5/20 [00:14<00:47,  3.18s/fr, fr=4, stage=photometric][A
+  frames:  25%|██▌       | 5/20 [00:16<00:47,  3.18s/fr, fr=5, stage=separate]   [A
+  frames:  25%|██▌       | 5/20 [00:17<00:47,  3.18s/fr, fr=5, stage=loftr]   [A
+  frames:  25%|██▌       | 5/20 [00:17<00:47,  3.18s/fr, fr=5, stage=photometric][A                                                                     
+                                                                                 [A  f  5: loftr  2.53°   2.34mm → refined  2.78°   1.36mm  | mean loftr 1.52°/1.3mm refined 1.62°/0.8mm  ↑rot
+sequences:   0%|          | 0/2 [00:18<?, ?seq/s, lf/box_motion_prod]
+  frames:  25%|██▌       | 5/20 [00:18<00:47,  3.18s/fr, fr=5, stage=photometric][A
+  frames:  30%|███       | 6/20 [00:18<00:45,  3.26s/fr, fr=5, stage=photometric][A
+  frames:  30%|███       | 6/20 [00:20<00:45,  3.26s/fr, fr=6, stage=separate]   [A
+  frames:  30%|███       | 6/20 [00:20<00:45,  3.26s/fr, fr=6, stage=loftr]   [A
+  frames:  30%|███       | 6/20 [00:21<00:45,  3.26s/fr, fr=6, stage=photometric][A                                                                     
+                                                                                 [A  f  6: loftr  2.97°   1.42mm → refined  3.28°   1.79mm  | mean loftr 1.76°/1.3mm refined 1.90°/1.0mm  ↑rot ↑trans
+sequences:   0%|          | 0/2 [00:22<?, ?seq/s, lf/box_motion_prod]
+  frames:  30%|███       | 6/20 [00:22<00:45,  3.26s/fr, fr=6, stage=photometric][A
+  frames:  35%|███▌      | 7/20 [00:22<00:44,  3.41s/fr, fr=6, stage=photometric][A
+  frames:  35%|███▌      | 7/20 [00:24<00:44,  3.41s/fr, fr=7, stage=separate]   [A
+  frames:  35%|███▌      | 7/20 [00:24<00:44,  3.41s/fr, fr=7, stage=loftr]   [A
+  frames:  35%|███▌      | 7/20 [00:24<00:44,  3.41s/fr, fr=7, stage=photometric][A                                                                     
+                                                                                 [A  f  7: loftr  3.95°   1.87mm → refined  3.34°   2.05mm  | mean loftr 2.08°/1.4mm refined 2.11°/1.1mm   ↑trans
+sequences:   0%|          | 0/2 [00:25<?, ?seq/s, lf/box_motion_prod]
+  frames:  35%|███▌      | 7/20 [00:25<00:44,  3.41s/fr, fr=7, stage=photometric][A
+  frames:  40%|████      | 8/20 [00:25<00:40,  3.37s/fr, fr=7, stage=photometric][A
+  frames:  40%|████      | 8/20 [00:27<00:40,  3.37s/fr, fr=8, stage=separate]   [A
+  frames:  40%|████      | 8/20 [00:27<00:40,  3.37s/fr, fr=8, stage=loftr]   [A
+  frames:  40%|████      | 8/20 [00:27<00:40,  3.37s/fr, fr=8, stage=photometric][A  f  8: loftr  4.07°   2.58mm → refined  3.71°   2.55mm  | mean loftr 2.33°/1.6mm refined 2.31°/1.3mm  
+                                                                     
+                                                                                 [Asequences:   0%|          | 0/2 [00:28<?, ?seq/s, lf/box_motion_prod]
+  frames:  40%|████      | 8/20 [00:28<00:40,  3.37s/fr, fr=8, stage=photometric][A
+  frames:  45%|████▌     | 9/20 [00:28<00:36,  3.34s/fr, fr=8, stage=photometric][A
+  frames:  45%|████▌     | 9/20 [00:30<00:36,  3.34s/fr, fr=9, stage=separate]   [A
+  frames:  45%|████▌     | 9/20 [00:30<00:36,  3.34s/fr, fr=9, stage=loftr]   [A
+  frames:  45%|████▌     | 9/20 [00:30<00:36,  3.34s/fr, fr=9, stage=photometric][A                                                                     
+                                                                                 [A  f  9: loftr  4.66°   3.29mm → refined  4.66°   3.29mm  | mean loftr 2.59°/1.8mm refined 2.57°/1.5mm  
+sequences:   0%|          | 0/2 [00:31<?, ?seq/s, lf/box_motion_prod]
+  frames:  45%|████▌     | 9/20 [00:31<00:36,  3.34s/fr, fr=9, stage=photometric][A
+  frames:  50%|█████     | 10/20 [00:31<00:32,  3.26s/fr, fr=9, stage=photometric][A
+  frames:  50%|█████     | 10/20 [00:33<00:32,  3.26s/fr, fr=10, stage=separate]  [A
+  frames:  50%|█████     | 10/20 [00:33<00:32,  3.26s/fr, fr=10, stage=loftr]   [A
+  frames:  50%|█████     | 10/20 [00:34<00:32,  3.26s/fr, fr=10, stage=photometric][A  f 10: loftr  5.58°   3.21mm → refined  5.50°   2.98mm  | mean loftr 2.88°/1.9mm refined 2.86°/1.7mm  
+                                                                     
+                                                                                   [Asequences:   0%|          | 0/2 [00:34<?, ?seq/s, lf/box_motion_prod]
+  frames:  50%|█████     | 10/20 [00:34<00:32,  3.26s/fr, fr=10, stage=photometric][A
+  frames:  55%|█████▌    | 11/20 [00:34<00:29,  3.27s/fr, fr=10, stage=photometric][A
+  frames:  55%|█████▌    | 11/20 [00:36<00:29,  3.27s/fr, fr=11, stage=separate]   [A
+  frames:  55%|█████▌    | 11/20 [00:37<00:29,  3.27s/fr, fr=11, stage=loftr]   [A
+  frames:  55%|█████▌    | 11/20 [00:37<00:29,  3.27s/fr, fr=11, stage=photometric][A                                                                     
+                                                                                   [A  f 11: loftr  5.79°   3.75mm → refined  5.79°   3.75mm  | mean loftr 3.15°/2.1mm refined 3.13°/1.8mm  
+sequences:   0%|          | 0/2 [00:38<?, ?seq/s, lf/box_motion_prod]
+  frames:  55%|█████▌    | 11/20 [00:38<00:29,  3.27s/fr, fr=11, stage=photometric][A
+  frames:  60%|██████    | 12/20 [00:38<00:26,  3.26s/fr, fr=11, stage=photometric][A
+  frames:  60%|██████    | 12/20 [00:40<00:26,  3.26s/fr, fr=12, stage=separate]   [A
+  frames:  60%|██████    | 12/20 [00:40<00:26,  3.26s/fr, fr=12, stage=loftr]   [A
+  frames:  60%|██████    | 12/20 [00:40<00:26,  3.26s/fr, fr=12, stage=photometric][A                                                                     
+                                                                                   [A  f 12: loftr  6.41°   4.83mm → refined  6.58°   4.68mm  | mean loftr 3.42°/2.3mm refined 3.41°/2.1mm  ↑rot
+sequences:   0%|          | 0/2 [00:41<?, ?seq/s, lf/box_motion_prod]
+  frames:  60%|██████    | 12/20 [00:41<00:26,  3.26s/fr, fr=12, stage=photometric][A
+  frames:  65%|██████▌   | 13/20 [00:41<00:23,  3.29s/fr, fr=12, stage=photometric][A
+  frames:  65%|██████▌   | 13/20 [00:43<00:23,  3.29s/fr, fr=13, stage=separate]   [A
+  frames:  65%|██████▌   | 13/20 [00:43<00:23,  3.29s/fr, fr=13, stage=loftr]   [A
+  frames:  65%|██████▌   | 13/20 [00:44<00:23,  3.29s/fr, fr=13, stage=photometric][A                                                                     
+                                                                                   [A  f 13: loftr  7.05°   5.70mm → refined  6.62°   5.81mm  | mean loftr 3.70°/2.6mm refined 3.66°/2.4mm   ↑trans
+sequences:   0%|          | 0/2 [00:44<?, ?seq/s, lf/box_motion_prod]
+  frames:  65%|██████▌   | 13/20 [00:44<00:23,  3.29s/fr, fr=13, stage=photometric][A
+  frames:  70%|███████   | 14/20 [00:44<00:20,  3.34s/fr, fr=13, stage=photometric][A
+  frames:  70%|███████   | 14/20 [00:47<00:20,  3.34s/fr, fr=14, stage=separate]   [A
+  frames:  70%|███████   | 14/20 [00:47<00:20,  3.34s/fr, fr=14, stage=loftr]   [A
+  frames:  70%|███████   | 14/20 [00:47<00:20,  3.34s/fr, fr=14, stage=photometric][A                                                                     
+                                                                                   [A  f 14: loftr  6.92°   5.39mm → refined  6.88°   5.66mm  | mean loftr 3.93°/2.8mm refined 3.89°/2.6mm   ↑trans
+sequences:   0%|          | 0/2 [00:48<?, ?seq/s, lf/box_motion_prod]
+  frames:  70%|███████   | 14/20 [00:48<00:20,  3.34s/fr, fr=14, stage=photometric][A
+  frames:  75%|███████▌  | 15/20 [00:48<00:16,  3.37s/fr, fr=14, stage=photometric][A
+  frames:  75%|███████▌  | 15/20 [00:50<00:16,  3.37s/fr, fr=15, stage=separate]   [A
+  frames:  75%|███████▌  | 15/20 [00:50<00:16,  3.37s/fr, fr=15, stage=loftr]   [A
+  frames:  75%|███████▌  | 15/20 [00:51<00:16,  3.37s/fr, fr=15, stage=photometric][A                                                                     
+                                                                                   [A  f 15: loftr  6.77°   5.37mm → refined  7.03°   5.58mm  | mean loftr 4.12°/2.9mm refined 4.10°/2.8mm  ↑rot ↑trans
+sequences:   0%|          | 0/2 [00:51<?, ?seq/s, lf/box_motion_prod]
+  frames:  75%|███████▌  | 15/20 [00:51<00:16,  3.37s/fr, fr=15, stage=photometric][A
+  frames:  80%|████████  | 16/20 [00:51<00:13,  3.43s/fr, fr=15, stage=photometric][A
+  frames:  80%|████████  | 16/20 [00:53<00:13,  3.43s/fr, fr=16, stage=separate]   [A
+  frames:  80%|████████  | 16/20 [00:54<00:13,  3.43s/fr, fr=16, stage=loftr]   [A
+  frames:  80%|████████  | 16/20 [00:54<00:13,  3.43s/fr, fr=16, stage=photometric][A                                                                     
+                                                                                   [A  f 16: loftr  6.80°   6.17mm → refined  7.32°   6.26mm  | mean loftr 4.29°/3.1mm refined 4.30°/3.0mm  ↑rot ↑trans
+sequences:   0%|          | 0/2 [00:55<?, ?seq/s, lf/box_motion_prod]
+  frames:  80%|████████  | 16/20 [00:55<00:13,  3.43s/fr, fr=16, stage=photometric][A
+  frames:  85%|████████▌ | 17/20 [00:55<00:10,  3.47s/fr, fr=16, stage=photometric][A
+  frames:  85%|████████▌ | 17/20 [00:57<00:10,  3.47s/fr, fr=17, stage=separate]   [A
+  frames:  85%|████████▌ | 17/20 [00:57<00:10,  3.47s/fr, fr=17, stage=loftr]   [A
+  frames:  85%|████████▌ | 17/20 [00:58<00:10,  3.47s/fr, fr=17, stage=photometric][A                                                                     
+                                                                                   [A  f 17: loftr  6.97°   7.07mm → refined  7.50°   7.02mm  | mean loftr 4.44°/3.4mm refined 4.49°/3.3mm  ↑rot
+sequences:   0%|          | 0/2 [00:59<?, ?seq/s, lf/box_motion_prod]
+  frames:  85%|████████▌ | 17/20 [00:59<00:10,  3.47s/fr, fr=17, stage=photometric][A
+  frames:  90%|█████████ | 18/20 [00:59<00:07,  3.52s/fr, fr=17, stage=photometric][A
+  frames:  90%|█████████ | 18/20 [01:01<00:07,  3.52s/fr, fr=18, stage=separate]   [A
+  frames:  90%|█████████ | 18/20 [01:01<00:07,  3.52s/fr, fr=18, stage=loftr]   [A
+  frames:  90%|█████████ | 18/20 [01:02<00:07,  3.52s/fr, fr=18, stage=photometric][A                                                                     
+                                                                                   [A  f 18: loftr  7.64°   8.37mm → refined  7.88°   7.83mm  | mean loftr 4.62°/3.7mm refined 4.68°/3.5mm  ↑rot
+sequences:   0%|          | 0/2 [01:02<?, ?seq/s, lf/box_motion_prod]
+  frames:  90%|█████████ | 18/20 [01:02<00:07,  3.52s/fr, fr=18, stage=photometric][A
+  frames:  95%|█████████▌| 19/20 [01:02<00:03,  3.58s/fr, fr=18, stage=photometric][A
+  frames:  95%|█████████▌| 19/20 [01:05<00:03,  3.58s/fr, fr=19, stage=separate]   [A
+  frames:  95%|█████████▌| 19/20 [01:05<00:03,  3.58s/fr, fr=19, stage=loftr]   [A
+  frames:  95%|█████████▌| 19/20 [01:05<00:03,  3.58s/fr, fr=19, stage=photometric][A                                                                     
+                                                                                   [A  f 19: loftr  9.68°   8.44mm → refined  9.08°   8.66mm  | mean loftr 4.89°/3.9mm refined 4.91°/3.8mm   ↑trans
+sequences:   0%|          | 0/2 [01:06<?, ?seq/s, lf/box_motion_prod]
+  frames:  95%|█████████▌| 19/20 [01:06<00:03,  3.58s/fr, fr=19, stage=photometric][A
+  frames: 100%|██████████| 20/20 [01:06<00:00,  3.59s/fr, fr=19, stage=photometric][A
+                                                                                   [A05:47:44  INFO     box_motion_prod: refine vs loftr — rot 4.89°→4.91° (better 37%)  trans 3.90→3.78mm (better 47%)
+05:47:44  INFO     box_motion_prod: (20, 4, 4) → sweeps/lift_relight_lr6/lf/box_motion_prod.npy
+sequences:  50%|█████     | 1/2 [01:06<01:06, 66.55s/seq, lf/box_motion_prod]sequences:  50%|█████     | 1/2 [01:06<01:06, 66.55s/seq, lf/shiny_box_tilt_prod]
+  frames:   0%|          | 0/17 [00:00<?, ?fr/s][A
+  frames:   0%|          | 0/17 [00:01<?, ?fr/s, fr=0, stage=separate][A
+  frames:   6%|▌         | 1/17 [00:01<00:31,  1.96s/fr, fr=0, stage=separate][A
+  frames:   6%|▌         | 1/17 [00:04<00:31,  1.96s/fr, fr=1, stage=separate][A
+  frames:   6%|▌         | 1/17 [00:04<00:31,  1.96s/fr, fr=1, stage=loftr]   [A
+  frames:   6%|▌         | 1/17 [00:05<00:31,  1.96s/fr, fr=1, stage=photometric][A  f  1: loftr  1.12°   5.86mm → refined  1.15°   6.49mm  | mean loftr 1.12°/5.9mm refined 1.15°/6.5mm  ↑rot ↑trans
+                                                                                 
+                                                                                 [Asequences:  50%|█████     | 1/2 [01:11<01:06, 66.55s/seq, lf/shiny_box_tilt_prod]
+  frames:   6%|▌         | 1/17 [00:05<00:31,  1.96s/fr, fr=1, stage=photometric][A
+  frames:  12%|█▏        | 2/17 [00:05<00:40,  2.73s/fr, fr=1, stage=photometric][A
+  frames:  12%|█▏        | 2/17 [00:07<00:40,  2.73s/fr, fr=2, stage=separate]   [A
+  frames:  12%|█▏        | 2/17 [00:07<00:40,  2.73s/fr, fr=2, stage=loftr]   [A
+  frames:  12%|█▏        | 2/17 [00:08<00:40,  2.73s/fr, fr=2, stage=photometric][A                                                                                 
+                                                                                 [A  f  2: loftr  2.75°  13.18mm → refined  2.64°  12.91mm  | mean loftr 1.94°/9.5mm refined 1.89°/9.7mm  
+sequences:  50%|█████     | 1/2 [01:15<01:06, 66.55s/seq, lf/shiny_box_tilt_prod]
+  frames:  12%|█▏        | 2/17 [00:08<00:40,  2.73s/fr, fr=2, stage=photometric][A
+  frames:  18%|█▊        | 3/17 [00:08<00:44,  3.17s/fr, fr=2, stage=photometric][A
+  frames:  18%|█▊        | 3/17 [00:11<00:44,  3.17s/fr, fr=3, stage=separate]   [A
+  frames:  18%|█▊        | 3/17 [00:11<00:44,  3.17s/fr, fr=3, stage=loftr]   [A
+  frames:  18%|█▊        | 3/17 [00:11<00:44,  3.17s/fr, fr=3, stage=photometric][A  f  3: loftr  4.35°  19.09mm → refined  4.92°  18.94mm  | mean loftr 2.74°/12.7mm refined 2.90°/12.8mm  ↑rot
+                                                                                 
+                                                                                 [Asequences:  50%|█████     | 1/2 [01:19<01:06, 66.55s/seq, lf/shiny_box_tilt_prod]
+  frames:  18%|█▊        | 3/17 [00:12<00:44,  3.17s/fr, fr=3, stage=photometric][A
+  frames:  24%|██▎       | 4/17 [00:12<00:44,  3.41s/fr, fr=3, stage=photometric][A
+  frames:  24%|██▎       | 4/17 [00:14<00:44,  3.41s/fr, fr=4, stage=separate]   [A
+  frames:  24%|██▎       | 4/17 [00:14<00:44,  3.41s/fr, fr=4, stage=loftr]   [A
+  frames:  24%|██▎       | 4/17 [00:15<00:44,  3.41s/fr, fr=4, stage=photometric][A  f  4: loftr  6.10°  25.33mm → refined  6.02°  24.96mm  | mean loftr 3.58°/15.9mm refined 3.68°/15.8mm  
+                                                                                 
+                                                                                 [Asequences:  50%|█████     | 1/2 [01:22<01:06, 66.55s/seq, lf/shiny_box_tilt_prod]
+  frames:  24%|██▎       | 4/17 [00:16<00:44,  3.41s/fr, fr=4, stage=photometric][A
+  frames:  29%|██▉       | 5/17 [00:16<00:41,  3.48s/fr, fr=4, stage=photometric][A
+  frames:  29%|██▉       | 5/17 [00:18<00:41,  3.48s/fr, fr=5, stage=separate]   [A
+  frames:  29%|██▉       | 5/17 [00:18<00:41,  3.48s/fr, fr=5, stage=loftr]   [A
+  frames:  29%|██▉       | 5/17 [00:19<00:41,  3.48s/fr, fr=5, stage=photometric][A                                                                                 
+                                                                                 [A  f  5: loftr  7.71°  30.77mm → refined  8.11°  30.49mm  | mean loftr 4.41°/18.8mm refined 4.57°/18.8mm  ↑rot
+sequences:  50%|█████     | 1/2 [01:26<01:06, 66.55s/seq, lf/shiny_box_tilt_prod]
+  frames:  29%|██▉       | 5/17 [00:19<00:41,  3.48s/fr, fr=5, stage=photometric][A
+  frames:  35%|███▌      | 6/17 [00:19<00:38,  3.49s/fr, fr=5, stage=photometric][A
+  frames:  35%|███▌      | 6/17 [00:22<00:38,  3.49s/fr, fr=6, stage=separate]   [A
+  frames:  35%|███▌      | 6/17 [00:22<00:38,  3.49s/fr, fr=6, stage=loftr]   [A
+  frames:  35%|███▌      | 6/17 [00:22<00:38,  3.49s/fr, fr=6, stage=photometric][A                                                                                 
+                                                                                 [A  f  6: loftr  9.08°  35.23mm → refined 10.40°  35.54mm  | mean loftr 5.18°/21.6mm refined 5.54°/21.6mm  ↑rot ↑trans
+sequences:  50%|█████     | 1/2 [01:30<01:06, 66.55s/seq, lf/shiny_box_tilt_prod]
+  frames:  35%|███▌      | 6/17 [00:23<00:38,  3.49s/fr, fr=6, stage=photometric][A
+  frames:  41%|████      | 7/17 [00:23<00:35,  3.58s/fr, fr=6, stage=photometric][A
+  frames:  41%|████      | 7/17 [00:25<00:35,  3.58s/fr, fr=7, stage=separate]   [A
+  frames:  41%|████      | 7/17 [00:25<00:35,  3.58s/fr, fr=7, stage=loftr]   [A
+  frames:  41%|████      | 7/17 [00:26<00:35,  3.58s/fr, fr=7, stage=photometric][A                                                                                 
+                                                                                 [A  f  7: loftr 11.74°  39.08mm → refined 11.68°  39.35mm  | mean loftr 6.12°/24.1mm refined 6.42°/24.1mm   ↑trans
+sequences:  50%|█████     | 1/2 [01:33<01:06, 66.55s/seq, lf/shiny_box_tilt_prod]
+  frames:  41%|████      | 7/17 [00:27<00:35,  3.58s/fr, fr=7, stage=photometric][A
+  frames:  47%|████▋     | 8/17 [00:27<00:32,  3.62s/fr, fr=7, stage=photometric][A
+  frames:  47%|████▋     | 8/17 [00:29<00:32,  3.62s/fr, fr=8, stage=separate]   [A
+  frames:  47%|████▋     | 8/17 [00:29<00:32,  3.62s/fr, fr=8, stage=loftr]   [A
+  frames:  47%|████▋     | 8/17 [00:29<00:32,  3.62s/fr, fr=8, stage=photometric][A                                                                                 
+                                                                                 [A  f  8: loftr 12.27°  32.89mm → refined 12.35°  32.85mm  | mean loftr 6.89°/25.2mm refined 7.16°/25.2mm  ↑rot
+sequences:  50%|█████     | 1/2 [01:37<01:06, 66.55s/seq, lf/shiny_box_tilt_prod]
+  frames:  47%|████▋     | 8/17 [00:30<00:32,  3.62s/fr, fr=8, stage=photometric][A
+  frames:  53%|█████▎    | 9/17 [00:30<00:29,  3.63s/fr, fr=8, stage=photometric][A
+  frames:  53%|█████▎    | 9/17 [00:33<00:29,  3.63s/fr, fr=9, stage=separate]   [A
+  frames:  53%|█████▎    | 9/17 [00:33<00:29,  3.63s/fr, fr=9, stage=loftr]   [A
+  frames:  53%|█████▎    | 9/17 [00:33<00:29,  3.63s/fr, fr=9, stage=photometric][A                                                                                 
+                                                                                 [A  f  9: loftr 13.88°  25.74mm → refined 13.09°  25.89mm  | mean loftr 7.67°/25.2mm refined 7.82°/25.3mm   ↑trans
+sequences:  50%|█████     | 1/2 [01:40<01:06, 66.55s/seq, lf/shiny_box_tilt_prod]
+  frames:  53%|█████▎    | 9/17 [00:34<00:29,  3.63s/fr, fr=9, stage=photometric][A
+  frames:  59%|█████▉    | 10/17 [00:34<00:25,  3.57s/fr, fr=9, stage=photometric][A
+  frames:  59%|█████▉    | 10/17 [00:36<00:25,  3.57s/fr, fr=10, stage=separate]  [A
+  frames:  59%|█████▉    | 10/17 [00:36<00:25,  3.57s/fr, fr=10, stage=loftr]   [A
+  frames:  59%|█████▉    | 10/17 [00:37<00:25,  3.57s/fr, fr=10, stage=photometric][A                                                                                 
+                                                                                   [A  f 10: loftr 14.29°  21.53mm → refined 14.08°  21.55mm  | mean loftr 8.33°/24.9mm refined 8.44°/24.9mm   ↑trans
+sequences:  50%|█████     | 1/2 [01:44<01:06, 66.55s/seq, lf/shiny_box_tilt_prod]
+  frames:  59%|█████▉    | 10/17 [00:38<00:25,  3.57s/fr, fr=10, stage=photometric][A
+  frames:  65%|██████▍   | 11/17 [00:38<00:21,  3.62s/fr, fr=10, stage=photometric][A
+  frames:  65%|██████▍   | 11/17 [00:40<00:21,  3.62s/fr, fr=11, stage=separate]   [A
+  frames:  65%|██████▍   | 11/17 [00:40<00:21,  3.62s/fr, fr=11, stage=loftr]   [A
+  frames:  65%|██████▍   | 11/17 [00:40<00:21,  3.62s/fr, fr=11, stage=photometric][A                                                                                 
+                                                                                   [A  f 11: loftr 15.80°  16.67mm → refined 14.51°  16.24mm  | mean loftr 9.01°/24.1mm refined 8.99°/24.1mm  
+sequences:  50%|█████     | 1/2 [01:48<01:06, 66.55s/seq, lf/shiny_box_tilt_prod]
+  frames:  65%|██████▍   | 11/17 [00:41<00:21,  3.62s/fr, fr=11, stage=photometric][A
+  frames:  71%|███████   | 12/17 [00:41<00:18,  3.66s/fr, fr=11, stage=photometric][A
+  frames:  71%|███████   | 12/17 [00:43<00:18,  3.66s/fr, fr=12, stage=separate]   [A
+  frames:  71%|███████   | 12/17 [00:43<00:18,  3.66s/fr, fr=12, stage=loftr]   [A
+  frames:  71%|███████   | 12/17 [00:44<00:18,  3.66s/fr, fr=12, stage=photometric][A                                                                                 
+                                                                                   [A  f 12: loftr 16.71°  12.04mm → refined 15.74°  11.61mm  | mean loftr 9.65°/23.1mm refined 9.56°/23.1mm  
+sequences:  50%|█████     | 1/2 [01:52<01:06, 66.55s/seq, lf/shiny_box_tilt_prod]
+  frames:  71%|███████   | 12/17 [00:45<00:18,  3.66s/fr, fr=12, stage=photometric][A
+  frames:  76%|███████▋  | 13/17 [00:45<00:14,  3.70s/fr, fr=12, stage=photometric][A
+  frames:  76%|███████▋  | 13/17 [00:47<00:14,  3.70s/fr, fr=13, stage=separate]   [A
+  frames:  76%|███████▋  | 13/17 [00:47<00:14,  3.70s/fr, fr=13, stage=loftr]   [A
+  frames:  76%|███████▋  | 13/17 [00:48<00:14,  3.70s/fr, fr=13, stage=photometric][A  f 13: loftr 18.10°   8.77mm → refined 16.96°   8.61mm  | mean loftr 10.30°/22.0mm refined 10.13°/22.0mm  
+                                                                                 
+                                                                                   [Asequences:  50%|█████     | 1/2 [01:55<01:06, 66.55s/seq, lf/shiny_box_tilt_prod]
+  frames:  76%|███████▋  | 13/17 [00:48<00:14,  3.70s/fr, fr=13, stage=photometric][A
+  frames:  82%|████████▏ | 14/17 [00:48<00:10,  3.51s/fr, fr=13, stage=photometric][A
+  frames:  82%|████████▏ | 14/17 [00:50<00:10,  3.51s/fr, fr=14, stage=separate]   [A
+  frames:  82%|████████▏ | 14/17 [00:50<00:10,  3.51s/fr, fr=14, stage=loftr]   [A
+  frames:  82%|████████▏ | 14/17 [00:51<00:10,  3.51s/fr, fr=14, stage=photometric][A  f 14: loftr 19.27°   5.97mm → refined 17.54°   5.35mm  | mean loftr 10.94°/20.9mm refined 10.65°/20.8mm  
+                                                                                 
+                                                                                   [Asequences:  50%|█████     | 1/2 [01:58<01:06, 66.55s/seq, lf/shiny_box_tilt_prod]
+  frames:  82%|████████▏ | 14/17 [00:52<00:10,  3.51s/fr, fr=14, stage=photometric][A
+  frames:  88%|████████▊ | 15/17 [00:52<00:07,  3.52s/fr, fr=14, stage=photometric][A
+  frames:  88%|████████▊ | 15/17 [00:54<00:07,  3.52s/fr, fr=15, stage=separate]   [A
+  frames:  88%|████████▊ | 15/17 [00:54<00:07,  3.52s/fr, fr=15, stage=loftr]   [A
+  frames:  88%|████████▊ | 15/17 [00:54<00:07,  3.52s/fr, fr=15, stage=photometric][A                                                                                 
+                                                                                   [A  f 15: loftr 15.28°   8.78mm → refined 15.50°   9.25mm  | mean loftr 11.23°/20.1mm refined 10.98°/20.0mm  ↑rot ↑trans
+sequences:  50%|█████     | 1/2 [02:02<01:06, 66.55s/seq, lf/shiny_box_tilt_prod]
+  frames:  88%|████████▊ | 15/17 [00:55<00:07,  3.52s/fr, fr=15, stage=photometric][A
+  frames:  94%|█████████▍| 16/17 [00:55<00:03,  3.43s/fr, fr=15, stage=photometric][A
+  frames:  94%|█████████▍| 16/17 [00:57<00:03,  3.43s/fr, fr=16, stage=separate]   [A
+  frames:  94%|█████████▍| 16/17 [00:57<00:03,  3.43s/fr, fr=16, stage=loftr]   [A
+  frames:  94%|█████████▍| 16/17 [00:58<00:03,  3.43s/fr, fr=16, stage=photometric][A                                                                                 
+                                                                                   [A  f 16: loftr 13.08°  18.13mm → refined 14.28°  19.60mm  | mean loftr 11.34°/19.9mm refined 11.18°/20.0mm  ↑rot ↑trans
+sequences:  50%|█████     | 1/2 [02:05<01:06, 66.55s/seq, lf/shiny_box_tilt_prod]
+  frames:  94%|█████████▍| 16/17 [00:59<00:03,  3.43s/fr, fr=16, stage=photometric][A
+  frames: 100%|██████████| 17/17 [00:59<00:00,  3.49s/fr, fr=16, stage=photometric][A
+                                                                                   [A05:48:43  INFO     shiny_box_tilt_prod: refine vs loftr — rot 11.34°→11.18° (better 56%)  trans 19.94→19.98mm (better 56%)
+05:48:43  INFO     shiny_box_tilt_prod: (17, 4, 4) → sweeps/lift_relight_lr6/lf/shiny_box_tilt_prod.npy
+sequences: 100%|██████████| 2/2 [02:05<00:00, 62.19s/seq, lf/shiny_box_tilt_prod]sequences: 100%|██████████| 2/2 [02:05<00:00, 62.84s/seq, lf/shiny_box_tilt_prod]
++ python -u main_lift.py --refine --gt-masks --depth lf --seqs shiny_box,box_motion --set refine.relight_conf_floor=0.05 --name sweeps/lift_relight_cf05
+05:48:47  INFO     sequences (2): box_motion_prod, shiny_box_tilt_prod
+05:48:47  INFO     refine=True  separation=True  depth=['lf']  stride=2  scale=1.00  alpha=est  → sweeps/lift_relight_cf05
+05:48:47  INFO     masks: GT (dataset)
+sequences:   0%|          | 0/2 [00:00<?, ?seq/s]sequences:   0%|          | 0/2 [00:00<?, ?seq/s, lf/box_motion_prod]
+  frames:   0%|          | 0/20 [00:00<?, ?fr/s][A
+  frames:   0%|          | 0/20 [00:01<?, ?fr/s, fr=0, stage=separate][A/usr/local/lib/python3.10/dist-packages/torch/functional.py:505: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at /pytorch/aten/src/ATen/native/TensorShape.cpp:4381.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+
+  frames:   5%|▌         | 1/20 [00:02<00:41,  2.20s/fr, fr=0, stage=separate][A
+  frames:   5%|▌         | 1/20 [00:04<00:41,  2.20s/fr, fr=1, stage=separate][A
+  frames:   5%|▌         | 1/20 [00:04<00:41,  2.20s/fr, fr=1, stage=loftr]   [A
+  frames:   5%|▌         | 1/20 [00:05<00:41,  2.20s/fr, fr=1, stage=photometric][A                                                                     
+                                                                                 [A  f  1: loftr  0.31°   1.57mm → refined  0.15°   0.26mm  | mean loftr 0.31°/1.6mm refined 0.15°/0.3mm  
+sequences:   0%|          | 0/2 [00:05<?, ?seq/s, lf/box_motion_prod]
+  frames:   5%|▌         | 1/20 [00:05<00:41,  2.20s/fr, fr=1, stage=photometric][A
+  frames:  10%|█         | 2/20 [00:05<00:50,  2.82s/fr, fr=1, stage=photometric][A
+  frames:  10%|█         | 2/20 [00:07<00:50,  2.82s/fr, fr=2, stage=separate]   [A
+  frames:  10%|█         | 2/20 [00:07<00:50,  2.82s/fr, fr=2, stage=loftr]   [A
+  frames:  10%|█         | 2/20 [00:08<00:50,  2.82s/fr, fr=2, stage=photometric][A                                                                     
+                                                                                 [A  f  2: loftr  0.72°   0.72mm → refined  0.73°   0.45mm  | mean loftr 0.51°/1.1mm refined 0.44°/0.4mm  ↑rot
+sequences:   0%|          | 0/2 [00:08<?, ?seq/s, lf/box_motion_prod]
+  frames:  10%|█         | 2/20 [00:08<00:50,  2.82s/fr, fr=2, stage=photometric][A
+  frames:  15%|█▌        | 3/20 [00:08<00:51,  3.04s/fr, fr=2, stage=photometric][A
+  frames:  15%|█▌        | 3/20 [00:10<00:51,  3.04s/fr, fr=3, stage=separate]   [A
+  frames:  15%|█▌        | 3/20 [00:10<00:51,  3.04s/fr, fr=3, stage=loftr]   [A
+  frames:  15%|█▌        | 3/20 [00:11<00:51,  3.04s/fr, fr=3, stage=photometric][A                                                                     
+                                                                                 [A  f  3: loftr  1.63°   0.64mm → refined  2.14°   0.78mm  | mean loftr 0.89°/1.0mm refined 1.01°/0.5mm  ↑rot ↑trans
+sequences:   0%|          | 0/2 [00:12<?, ?seq/s, lf/box_motion_prod]
+  frames:  15%|█▌        | 3/20 [00:12<00:51,  3.04s/fr, fr=3, stage=photometric][A
+  frames:  20%|██        | 4/20 [00:12<00:51,  3.23s/fr, fr=3, stage=photometric][A
+  frames:  20%|██        | 4/20 [00:14<00:51,  3.23s/fr, fr=4, stage=separate]   [A
+  frames:  20%|██        | 4/20 [00:14<00:51,  3.23s/fr, fr=4, stage=loftr]   [A
+  frames:  20%|██        | 4/20 [00:14<00:51,  3.23s/fr, fr=4, stage=photometric][A  f  4: loftr  2.72°   1.43mm → refined  2.81°   1.30mm  | mean loftr 1.35°/1.1mm refined 1.46°/0.7mm  ↑rot
+                                                                     
+                                                                                 [Asequences:   0%|          | 0/2 [00:15<?, ?seq/s, lf/box_motion_prod]
+  frames:  20%|██        | 4/20 [00:15<00:51,  3.23s/fr, fr=4, stage=photometric][A
+  frames:  25%|██▌       | 5/20 [00:15<00:48,  3.25s/fr, fr=4, stage=photometric][A
+  frames:  25%|██▌       | 5/20 [00:17<00:48,  3.25s/fr, fr=5, stage=separate]   [A
+  frames:  25%|██▌       | 5/20 [00:17<00:48,  3.25s/fr, fr=5, stage=loftr]   [A
+  frames:  25%|██▌       | 5/20 [00:18<00:48,  3.25s/fr, fr=5, stage=photometric][A  f  5: loftr  2.78°   2.34mm → refined  2.80°   1.86mm  | mean loftr 1.63°/1.3mm refined 1.73°/0.9mm  ↑rot
+                                                                     
+                                                                                 [Asequences:   0%|          | 0/2 [00:18<?, ?seq/s, lf/box_motion_prod]
+  frames:  25%|██▌       | 5/20 [00:18<00:48,  3.25s/fr, fr=5, stage=photometric][A
+  frames:  30%|███       | 6/20 [00:18<00:45,  3.26s/fr, fr=5, stage=photometric][A
+  frames:  30%|███       | 6/20 [00:20<00:45,  3.26s/fr, fr=6, stage=separate]   [A
+  frames:  30%|███       | 6/20 [00:20<00:45,  3.26s/fr, fr=6, stage=loftr]   [A
+  frames:  30%|███       | 6/20 [00:21<00:45,  3.26s/fr, fr=6, stage=photometric][A                                                                     
+                                                                                 [A  f  6: loftr  2.95°   1.77mm → refined  3.29°   2.32mm  | mean loftr 1.85°/1.4mm refined 1.99°/1.2mm  ↑rot ↑trans
+sequences:   0%|          | 0/2 [00:22<?, ?seq/s, lf/box_motion_prod]
+  frames:  30%|███       | 6/20 [00:22<00:45,  3.26s/fr, fr=6, stage=photometric][A
+  frames:  35%|███▌      | 7/20 [00:22<00:42,  3.30s/fr, fr=6, stage=photometric][A
+  frames:  35%|███▌      | 7/20 [00:24<00:42,  3.30s/fr, fr=7, stage=separate]   [A
+  frames:  35%|███▌      | 7/20 [00:24<00:42,  3.30s/fr, fr=7, stage=loftr]   [A
+  frames:  35%|███▌      | 7/20 [00:24<00:42,  3.30s/fr, fr=7, stage=photometric][A  f  7: loftr  3.96°   2.14mm → refined  3.55°   2.56mm  | mean loftr 2.15°/1.5mm refined 2.21°/1.4mm   ↑trans
+                                                                     
+                                                                                 [Asequences:   0%|          | 0/2 [00:25<?, ?seq/s, lf/box_motion_prod]
+  frames:  35%|███▌      | 7/20 [00:25<00:42,  3.30s/fr, fr=7, stage=photometric][A
+  frames:  40%|████      | 8/20 [00:25<00:39,  3.30s/fr, fr=7, stage=photometric][A
+  frames:  40%|████      | 8/20 [00:27<00:39,  3.30s/fr, fr=8, stage=separate]   [A
+  frames:  40%|████      | 8/20 [00:27<00:39,  3.30s/fr, fr=8, stage=loftr]   [A
+  frames:  40%|████      | 8/20 [00:28<00:39,  3.30s/fr, fr=8, stage=photometric][A  f  8: loftr  4.31°   2.54mm → refined  3.93°   2.70mm  | mean loftr 2.42°/1.6mm refined 2.43°/1.5mm   ↑trans
+                                                                     
+                                                                                 [Asequences:   0%|          | 0/2 [00:28<?, ?seq/s, lf/box_motion_prod]
+  frames:  40%|████      | 8/20 [00:28<00:39,  3.30s/fr, fr=8, stage=photometric][A
+  frames:  45%|████▌     | 9/20 [00:28<00:36,  3.31s/fr, fr=8, stage=photometric][A
+  frames:  45%|████▌     | 9/20 [00:30<00:36,  3.31s/fr, fr=9, stage=separate]   [A
+  frames:  45%|████▌     | 9/20 [00:30<00:36,  3.31s/fr, fr=9, stage=loftr]   [A
+  frames:  45%|████▌     | 9/20 [00:31<00:36,  3.31s/fr, fr=9, stage=photometric][A                                                                     
+                                                                                 [A  f  9: loftr  4.90°   3.21mm → refined  4.90°   3.21mm  | mean loftr 2.70°/1.8mm refined 2.70°/1.7mm  
+sequences:   0%|          | 0/2 [00:32<?, ?seq/s, lf/box_motion_prod]
+  frames:  45%|████▌     | 9/20 [00:32<00:36,  3.31s/fr, fr=9, stage=photometric][A
+  frames:  50%|█████     | 10/20 [00:32<00:32,  3.28s/fr, fr=9, stage=photometric][A
+  frames:  50%|█████     | 10/20 [00:33<00:32,  3.28s/fr, fr=10, stage=separate]  [A
+  frames:  50%|█████     | 10/20 [00:34<00:32,  3.28s/fr, fr=10, stage=loftr]   [A
+  frames:  50%|█████     | 10/20 [00:34<00:32,  3.28s/fr, fr=10, stage=photometric][A                                                                     
+                                                                                   [A  f 10: loftr  5.80°   2.92mm → refined  5.55°   3.07mm  | mean loftr 3.01°/1.9mm refined 2.99°/1.9mm   ↑trans
+sequences:   0%|          | 0/2 [00:35<?, ?seq/s, lf/box_motion_prod]
+  frames:  50%|█████     | 10/20 [00:35<00:32,  3.28s/fr, fr=10, stage=photometric][A
+  frames:  55%|█████▌    | 11/20 [00:35<00:29,  3.32s/fr, fr=10, stage=photometric][A
+  frames:  55%|█████▌    | 11/20 [00:37<00:29,  3.32s/fr, fr=11, stage=separate]   [A
+  frames:  55%|█████▌    | 11/20 [00:37<00:29,  3.32s/fr, fr=11, stage=loftr]   [A
+  frames:  55%|█████▌    | 11/20 [00:38<00:29,  3.32s/fr, fr=11, stage=photometric][A                                                                     
+                                                                                   [A  f 11: loftr  5.86°   3.56mm → refined  5.86°   3.56mm  | mean loftr 3.27°/2.1mm refined 3.25°/2.0mm  ↑rot
+sequences:   0%|          | 0/2 [00:38<?, ?seq/s, lf/box_motion_prod]
+  frames:  55%|█████▌    | 11/20 [00:38<00:29,  3.32s/fr, fr=11, stage=photometric][A
+  frames:  60%|██████    | 12/20 [00:38<00:26,  3.30s/fr, fr=11, stage=photometric][A
+  frames:  60%|██████    | 12/20 [00:40<00:26,  3.30s/fr, fr=12, stage=separate]   [A
+  frames:  60%|██████    | 12/20 [00:40<00:26,  3.30s/fr, fr=12, stage=loftr]   [A
+  frames:  60%|██████    | 12/20 [00:41<00:26,  3.30s/fr, fr=12, stage=photometric][A                                                                     
+                                                                                   [A  f 12: loftr  6.47°   4.18mm → refined  6.76°   4.27mm  | mean loftr 3.54°/2.3mm refined 3.54°/2.2mm  ↑rot ↑trans
+sequences:   0%|          | 0/2 [00:42<?, ?seq/s, lf/box_motion_prod]
+  frames:  60%|██████    | 12/20 [00:42<00:26,  3.30s/fr, fr=12, stage=photometric][A
+  frames:  65%|██████▌   | 13/20 [00:42<00:23,  3.29s/fr, fr=12, stage=photometric][A
+  frames:  65%|██████▌   | 13/20 [00:43<00:23,  3.29s/fr, fr=13, stage=separate]   [A
+  frames:  65%|██████▌   | 13/20 [00:43<00:23,  3.29s/fr, fr=13, stage=loftr]   [A
+  frames:  65%|██████▌   | 13/20 [00:44<00:23,  3.29s/fr, fr=13, stage=photometric][A                                                                     
+                                                                                   [A  f 13: loftr  7.23°   5.17mm → refined  6.80°   5.36mm  | mean loftr 3.82°/2.5mm refined 3.79°/2.4mm   ↑trans
+sequences:   0%|          | 0/2 [00:45<?, ?seq/s, lf/box_motion_prod]
+  frames:  65%|██████▌   | 13/20 [00:45<00:23,  3.29s/fr, fr=13, stage=photometric][A
+  frames:  70%|███████   | 14/20 [00:45<00:19,  3.28s/fr, fr=13, stage=photometric][A
+  frames:  70%|███████   | 14/20 [00:47<00:19,  3.28s/fr, fr=14, stage=separate]   [A
+  frames:  70%|███████   | 14/20 [00:47<00:19,  3.28s/fr, fr=14, stage=loftr]   [A
+  frames:  70%|███████   | 14/20 [00:48<00:19,  3.28s/fr, fr=14, stage=photometric][A                                                                     
+                                                                                   [A  f 14: loftr  7.14°   4.92mm → refined  7.07°   5.29mm  | mean loftr 4.06°/2.7mm refined 4.02°/2.6mm   ↑trans
+sequences:   0%|          | 0/2 [00:48<?, ?seq/s, lf/box_motion_prod]
+  frames:  70%|███████   | 14/20 [00:48<00:19,  3.28s/fr, fr=14, stage=photometric][A
+  frames:  75%|███████▌  | 15/20 [00:48<00:16,  3.32s/fr, fr=14, stage=photometric][A
+  frames:  75%|███████▌  | 15/20 [00:50<00:16,  3.32s/fr, fr=15, stage=separate]   [A
+  frames:  75%|███████▌  | 15/20 [00:50<00:16,  3.32s/fr, fr=15, stage=loftr]   [A
+  frames:  75%|███████▌  | 15/20 [00:51<00:16,  3.32s/fr, fr=15, stage=photometric][A                                                                     
+                                                                                   [A  f 15: loftr  7.01°   5.06mm → refined  7.20°   5.27mm  | mean loftr 4.25°/2.8mm refined 4.24°/2.8mm  ↑rot ↑trans
+sequences:   0%|          | 0/2 [00:52<?, ?seq/s, lf/box_motion_prod]
+  frames:  75%|███████▌  | 15/20 [00:52<00:16,  3.32s/fr, fr=15, stage=photometric][A
+  frames:  80%|████████  | 16/20 [00:52<00:13,  3.41s/fr, fr=15, stage=photometric][A
+  frames:  80%|████████  | 16/20 [00:54<00:13,  3.41s/fr, fr=16, stage=separate]   [A
+  frames:  80%|████████  | 16/20 [00:54<00:13,  3.41s/fr, fr=16, stage=loftr]   [A
+  frames:  80%|████████  | 16/20 [00:55<00:13,  3.41s/fr, fr=16, stage=photometric][A                                                                     
+                                                                                   [A  f 16: loftr  6.99°   5.87mm → refined  7.53°   5.85mm  | mean loftr 4.42°/3.0mm refined 4.44°/3.0mm  ↑rot
+sequences:   0%|          | 0/2 [00:55<?, ?seq/s, lf/box_motion_prod]
+  frames:  80%|████████  | 16/20 [00:55<00:13,  3.41s/fr, fr=16, stage=photometric][A
+  frames:  85%|████████▌ | 17/20 [00:55<00:10,  3.38s/fr, fr=16, stage=photometric][A
+  frames:  85%|████████▌ | 17/20 [00:57<00:10,  3.38s/fr, fr=17, stage=separate]   [A
+  frames:  85%|████████▌ | 17/20 [00:57<00:10,  3.38s/fr, fr=17, stage=loftr]   [A
+  frames:  85%|████████▌ | 17/20 [00:58<00:10,  3.38s/fr, fr=17, stage=photometric][A                                                                     
+                                                                                   [A  f 17: loftr  7.20°   6.53mm → refined  7.58°   6.53mm  | mean loftr 4.59°/3.2mm refined 4.63°/3.2mm  ↑rot
+sequences:   0%|          | 0/2 [00:59<?, ?seq/s, lf/box_motion_prod]
+  frames:  85%|████████▌ | 17/20 [00:59<00:10,  3.38s/fr, fr=17, stage=photometric][A
+  frames:  90%|█████████ | 18/20 [00:59<00:06,  3.41s/fr, fr=17, stage=photometric][A
+  frames:  90%|█████████ | 18/20 [01:00<00:06,  3.41s/fr, fr=18, stage=separate]   [A
+  frames:  90%|█████████ | 18/20 [01:00<00:06,  3.41s/fr, fr=18, stage=loftr]   [A
+  frames:  90%|█████████ | 18/20 [01:01<00:06,  3.41s/fr, fr=18, stage=photometric][A                                                                     
+                                                                                   [A  f 18: loftr  7.73°   7.89mm → refined  7.99°   7.50mm  | mean loftr 4.76°/3.5mm refined 4.81°/3.5mm  ↑rot
+sequences:   0%|          | 0/2 [01:02<?, ?seq/s, lf/box_motion_prod]
+  frames:  90%|█████████ | 18/20 [01:02<00:06,  3.41s/fr, fr=18, stage=photometric][A
+  frames:  95%|█████████▌| 19/20 [01:02<00:03,  3.40s/fr, fr=18, stage=photometric][A
+  frames:  95%|█████████▌| 19/20 [01:04<00:03,  3.40s/fr, fr=19, stage=separate]   [A
+  frames:  95%|█████████▌| 19/20 [01:04<00:03,  3.40s/fr, fr=19, stage=loftr]   [A
+  frames:  95%|█████████▌| 19/20 [01:05<00:03,  3.40s/fr, fr=19, stage=photometric][A                                                                     
+                                                                                   [A  f 19: loftr  9.80°   8.19mm → refined  9.21°   8.22mm  | mean loftr 5.03°/3.7mm refined 5.04°/3.7mm   ↑trans
+sequences:   0%|          | 0/2 [01:05<?, ?seq/s, lf/box_motion_prod]
+  frames:  95%|█████████▌| 19/20 [01:05<00:03,  3.40s/fr, fr=19, stage=photometric][A
+  frames: 100%|██████████| 20/20 [01:05<00:00,  3.44s/fr, fr=19, stage=photometric][A
+                                                                                   [A05:49:54  INFO     box_motion_prod: refine vs loftr — rot 5.03°→5.04° (better 37%)  trans 3.72→3.70mm (better 42%)
+05:49:54  INFO     box_motion_prod: (20, 4, 4) → sweeps/lift_relight_cf05/lf/box_motion_prod.npy
+sequences:  50%|█████     | 1/2 [01:06<01:06, 66.01s/seq, lf/box_motion_prod]sequences:  50%|█████     | 1/2 [01:06<01:06, 66.01s/seq, lf/shiny_box_tilt_prod]
+  frames:   0%|          | 0/17 [00:00<?, ?fr/s][A
+  frames:   0%|          | 0/17 [00:01<?, ?fr/s, fr=0, stage=separate][A
+  frames:   6%|▌         | 1/17 [00:01<00:30,  1.91s/fr, fr=0, stage=separate][A
+  frames:   6%|▌         | 1/17 [00:04<00:30,  1.91s/fr, fr=1, stage=separate][A
+  frames:   6%|▌         | 1/17 [00:04<00:30,  1.91s/fr, fr=1, stage=loftr]   [A
+  frames:   6%|▌         | 1/17 [00:04<00:30,  1.91s/fr, fr=1, stage=photometric][A  f  1: loftr  1.12°   5.86mm → refined  1.14°   6.48mm  | mean loftr 1.12°/5.9mm refined 1.14°/6.5mm  ↑rot ↑trans
+                                                                                 
+                                                                                 [Asequences:  50%|█████     | 1/2 [01:10<01:06, 66.01s/seq, lf/shiny_box_tilt_prod]
+  frames:   6%|▌         | 1/17 [00:04<00:30,  1.91s/fr, fr=1, stage=photometric][A
+  frames:  12%|█▏        | 2/17 [00:04<00:36,  2.47s/fr, fr=1, stage=photometric][A
+  frames:  12%|█▏        | 2/17 [00:06<00:36,  2.47s/fr, fr=2, stage=separate]   [A
+  frames:  12%|█▏        | 2/17 [00:06<00:36,  2.47s/fr, fr=2, stage=loftr]   [A
+  frames:  12%|█▏        | 2/17 [00:07<00:36,  2.47s/fr, fr=2, stage=photometric][A  f  2: loftr  2.76°  13.17mm → refined  2.65°  12.91mm  | mean loftr 1.94°/9.5mm refined 1.89°/9.7mm  
+                                                                                 
+                                                                                 [Asequences:  50%|█████     | 1/2 [01:14<01:06, 66.01s/seq, lf/shiny_box_tilt_prod]
+  frames:  12%|█▏        | 2/17 [00:08<00:36,  2.47s/fr, fr=2, stage=photometric][A
+  frames:  18%|█▊        | 3/17 [00:08<00:39,  2.86s/fr, fr=2, stage=photometric][A
+  frames:  18%|█▊        | 3/17 [00:10<00:39,  2.86s/fr, fr=3, stage=separate]   [A
+  frames:  18%|█▊        | 3/17 [00:10<00:39,  2.86s/fr, fr=3, stage=loftr]   [A
+  frames:  18%|█▊        | 3/17 [00:10<00:39,  2.86s/fr, fr=3, stage=photometric][A                                                                                 
+                                                                                 [A  f  3: loftr  4.36°  19.09mm → refined  5.10°  19.01mm  | mean loftr 2.75°/12.7mm refined 2.96°/12.8mm  ↑rot
+sequences:  50%|█████     | 1/2 [01:17<01:06, 66.01s/seq, lf/shiny_box_tilt_prod]
+  frames:  18%|█▊        | 3/17 [00:11<00:39,  2.86s/fr, fr=3, stage=photometric][A
+  frames:  24%|██▎       | 4/17 [00:11<00:39,  3.04s/fr, fr=3, stage=photometric][A
+  frames:  24%|██▎       | 4/17 [00:13<00:39,  3.04s/fr, fr=4, stage=separate]   [A
+  frames:  24%|██▎       | 4/17 [00:13<00:39,  3.04s/fr, fr=4, stage=loftr]   [A
+  frames:  24%|██▎       | 4/17 [00:14<00:39,  3.04s/fr, fr=4, stage=photometric][A                                                                                 
+                                                                                 [A  f  4: loftr  6.28°  25.40mm → refined  6.08°  25.18mm  | mean loftr 3.63°/15.9mm refined 3.74°/15.9mm  
+sequences:  50%|█████     | 1/2 [01:20<01:06, 66.01s/seq, lf/shiny_box_tilt_prod]
+  frames:  24%|██▎       | 4/17 [00:14<00:39,  3.04s/fr, fr=4, stage=photometric][A
+  frames:  29%|██▉       | 5/17 [00:14<00:37,  3.13s/fr, fr=4, stage=photometric][A
+  frames:  29%|██▉       | 5/17 [00:16<00:37,  3.13s/fr, fr=5, stage=separate]   [A
+  frames:  29%|██▉       | 5/17 [00:16<00:37,  3.13s/fr, fr=5, stage=loftr]   [A
+  frames:  29%|██▉       | 5/17 [00:17<00:37,  3.13s/fr, fr=5, stage=photometric][A                                                                                 
+                                                                                 [A  f  5: loftr  7.74°  31.00mm → refined  8.19°  30.72mm  | mean loftr 4.45°/18.9mm refined 4.63°/18.9mm  ↑rot
+sequences:  50%|█████     | 1/2 [01:24<01:06, 66.01s/seq, lf/shiny_box_tilt_prod]
+  frames:  29%|██▉       | 5/17 [00:18<00:37,  3.13s/fr, fr=5, stage=photometric][A
+  frames:  35%|███▌      | 6/17 [00:18<00:36,  3.29s/fr, fr=5, stage=photometric][A
+  frames:  35%|███▌      | 6/17 [00:20<00:36,  3.29s/fr, fr=6, stage=separate]   [A
+  frames:  35%|███▌      | 6/17 [00:20<00:36,  3.29s/fr, fr=6, stage=loftr]   [A
+  frames:  35%|███▌      | 6/17 [00:21<00:36,  3.29s/fr, fr=6, stage=photometric][A                                                                                 
+                                                                                 [A  f  6: loftr  9.14°  35.49mm → refined 10.47°  35.77mm  | mean loftr 5.23°/21.7mm refined 5.61°/21.7mm  ↑rot ↑trans
+sequences:  50%|█████     | 1/2 [01:27<01:06, 66.01s/seq, lf/shiny_box_tilt_prod]
+  frames:  35%|███▌      | 6/17 [00:21<00:36,  3.29s/fr, fr=6, stage=photometric][A
+  frames:  41%|████      | 7/17 [00:21<00:33,  3.39s/fr, fr=6, stage=photometric][A
+  frames:  41%|████      | 7/17 [00:23<00:33,  3.39s/fr, fr=7, stage=separate]   [A
+  frames:  41%|████      | 7/17 [00:23<00:33,  3.39s/fr, fr=7, stage=loftr]   [A
+  frames:  41%|████      | 7/17 [00:24<00:33,  3.39s/fr, fr=7, stage=photometric][A                                                                                 
+                                                                                 [A  f  7: loftr 11.78°  39.34mm → refined 11.69°  40.09mm  | mean loftr 6.17°/24.2mm refined 6.47°/24.3mm   ↑trans
+sequences:  50%|█████     | 1/2 [01:31<01:06, 66.01s/seq, lf/shiny_box_tilt_prod]
+  frames:  41%|████      | 7/17 [00:25<00:33,  3.39s/fr, fr=7, stage=photometric][A
+  frames:  47%|████▋     | 8/17 [00:25<00:30,  3.36s/fr, fr=7, stage=photometric][A
+  frames:  47%|████▋     | 8/17 [00:27<00:30,  3.36s/fr, fr=8, stage=separate]   [A
+  frames:  47%|████▋     | 8/17 [00:27<00:30,  3.36s/fr, fr=8, stage=loftr]   [A
+  frames:  47%|████▋     | 8/17 [00:27<00:30,  3.36s/fr, fr=8, stage=photometric][A                                                                                 
+                                                                                 [A  f  8: loftr 12.25°  33.62mm → refined 12.33°  33.58mm  | mean loftr 6.93°/25.4mm refined 7.21°/25.5mm  ↑rot
+sequences:  50%|█████     | 1/2 [01:34<01:06, 66.01s/seq, lf/shiny_box_tilt_prod]
+  frames:  47%|████▋     | 8/17 [00:28<00:30,  3.36s/fr, fr=8, stage=photometric][A
+  frames:  53%|█████▎    | 9/17 [00:28<00:26,  3.34s/fr, fr=8, stage=photometric][A
+  frames:  53%|█████▎    | 9/17 [00:30<00:26,  3.34s/fr, fr=9, stage=separate]   [A
+  frames:  53%|█████▎    | 9/17 [00:30<00:26,  3.34s/fr, fr=9, stage=loftr]   [A
+  frames:  53%|█████▎    | 9/17 [00:31<00:26,  3.34s/fr, fr=9, stage=photometric][A                                                                                 
+                                                                                 [A  f  9: loftr 13.85°  26.47mm → refined 13.06°  26.63mm  | mean loftr 7.70°/25.5mm refined 7.86°/25.6mm   ↑trans
+sequences:  50%|█████     | 1/2 [01:37<01:06, 66.01s/seq, lf/shiny_box_tilt_prod]
+  frames:  53%|█████▎    | 9/17 [00:31<00:26,  3.34s/fr, fr=9, stage=photometric][A
+  frames:  59%|█████▉    | 10/17 [00:31<00:23,  3.34s/fr, fr=9, stage=photometric][A
+  frames:  59%|█████▉    | 10/17 [00:33<00:23,  3.34s/fr, fr=10, stage=separate]  [A
+  frames:  59%|█████▉    | 10/17 [00:34<00:23,  3.34s/fr, fr=10, stage=loftr]   [A
+  frames:  59%|█████▉    | 10/17 [00:34<00:23,  3.34s/fr, fr=10, stage=photometric][A                                                                                 
+                                                                                   [A  f 10: loftr 14.22°  22.27mm → refined 14.00°  22.33mm  | mean loftr 8.35°/25.2mm refined 8.47°/25.3mm   ↑trans
+sequences:  50%|█████     | 1/2 [01:41<01:06, 66.01s/seq, lf/shiny_box_tilt_prod]
+  frames:  59%|█████▉    | 10/17 [00:35<00:23,  3.34s/fr, fr=10, stage=photometric][A
+  frames:  65%|██████▍   | 11/17 [00:35<00:20,  3.36s/fr, fr=10, stage=photometric][A
+  frames:  65%|██████▍   | 11/17 [00:37<00:20,  3.36s/fr, fr=11, stage=separate]   [A
+  frames:  65%|██████▍   | 11/17 [00:37<00:20,  3.36s/fr, fr=11, stage=loftr]   [A
+  frames:  65%|██████▍   | 11/17 [00:38<00:20,  3.36s/fr, fr=11, stage=photometric][A                                                                                 
+                                                                                   [A  f 11: loftr 15.71°  17.44mm → refined 14.60°  17.41mm  | mean loftr 9.02°/24.5mm refined 9.03°/24.6mm  
+sequences:  50%|█████     | 1/2 [01:44<01:06, 66.01s/seq, lf/shiny_box_tilt_prod]
+  frames:  65%|██████▍   | 11/17 [00:38<00:20,  3.36s/fr, fr=11, stage=photometric][A
+  frames:  71%|███████   | 12/17 [00:38<00:16,  3.37s/fr, fr=11, stage=photometric][A
+  frames:  71%|███████   | 12/17 [00:40<00:16,  3.37s/fr, fr=12, stage=separate]   [A
+  frames:  71%|███████   | 12/17 [00:40<00:16,  3.37s/fr, fr=12, stage=loftr]   [A
+  frames:  71%|███████   | 12/17 [00:41<00:16,  3.37s/fr, fr=12, stage=photometric][A                                                                                 
+                                                                                   [A  f 12: loftr 16.78°  13.22mm → refined 15.81°  12.81mm  | mean loftr 9.67°/23.5mm refined 9.59°/23.6mm  
+sequences:  50%|█████     | 1/2 [01:47<01:06, 66.01s/seq, lf/shiny_box_tilt_prod]
+  frames:  71%|███████   | 12/17 [00:41<00:16,  3.37s/fr, fr=12, stage=photometric][A
+  frames:  76%|███████▋  | 13/17 [00:41<00:13,  3.33s/fr, fr=12, stage=photometric][A
+  frames:  76%|███████▋  | 13/17 [00:43<00:13,  3.33s/fr, fr=13, stage=separate]   [A
+  frames:  76%|███████▋  | 13/17 [00:43<00:13,  3.33s/fr, fr=13, stage=loftr]   [A
+  frames:  76%|███████▋  | 13/17 [00:44<00:13,  3.33s/fr, fr=13, stage=photometric][A                                                                                 
+                                                                                   [A  f 13: loftr 18.15°   9.99mm → refined 16.92°   9.74mm  | mean loftr 10.32°/22.5mm refined 10.16°/22.5mm  
+sequences:  50%|█████     | 1/2 [01:50<01:06, 66.01s/seq, lf/shiny_box_tilt_prod]
+  frames:  76%|███████▋  | 13/17 [00:44<00:13,  3.33s/fr, fr=13, stage=photometric][A
+  frames:  82%|████████▏ | 14/17 [00:44<00:09,  3.26s/fr, fr=13, stage=photometric][A
+  frames:  82%|████████▏ | 14/17 [00:46<00:09,  3.26s/fr, fr=14, stage=separate]   [A
+  frames:  82%|████████▏ | 14/17 [00:46<00:09,  3.26s/fr, fr=14, stage=loftr]   [A
+  frames:  82%|████████▏ | 14/17 [00:47<00:09,  3.26s/fr, fr=14, stage=photometric][A                                                                                 
+                                                                                   [A  f 14: loftr 19.19°   7.18mm → refined 17.48°   6.64mm  | mean loftr 10.95°/21.4mm refined 10.68°/21.4mm  
+sequences:  50%|█████     | 1/2 [01:54<01:06, 66.01s/seq, lf/shiny_box_tilt_prod]
+  frames:  82%|████████▏ | 14/17 [00:48<00:09,  3.26s/fr, fr=14, stage=photometric][A
+  frames:  88%|████████▊ | 15/17 [00:48<00:06,  3.24s/fr, fr=14, stage=photometric][A
+  frames:  88%|████████▊ | 15/17 [00:49<00:06,  3.24s/fr, fr=15, stage=separate]   [A
+  frames:  88%|████████▊ | 15/17 [00:49<00:06,  3.24s/fr, fr=15, stage=loftr]   [A
+  frames:  88%|████████▊ | 15/17 [00:50<00:06,  3.24s/fr, fr=15, stage=photometric][A                                                                                 
+                                                                                   [A  f 15: loftr 15.29°  10.04mm → refined 15.60°  10.93mm  | mean loftr 11.24°/20.6mm refined 11.01°/20.7mm  ↑rot ↑trans
+sequences:  50%|█████     | 1/2 [01:57<01:06, 66.01s/seq, lf/shiny_box_tilt_prod]
+  frames:  88%|████████▊ | 15/17 [00:51<00:06,  3.24s/fr, fr=15, stage=photometric][A
+  frames:  94%|█████████▍| 16/17 [00:51<00:03,  3.22s/fr, fr=15, stage=photometric][A
+  frames:  94%|█████████▍| 16/17 [00:53<00:03,  3.22s/fr, fr=16, stage=separate]   [A
+  frames:  94%|█████████▍| 16/17 [00:53<00:03,  3.22s/fr, fr=16, stage=loftr]   [A
+  frames:  94%|█████████▍| 16/17 [00:54<00:03,  3.22s/fr, fr=16, stage=photometric][A  f 16: loftr 13.25°  19.72mm → refined 14.39°  21.18mm  | mean loftr 11.37°/20.6mm refined 11.22°/20.7mm  ↑rot ↑trans
+                                                                                 
+                                                                                   [Asequences:  50%|█████     | 1/2 [02:00<01:06, 66.01s/seq, lf/shiny_box_tilt_prod]
+  frames:  94%|█████████▍| 16/17 [00:54<00:03,  3.22s/fr, fr=16, stage=photometric][A
+  frames: 100%|██████████| 17/17 [00:54<00:00,  3.25s/fr, fr=16, stage=photometric][A
+                                                                                   [A05:50:48  INFO     shiny_box_tilt_prod: refine vs loftr — rot 11.37°→11.22° (better 56%)  trans 20.58→20.71mm (better 56%)
+05:50:48  INFO     shiny_box_tilt_prod: (17, 4, 4) → sweeps/lift_relight_cf05/lf/shiny_box_tilt_prod.npy
+sequences: 100%|██████████| 2/2 [02:00<00:00, 59.34s/seq, lf/shiny_box_tilt_prod]sequences: 100%|██████████| 2/2 [02:00<00:00, 60.34s/seq, lf/shiny_box_tilt_prod]
++ python -u main_lift.py --refine --gt-masks --depth lf --seqs shiny_box,box_motion --set refine.relight_feed_forward=true --name sweeps/lift_relight_ff
+05:50:52  INFO     sequences (2): box_motion_prod, shiny_box_tilt_prod
+05:50:52  INFO     refine=True  separation=True  depth=['lf']  stride=2  scale=1.00  alpha=est  → sweeps/lift_relight_ff
+05:50:52  INFO     masks: GT (dataset)
+sequences:   0%|          | 0/2 [00:00<?, ?seq/s]sequences:   0%|          | 0/2 [00:00<?, ?seq/s, lf/box_motion_prod]
+  frames:   0%|          | 0/20 [00:00<?, ?fr/s][A
+  frames:   0%|          | 0/20 [00:02<?, ?fr/s, fr=0, stage=separate][A/usr/local/lib/python3.10/dist-packages/torch/functional.py:505: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at /pytorch/aten/src/ATen/native/TensorShape.cpp:4381.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+
+  frames:   5%|▌         | 1/20 [00:02<00:44,  2.36s/fr, fr=0, stage=separate][A
+  frames:   5%|▌         | 1/20 [00:04<00:44,  2.36s/fr, fr=1, stage=separate][A
+  frames:   5%|▌         | 1/20 [00:04<00:44,  2.36s/fr, fr=1, stage=loftr]   [A
+  frames:   5%|▌         | 1/20 [00:05<00:44,  2.36s/fr, fr=1, stage=photometric][A                                                                     
+                                                                                 [A  f  1: loftr  0.31°   1.57mm → refined  0.15°   0.26mm  | mean loftr 0.31°/1.6mm refined 0.15°/0.3mm  
+sequences:   0%|          | 0/2 [00:05<?, ?seq/s, lf/box_motion_prod]
+  frames:   5%|▌         | 1/20 [00:05<00:44,  2.36s/fr, fr=1, stage=photometric][A
+  frames:  10%|█         | 2/20 [00:05<00:50,  2.79s/fr, fr=1, stage=photometric][A
+  frames:  10%|█         | 2/20 [00:07<00:50,  2.79s/fr, fr=2, stage=separate]   [A
+  frames:  10%|█         | 2/20 [00:07<00:50,  2.79s/fr, fr=2, stage=loftr]   [A
+  frames:  10%|█         | 2/20 [00:08<00:50,  2.79s/fr, fr=2, stage=photometric][A  f  2: loftr  0.72°   0.72mm → refined  0.73°   0.58mm  | mean loftr 0.51°/1.1mm refined 0.44°/0.4mm  ↑rot
+                                                                     
+                                                                                 [Asequences:   0%|          | 0/2 [00:08<?, ?seq/s, lf/box_motion_prod]
+  frames:  10%|█         | 2/20 [00:08<00:50,  2.79s/fr, fr=2, stage=photometric][A
+  frames:  15%|█▌        | 3/20 [00:08<00:50,  2.98s/fr, fr=2, stage=photometric][A
+  frames:  15%|█▌        | 3/20 [00:10<00:50,  2.98s/fr, fr=3, stage=separate]   [A
+  frames:  15%|█▌        | 3/20 [00:10<00:50,  2.98s/fr, fr=3, stage=loftr]   [A
+  frames:  15%|█▌        | 3/20 [00:11<00:50,  2.98s/fr, fr=3, stage=photometric][A                                                                     
+                                                                                 [A  f  3: loftr  1.63°   0.54mm → refined  2.14°   0.79mm  | mean loftr 0.89°/0.9mm refined 1.01°/0.5mm  ↑rot ↑trans
+sequences:   0%|          | 0/2 [00:12<?, ?seq/s, lf/box_motion_prod]
+  frames:  15%|█▌        | 3/20 [00:12<00:50,  2.98s/fr, fr=3, stage=photometric][A
+  frames:  20%|██        | 4/20 [00:12<00:51,  3.22s/fr, fr=3, stage=photometric][A
+  frames:  20%|██        | 4/20 [00:14<00:51,  3.22s/fr, fr=4, stage=separate]   [A
+  frames:  20%|██        | 4/20 [00:14<00:51,  3.22s/fr, fr=4, stage=loftr]   [A
+  frames:  20%|██        | 4/20 [00:14<00:51,  3.22s/fr, fr=4, stage=photometric][A                                                                     
+                                                                                 [A  f  4: loftr  2.72°   1.41mm → refined  2.79°   1.28mm  | mean loftr 1.34°/1.1mm refined 1.45°/0.7mm  ↑rot
+sequences:   0%|          | 0/2 [00:15<?, ?seq/s, lf/box_motion_prod]
+  frames:  20%|██        | 4/20 [00:15<00:51,  3.22s/fr, fr=4, stage=photometric][A
+  frames:  25%|██▌       | 5/20 [00:15<00:48,  3.21s/fr, fr=4, stage=photometric][A
+  frames:  25%|██▌       | 5/20 [00:17<00:48,  3.21s/fr, fr=5, stage=separate]   [A
+  frames:  25%|██▌       | 5/20 [00:17<00:48,  3.21s/fr, fr=5, stage=loftr]   [A
+  frames:  25%|██▌       | 5/20 [00:17<00:48,  3.21s/fr, fr=5, stage=photometric][A                                                                     
+                                                                                 [A  f  5: loftr  2.77°   2.24mm → refined  2.97°   1.73mm  | mean loftr 1.63°/1.3mm refined 1.76°/0.9mm  ↑rot
+sequences:   0%|          | 0/2 [00:18<?, ?seq/s, lf/box_motion_prod]
+  frames:  25%|██▌       | 5/20 [00:18<00:48,  3.21s/fr, fr=5, stage=photometric][A
+  frames:  30%|███       | 6/20 [00:18<00:45,  3.23s/fr, fr=5, stage=photometric][A
+  frames:  30%|███       | 6/20 [00:20<00:45,  3.23s/fr, fr=6, stage=separate]   [A
+  frames:  30%|███       | 6/20 [00:20<00:45,  3.23s/fr, fr=6, stage=loftr]   [A
+  frames:  30%|███       | 6/20 [00:21<00:45,  3.23s/fr, fr=6, stage=photometric][A                                                                     
+                                                                                 [A  f  6: loftr  3.13°   1.61mm → refined  3.44°   2.52mm  | mean loftr 1.88°/1.3mm refined 2.04°/1.2mm  ↑rot ↑trans
+sequences:   0%|          | 0/2 [00:22<?, ?seq/s, lf/box_motion_prod]
+  frames:  30%|███       | 6/20 [00:22<00:45,  3.23s/fr, fr=6, stage=photometric][A
+  frames:  35%|███▌      | 7/20 [00:22<00:42,  3.26s/fr, fr=6, stage=photometric][A
+  frames:  35%|███▌      | 7/20 [00:24<00:42,  3.26s/fr, fr=7, stage=separate]   [A
+  frames:  35%|███▌      | 7/20 [00:24<00:42,  3.26s/fr, fr=7, stage=loftr]   [A
+  frames:  35%|███▌      | 7/20 [00:24<00:42,  3.26s/fr, fr=7, stage=photometric][A                                                                     
+                                                                                 [A  f  7: loftr  4.12°   2.00mm → refined  3.50°   2.50mm  | mean loftr 2.20°/1.4mm refined 2.25°/1.4mm   ↑trans
+sequences:   0%|          | 0/2 [00:25<?, ?seq/s, lf/box_motion_prod]
+  frames:  35%|███▌      | 7/20 [00:25<00:42,  3.26s/fr, fr=7, stage=photometric][A
+  frames:  40%|████      | 8/20 [00:25<00:38,  3.24s/fr, fr=7, stage=photometric][A
+  frames:  40%|████      | 8/20 [00:27<00:38,  3.24s/fr, fr=8, stage=separate]   [A
+  frames:  40%|████      | 8/20 [00:27<00:38,  3.24s/fr, fr=8, stage=loftr]   [A
+  frames:  40%|████      | 8/20 [00:28<00:38,  3.24s/fr, fr=8, stage=photometric][A                                                                     
+                                                                                 [A  f  8: loftr  4.27°   2.33mm → refined  3.89°   2.56mm  | mean loftr 2.46°/1.6mm refined 2.45°/1.5mm   ↑trans
+sequences:   0%|          | 0/2 [00:28<?, ?seq/s, lf/box_motion_prod]
+  frames:  40%|████      | 8/20 [00:28<00:38,  3.24s/fr, fr=8, stage=photometric][A
+  frames:  45%|████▌     | 9/20 [00:28<00:36,  3.34s/fr, fr=8, stage=photometric][A
+  frames:  45%|████▌     | 9/20 [00:30<00:36,  3.34s/fr, fr=9, stage=separate]   [A
+  frames:  45%|████▌     | 9/20 [00:30<00:36,  3.34s/fr, fr=9, stage=loftr]   [A
+  frames:  45%|████▌     | 9/20 [00:31<00:36,  3.34s/fr, fr=9, stage=photometric][A  f  9: loftr  4.86°   2.96mm → refined  4.86°   2.96mm  | mean loftr 2.73°/1.7mm refined 2.72°/1.7mm  
+                                                                     
+                                                                                 [Asequences:   0%|          | 0/2 [00:32<?, ?seq/s, lf/box_motion_prod]
+  frames:  45%|████▌     | 9/20 [00:32<00:36,  3.34s/fr, fr=9, stage=photometric][A
+  frames:  50%|█████     | 10/20 [00:32<00:33,  3.31s/fr, fr=9, stage=photometric][A
+  frames:  50%|█████     | 10/20 [00:33<00:33,  3.31s/fr, fr=10, stage=separate]  [A
+  frames:  50%|█████     | 10/20 [00:33<00:33,  3.31s/fr, fr=10, stage=loftr]   [A
+  frames:  50%|█████     | 10/20 [00:34<00:33,  3.31s/fr, fr=10, stage=photometric][A                                                                     
+                                                                                   [A  f 10: loftr  5.74°   2.70mm → refined  5.67°   2.94mm  | mean loftr 3.03°/1.8mm refined 3.01°/1.8mm   ↑trans
+sequences:   0%|          | 0/2 [00:35<?, ?seq/s, lf/box_motion_prod]
+  frames:  50%|█████     | 10/20 [00:35<00:33,  3.31s/fr, fr=10, stage=photometric][A
+  frames:  55%|█████▌    | 11/20 [00:35<00:29,  3.32s/fr, fr=10, stage=photometric][A
+  frames:  55%|█████▌    | 11/20 [00:37<00:29,  3.32s/fr, fr=11, stage=separate]   [A
+  frames:  55%|█████▌    | 11/20 [00:37<00:29,  3.32s/fr, fr=11, stage=loftr]   [A
+  frames:  55%|█████▌    | 11/20 [00:38<00:29,  3.32s/fr, fr=11, stage=photometric][A                                                                     
+                                                                                   [A  f 11: loftr  5.99°   3.44mm → refined  5.99°   3.44mm  | mean loftr 3.30°/2.0mm refined 3.29°/2.0mm  ↑rot
+sequences:   0%|          | 0/2 [00:38<?, ?seq/s, lf/box_motion_prod]
+  frames:  55%|█████▌    | 11/20 [00:38<00:29,  3.32s/fr, fr=11, stage=photometric][A
+  frames:  60%|██████    | 12/20 [00:38<00:26,  3.34s/fr, fr=11, stage=photometric][A
+  frames:  60%|██████    | 12/20 [00:40<00:26,  3.34s/fr, fr=12, stage=separate]   [A
+  frames:  60%|██████    | 12/20 [00:40<00:26,  3.34s/fr, fr=12, stage=loftr]   [A
+  frames:  60%|██████    | 12/20 [00:41<00:26,  3.34s/fr, fr=12, stage=photometric][A                                                                     
+                                                                                   [A  f 12: loftr  6.59°   4.19mm → refined  6.98°   4.23mm  | mean loftr 3.57°/2.1mm refined 3.59°/2.1mm  ↑rot ↑trans
+sequences:   0%|          | 0/2 [00:42<?, ?seq/s, lf/box_motion_prod]
+  frames:  60%|██████    | 12/20 [00:42<00:26,  3.34s/fr, fr=12, stage=photometric][A
+  frames:  65%|██████▌   | 13/20 [00:42<00:23,  3.37s/fr, fr=12, stage=photometric][A
+  frames:  65%|██████▌   | 13/20 [00:44<00:23,  3.37s/fr, fr=13, stage=separate]   [A
+  frames:  65%|██████▌   | 13/20 [00:44<00:23,  3.37s/fr, fr=13, stage=loftr]   [A
+  frames:  65%|██████▌   | 13/20 [00:44<00:23,  3.37s/fr, fr=13, stage=photometric][A                                                                     
+                                                                                   [A  f 13: loftr  7.42°   5.22mm → refined  7.03°   5.34mm  | mean loftr 3.87°/2.4mm refined 3.86°/2.4mm   ↑trans
+sequences:   0%|          | 0/2 [00:45<?, ?seq/s, lf/box_motion_prod]
+  frames:  65%|██████▌   | 13/20 [00:45<00:23,  3.37s/fr, fr=13, stage=photometric][A
+  frames:  70%|███████   | 14/20 [00:45<00:20,  3.35s/fr, fr=13, stage=photometric][A
+  frames:  70%|███████   | 14/20 [00:47<00:20,  3.35s/fr, fr=14, stage=separate]   [A
+  frames:  70%|███████   | 14/20 [00:47<00:20,  3.35s/fr, fr=14, stage=loftr]   [A
+  frames:  70%|███████   | 14/20 [00:48<00:20,  3.35s/fr, fr=14, stage=photometric][A                                                                     
+                                                                                   [A  f 14: loftr  7.32°   4.94mm → refined  7.30°   5.27mm  | mean loftr 4.11°/2.6mm refined 4.10°/2.6mm   ↑trans
+sequences:   0%|          | 0/2 [00:48<?, ?seq/s, lf/box_motion_prod]
+  frames:  70%|███████   | 14/20 [00:48<00:20,  3.35s/fr, fr=14, stage=photometric][A
+  frames:  75%|███████▌  | 15/20 [00:48<00:16,  3.34s/fr, fr=14, stage=photometric][A
+  frames:  75%|███████▌  | 15/20 [00:50<00:16,  3.34s/fr, fr=15, stage=separate]   [A
+  frames:  75%|███████▌  | 15/20 [00:50<00:16,  3.34s/fr, fr=15, stage=loftr]   [A
+  frames:  75%|███████▌  | 15/20 [00:51<00:16,  3.34s/fr, fr=15, stage=photometric][A                                                                     
+                                                                                   [A  f 15: loftr  7.23°   5.01mm → refined  7.48°   5.19mm  | mean loftr 4.32°/2.7mm refined 4.33°/2.8mm  ↑rot ↑trans
+sequences:   0%|          | 0/2 [00:52<?, ?seq/s, lf/box_motion_prod]
+  frames:  75%|███████▌  | 15/20 [00:52<00:16,  3.34s/fr, fr=15, stage=photometric][A
+  frames:  80%|████████  | 16/20 [00:52<00:13,  3.32s/fr, fr=15, stage=photometric][A
+  frames:  80%|████████  | 16/20 [00:54<00:13,  3.32s/fr, fr=16, stage=separate]   [A
+  frames:  80%|████████  | 16/20 [00:54<00:13,  3.32s/fr, fr=16, stage=loftr]   [A
+  frames:  80%|████████  | 16/20 [00:55<00:13,  3.32s/fr, fr=16, stage=photometric][A                                                                     
+                                                                                   [A  f 16: loftr  7.26°   5.77mm → refined  7.65°   5.85mm  | mean loftr 4.51°/2.9mm refined 4.54°/3.0mm  ↑rot ↑trans
+sequences:   0%|          | 0/2 [00:55<?, ?seq/s, lf/box_motion_prod]
+  frames:  80%|████████  | 16/20 [00:55<00:13,  3.32s/fr, fr=16, stage=photometric][A
+  frames:  85%|████████▌ | 17/20 [00:55<00:10,  3.36s/fr, fr=16, stage=photometric][A
+  frames:  85%|████████▌ | 17/20 [00:57<00:10,  3.36s/fr, fr=17, stage=separate]   [A
+  frames:  85%|████████▌ | 17/20 [00:57<00:10,  3.36s/fr, fr=17, stage=loftr]   [A
+  frames:  85%|████████▌ | 17/20 [00:58<00:10,  3.36s/fr, fr=17, stage=photometric][A                                                                     
+                                                                                   [A  f 17: loftr  7.30°   6.59mm → refined  7.70°   6.58mm  | mean loftr 4.67°/3.1mm refined 4.72°/3.2mm  ↑rot
+sequences:   0%|          | 0/2 [00:58<?, ?seq/s, lf/box_motion_prod]
+  frames:  85%|████████▌ | 17/20 [00:58<00:10,  3.36s/fr, fr=17, stage=photometric][A
+  frames:  90%|█████████ | 18/20 [00:58<00:06,  3.37s/fr, fr=17, stage=photometric][A
+  frames:  90%|█████████ | 18/20 [01:00<00:06,  3.37s/fr, fr=18, stage=separate]   [A
+  frames:  90%|█████████ | 18/20 [01:01<00:06,  3.37s/fr, fr=18, stage=loftr]   [A
+  frames:  90%|█████████ | 18/20 [01:01<00:06,  3.37s/fr, fr=18, stage=photometric][A  f 18: loftr  7.89°   7.95mm → refined  8.12°   7.54mm  | mean loftr 4.85°/3.4mm refined 4.91°/3.4mm  ↑rot
+                                                                     
+                                                                                   [Asequences:   0%|          | 0/2 [01:02<?, ?seq/s, lf/box_motion_prod]
+  frames:  90%|█████████ | 18/20 [01:02<00:06,  3.37s/fr, fr=18, stage=photometric][A
+  frames:  95%|█████████▌| 19/20 [01:02<00:03,  3.40s/fr, fr=18, stage=photometric][A
+  frames:  95%|█████████▌| 19/20 [01:04<00:03,  3.40s/fr, fr=19, stage=separate]   [A
+  frames:  95%|█████████▌| 19/20 [01:04<00:03,  3.40s/fr, fr=19, stage=loftr]   [A
+  frames:  95%|█████████▌| 19/20 [01:05<00:03,  3.40s/fr, fr=19, stage=photometric][A                                                                     
+                                                                                   [A  f 19: loftr  9.95°   8.24mm → refined  9.33°   8.28mm  | mean loftr 5.12°/3.7mm refined 5.14°/3.7mm   ↑trans
+sequences:   0%|          | 0/2 [01:05<?, ?seq/s, lf/box_motion_prod]
+  frames:  95%|█████████▌| 19/20 [01:05<00:03,  3.40s/fr, fr=19, stage=photometric][A
+  frames: 100%|██████████| 20/20 [01:05<00:00,  3.38s/fr, fr=19, stage=photometric][A
+                                                                                   [A05:51:58  INFO     box_motion_prod: refine vs loftr — rot 5.12°→5.14° (better 37%)  trans 3.65→3.68mm (better 32%)
+05:51:58  INFO     box_motion_prod: (20, 4, 4) → sweeps/lift_relight_ff/lf/box_motion_prod.npy
+sequences:  50%|█████     | 1/2 [01:05<01:05, 65.77s/seq, lf/box_motion_prod]sequences:  50%|█████     | 1/2 [01:05<01:05, 65.77s/seq, lf/shiny_box_tilt_prod]
+  frames:   0%|          | 0/17 [00:00<?, ?fr/s][A
+  frames:   0%|          | 0/17 [00:01<?, ?fr/s, fr=0, stage=separate][A
+  frames:   6%|▌         | 1/17 [00:01<00:29,  1.85s/fr, fr=0, stage=separate][A
+  frames:   6%|▌         | 1/17 [00:03<00:29,  1.85s/fr, fr=1, stage=separate][A
+  frames:   6%|▌         | 1/17 [00:03<00:29,  1.85s/fr, fr=1, stage=loftr]   [A
+  frames:   6%|▌         | 1/17 [00:04<00:29,  1.85s/fr, fr=1, stage=photometric][A                                                                                 
+                                                                                 [A  f  1: loftr  1.12°   5.86mm → refined  1.11°   6.34mm  | mean loftr 1.12°/5.9mm refined 1.11°/6.3mm   ↑trans
+sequences:  50%|█████     | 1/2 [01:10<01:05, 65.77s/seq, lf/shiny_box_tilt_prod]
+  frames:   6%|▌         | 1/17 [00:04<00:29,  1.85s/fr, fr=1, stage=photometric][A
+  frames:  12%|█▏        | 2/17 [00:04<00:37,  2.47s/fr, fr=1, stage=photometric][A
+  frames:  12%|█▏        | 2/17 [00:06<00:37,  2.47s/fr, fr=2, stage=separate]   [A
+  frames:  12%|█▏        | 2/17 [00:06<00:37,  2.47s/fr, fr=2, stage=loftr]   [A
+  frames:  12%|█▏        | 2/17 [00:07<00:37,  2.47s/fr, fr=2, stage=photometric][A                                                                                 
+                                                                                 [A  f  2: loftr  2.68°  13.06mm → refined  2.57°  12.80mm  | mean loftr 1.90°/9.5mm refined 1.84°/9.6mm  
+sequences:  50%|█████     | 1/2 [01:13<01:05, 65.77s/seq, lf/shiny_box_tilt_prod]
+  frames:  12%|█▏        | 2/17 [00:08<00:37,  2.47s/fr, fr=2, stage=photometric][A
+  frames:  18%|█▊        | 3/17 [00:08<00:40,  2.87s/fr, fr=2, stage=photometric][A
+  frames:  18%|█▊        | 3/17 [00:09<00:40,  2.87s/fr, fr=3, stage=separate]   [A
+  frames:  18%|█▊        | 3/17 [00:09<00:40,  2.87s/fr, fr=3, stage=loftr]   [A
+  frames:  18%|█▊        | 3/17 [00:10<00:40,  2.87s/fr, fr=3, stage=photometric][A  f  3: loftr  4.29°  18.98mm → refined  5.04°  18.88mm  | mean loftr 2.70°/12.6mm refined 2.91°/12.7mm  ↑rot
+                                                                                 
+                                                                                 [Asequences:  50%|█████     | 1/2 [01:17<01:05, 65.77s/seq, lf/shiny_box_tilt_prod]
+  frames:  18%|█▊        | 3/17 [00:11<00:40,  2.87s/fr, fr=3, stage=photometric][A
+  frames:  24%|██▎       | 4/17 [00:11<00:39,  3.05s/fr, fr=3, stage=photometric][A
+  frames:  24%|██▎       | 4/17 [00:13<00:39,  3.05s/fr, fr=4, stage=separate]   [A
+  frames:  24%|██▎       | 4/17 [00:13<00:39,  3.05s/fr, fr=4, stage=loftr]   [A
+  frames:  24%|██▎       | 4/17 [00:14<00:39,  3.05s/fr, fr=4, stage=photometric][A  f  4: loftr  6.23°  25.27mm → refined  6.15°  24.90mm  | mean loftr 3.58°/15.8mm refined 3.72°/15.7mm  
+                                                                                 
+                                                                                 [Asequences:  50%|█████     | 1/2 [01:20<01:05, 65.77s/seq, lf/shiny_box_tilt_prod]
+  frames:  24%|██▎       | 4/17 [00:14<00:39,  3.05s/fr, fr=4, stage=photometric][A
+  frames:  29%|██▉       | 5/17 [00:14<00:37,  3.11s/fr, fr=4, stage=photometric][A
+  frames:  29%|██▉       | 5/17 [00:16<00:37,  3.11s/fr, fr=5, stage=separate]   [A
+  frames:  29%|██▉       | 5/17 [00:16<00:37,  3.11s/fr, fr=5, stage=loftr]   [A
+  frames:  29%|██▉       | 5/17 [00:17<00:37,  3.11s/fr, fr=5, stage=photometric][A  f  5: loftr  7.84°  30.71mm → refined  8.27°  30.43mm  | mean loftr 4.43°/18.8mm refined 4.63°/18.7mm  ↑rot
+                                                                                 
+                                                                                 [Asequences:  50%|█████     | 1/2 [01:23<01:05, 65.77s/seq, lf/shiny_box_tilt_prod]
+  frames:  29%|██▉       | 5/17 [00:17<00:37,  3.11s/fr, fr=5, stage=photometric][A
+  frames:  35%|███▌      | 6/17 [00:17<00:34,  3.16s/fr, fr=5, stage=photometric][A
+  frames:  35%|███▌      | 6/17 [00:20<00:34,  3.16s/fr, fr=6, stage=separate]   [A
+  frames:  35%|███▌      | 6/17 [00:20<00:34,  3.16s/fr, fr=6, stage=loftr]   [A
+  frames:  35%|███▌      | 6/17 [00:20<00:34,  3.16s/fr, fr=6, stage=photometric][A                                                                                 
+                                                                                 [A  f  6: loftr  9.25°  35.17mm → refined 10.57°  35.47mm  | mean loftr 5.23°/21.5mm refined 5.62°/21.5mm  ↑rot ↑trans
+sequences:  50%|█████     | 1/2 [01:27<01:05, 65.77s/seq, lf/shiny_box_tilt_prod]
+  frames:  35%|███▌      | 6/17 [00:21<00:34,  3.16s/fr, fr=6, stage=photometric][A
+  frames:  41%|████      | 7/17 [00:21<00:32,  3.25s/fr, fr=6, stage=photometric][A
+  frames:  41%|████      | 7/17 [00:23<00:32,  3.25s/fr, fr=7, stage=separate]   [A
+  frames:  41%|████      | 7/17 [00:23<00:32,  3.25s/fr, fr=7, stage=loftr]   [A
+  frames:  41%|████      | 7/17 [00:24<00:32,  3.25s/fr, fr=7, stage=photometric][A                                                                                 
+                                                                                 [A  f  7: loftr 11.91°  39.02mm → refined 12.03°  39.76mm  | mean loftr 6.19°/24.0mm refined 6.54°/24.1mm  ↑rot ↑trans
+sequences:  50%|█████     | 1/2 [01:30<01:05, 65.77s/seq, lf/shiny_box_tilt_prod]
+  frames:  41%|████      | 7/17 [00:24<00:32,  3.25s/fr, fr=7, stage=photometric][A
+  frames:  47%|████▋     | 8/17 [00:24<00:29,  3.27s/fr, fr=7, stage=photometric][A
+  frames:  47%|████▋     | 8/17 [00:26<00:29,  3.27s/fr, fr=8, stage=separate]   [A
+  frames:  47%|████▋     | 8/17 [00:26<00:29,  3.27s/fr, fr=8, stage=loftr]   [A
+  frames:  47%|████▋     | 8/17 [00:27<00:29,  3.27s/fr, fr=8, stage=photometric][A                                                                                 
+                                                                                 [A  f  8: loftr 12.63°  33.29mm → refined 12.71°  33.25mm  | mean loftr 6.99°/25.2mm refined 7.31°/25.2mm  ↑rot
+sequences:  50%|█████     | 1/2 [01:33<01:05, 65.77s/seq, lf/shiny_box_tilt_prod]
+  frames:  47%|████▋     | 8/17 [00:27<00:29,  3.27s/fr, fr=8, stage=photometric][A
+  frames:  53%|█████▎    | 9/17 [00:27<00:25,  3.18s/fr, fr=8, stage=photometric][A
+  frames:  53%|█████▎    | 9/17 [00:29<00:25,  3.18s/fr, fr=9, stage=separate]   [A
+  frames:  53%|█████▎    | 9/17 [00:29<00:25,  3.18s/fr, fr=9, stage=loftr]   [A
+  frames:  53%|█████▎    | 9/17 [00:29<00:25,  3.18s/fr, fr=9, stage=photometric][A                                                                                 
+                                                                                 [A  f  9: loftr 14.25°  26.14mm → refined 13.46°  26.30mm  | mean loftr 7.80°/25.3mm refined 7.99°/25.3mm   ↑trans
+sequences:  50%|█████     | 1/2 [01:36<01:05, 65.77s/seq, lf/shiny_box_tilt_prod]
+  frames:  53%|█████▎    | 9/17 [00:30<00:25,  3.18s/fr, fr=9, stage=photometric][A
+  frames:  59%|█████▉    | 10/17 [00:30<00:21,  3.02s/fr, fr=9, stage=photometric][A
+  frames:  59%|█████▉    | 10/17 [00:31<00:21,  3.02s/fr, fr=10, stage=separate]  [A
+  frames:  59%|█████▉    | 10/17 [00:31<00:21,  3.02s/fr, fr=10, stage=loftr]   [A
+  frames:  59%|█████▉    | 10/17 [00:32<00:21,  3.02s/fr, fr=10, stage=photometric][A  f 10: loftr 14.68°  21.94mm → refined 14.45°  21.97mm  | mean loftr 8.49°/24.9mm refined 8.64°/25.0mm   ↑trans
+                                                                                 
+                                                                                   [Asequences:  50%|█████     | 1/2 [01:38<01:05, 65.77s/seq, lf/shiny_box_tilt_prod]
+  frames:  59%|█████▉    | 10/17 [00:32<00:21,  3.02s/fr, fr=10, stage=photometric][A
+  frames:  65%|██████▍   | 11/17 [00:32<00:17,  2.92s/fr, fr=10, stage=photometric][A
+  frames:  65%|██████▍   | 11/17 [00:34<00:17,  2.92s/fr, fr=11, stage=separate]   [A
+  frames:  65%|██████▍   | 11/17 [00:34<00:17,  2.92s/fr, fr=11, stage=loftr]   [A
+  frames:  65%|██████▍   | 11/17 [00:35<00:17,  2.92s/fr, fr=11, stage=photometric][A  f 11: loftr 16.15°  17.08mm → refined 14.83°  16.72mm  | mean loftr 9.18°/24.2mm refined 9.20°/24.3mm  
+                                                                                 
+                                                                                   [Asequences:  50%|█████     | 1/2 [01:41<01:05, 65.77s/seq, lf/shiny_box_tilt_prod]
+  frames:  65%|██████▍   | 11/17 [00:35<00:17,  2.92s/fr, fr=11, stage=photometric][A
+  frames:  71%|███████   | 12/17 [00:35<00:14,  2.83s/fr, fr=11, stage=photometric][A
+  frames:  71%|███████   | 12/17 [00:37<00:14,  2.83s/fr, fr=12, stage=separate]   [A
+  frames:  71%|███████   | 12/17 [00:37<00:14,  2.83s/fr, fr=12, stage=loftr]   [A
+  frames:  71%|███████   | 12/17 [00:37<00:14,  2.83s/fr, fr=12, stage=photometric][A                                                                                 
+                                                                                   [A  f 12: loftr 17.02°  12.52mm → refined 16.30°  12.22mm  | mean loftr 9.84°/23.3mm refined 9.79°/23.3mm  
+sequences:  50%|█████     | 1/2 [01:44<01:05, 65.77s/seq, lf/shiny_box_tilt_prod]
+  frames:  71%|███████   | 12/17 [00:38<00:14,  2.83s/fr, fr=12, stage=photometric][A
+  frames:  76%|███████▋  | 13/17 [00:38<00:11,  2.78s/fr, fr=12, stage=photometric][A
+  frames:  76%|███████▋  | 13/17 [00:39<00:11,  2.78s/fr, fr=13, stage=separate]   [A
+  frames:  76%|███████▋  | 13/17 [00:39<00:11,  2.78s/fr, fr=13, stage=loftr]   [A
+  frames:  76%|███████▋  | 13/17 [00:40<00:11,  2.78s/fr, fr=13, stage=photometric][A                                                                                 
+                                                                                   [A  f 13: loftr 18.64°   9.36mm → refined 17.63°   9.23mm  | mean loftr 10.52°/22.2mm refined 10.39°/22.2mm  
+sequences:  50%|█████     | 1/2 [01:46<01:05, 65.77s/seq, lf/shiny_box_tilt_prod]
+  frames:  76%|███████▋  | 13/17 [00:40<00:11,  2.78s/fr, fr=13, stage=photometric][A
+  frames:  82%|████████▏ | 14/17 [00:40<00:08,  2.75s/fr, fr=13, stage=photometric][A
+  frames:  82%|████████▏ | 14/17 [00:42<00:08,  2.75s/fr, fr=14, stage=separate]   [A
+  frames:  82%|████████▏ | 14/17 [00:42<00:08,  2.75s/fr, fr=14, stage=loftr]   [A
+  frames:  82%|████████▏ | 14/17 [00:43<00:08,  2.75s/fr, fr=14, stage=photometric][A  f 14: loftr 19.92°   6.77mm → refined 17.90°   6.04mm  | mean loftr 11.19°/21.1mm refined 10.93°/21.0mm  
+                                                                                 
+                                                                                   [Asequences:  50%|█████     | 1/2 [01:49<01:05, 65.77s/seq, lf/shiny_box_tilt_prod]
+  frames:  82%|████████▏ | 14/17 [00:43<00:08,  2.75s/fr, fr=14, stage=photometric][A
+  frames:  88%|████████▊ | 15/17 [00:43<00:05,  2.74s/fr, fr=14, stage=photometric][A
+  frames:  88%|████████▊ | 15/17 [00:45<00:05,  2.74s/fr, fr=15, stage=separate]   [A
+  frames:  88%|████████▊ | 15/17 [00:45<00:05,  2.74s/fr, fr=15, stage=loftr]   [A
+  frames:  88%|████████▊ | 15/17 [00:45<00:05,  2.74s/fr, fr=15, stage=photometric][A                                                                                 
+                                                                                   [A  f 15: loftr 15.67°   9.56mm → refined 15.99°  10.78mm  | mean loftr 11.49°/20.3mm refined 11.27°/20.3mm  ↑rot ↑trans
+sequences:  50%|█████     | 1/2 [01:52<01:05, 65.77s/seq, lf/shiny_box_tilt_prod]
+  frames:  88%|████████▊ | 15/17 [00:46<00:05,  2.74s/fr, fr=15, stage=photometric][A
+  frames:  94%|█████████▍| 16/17 [00:46<00:02,  2.71s/fr, fr=15, stage=photometric][A
+  frames:  94%|█████████▍| 16/17 [00:47<00:02,  2.71s/fr, fr=16, stage=separate]   [A
+  frames:  94%|█████████▍| 16/17 [00:47<00:02,  2.71s/fr, fr=16, stage=loftr]   [A
+  frames:  94%|█████████▍| 16/17 [00:48<00:02,  2.71s/fr, fr=16, stage=photometric][A  f 16: loftr 13.58°  19.34mm → refined 14.92°  21.11mm  | mean loftr 11.62°/20.3mm refined 11.50°/20.4mm  ↑rot ↑trans
+                                                                                 
+                                                                                   [Asequences:  50%|█████     | 1/2 [01:54<01:05, 65.77s/seq, lf/shiny_box_tilt_prod]
+  frames:  94%|█████████▍| 16/17 [00:48<00:02,  2.71s/fr, fr=16, stage=photometric][A
+  frames: 100%|██████████| 17/17 [00:48<00:00,  2.70s/fr, fr=16, stage=photometric][A
+                                                                                   [A05:52:47  INFO     shiny_box_tilt_prod: refine vs loftr — rot 11.62°→11.50° (better 56%)  trans 20.26→20.39mm (better 56%)
+05:52:47  INFO     shiny_box_tilt_prod: (17, 4, 4) → sweeps/lift_relight_ff/lf/shiny_box_tilt_prod.npy
+sequences: 100%|██████████| 2/2 [01:54<00:00, 55.91s/seq, lf/shiny_box_tilt_prod]sequences: 100%|██████████| 2/2 [01:54<00:00, 57.39s/seq, lf/shiny_box_tilt_prod]
