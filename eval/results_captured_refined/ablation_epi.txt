@@ -1,0 +1,23 @@
+== component ablation on the captured EPI sequences (refined GT), average over epi_diffuse + epi_reflective ==
+Variant                                         ADD-S ↑      ADD ↑  ATE [m] ↓  ARE [°] ↓
+Ours + segmentation                               0.900      0.769      0.023       12.0
+Ours                                              0.899      0.768      0.023       12.0
+- photometric refinement                          0.907      0.783      0.022       11.3
+- reflection separation                           0.892      0.721      0.024       17.5
+- light field depth (-> sensor)                   0.763      0.499      0.049       29.6
+
+-- epi_diffuse --
+Variant                                         ADD-S ↑      ADD ↑  ATE [m] ↓  ARE [°] ↓
+Ours + segmentation                               0.891      0.749      0.024       15.6
+Ours                                              0.889      0.750      0.024       15.4
+- photometric refinement                          0.897      0.767      0.022       15.4
+- reflection separation                           0.883      0.704      0.026       18.8
+- light field depth (-> sensor)                   0.721      0.440      0.056       30.1
+
+-- epi_reflective --
+Variant                                         ADD-S ↑      ADD ↑  ATE [m] ↓  ARE [°] ↓
+Ours + segmentation                               0.910      0.789      0.022        8.4
+Ours                                              0.908      0.786      0.023        8.6
+- photometric refinement                          0.917      0.799      0.022        7.2
+- reflection separation                           0.901      0.739      0.023       16.2
+- light field depth (-> sensor)                   0.804      0.558      0.042       29.1

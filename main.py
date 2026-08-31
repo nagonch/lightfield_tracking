@@ -328,7 +328,13 @@ def track_sequence(
                                 alpha_i,
                             )
             else:
-                view = central_view(frame, s_size, t_size)
+                # The separated diffuse image is zero outside the object mask; give
+                # the no-separation ablation the same masked input so it isolates
+                # the separation itself (on real captures the static background
+                # otherwise dominates LoFTR's RANSAC consensus -> identity motion).
+                view = central_view(frame, s_size, t_size) * (
+                    (mask > 0).cpu().numpy()[..., None].astype(np.float32)
+                )
                 env_curr = None
                 env_conf_curr = None
                 slf = SurfaceLightField.from_frame(frame, mask, depth, s_size, t_size)

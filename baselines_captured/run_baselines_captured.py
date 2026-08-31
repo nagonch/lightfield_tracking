@@ -126,10 +126,18 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Captured-dataset classical baselines")
     ap.add_argument("--methods", default="loftr,icp,pnp")
     ap.add_argument("--overwrite", action="store_true")
+    ap.add_argument("--time-only", action="store_true",
+                    help="Profile wall time per frame (whole tracker.run / frames) and write "
+                         "timing_<method>.json instead of saving poses (results stay untouched)")
+    ap.add_argument("--seqs", default=None, help="comma-separated <capture>_<seq> tags")
     args = ap.parse_args()
 
     methods = [m for m in args.methods.split(",") if m]
-    print(f"methods={methods}  sequences={SEQUENCES}", flush=True)
+    seqs = SEQUENCES
+    if args.seqs:
+        want = set(args.seqs.split(","))
+        seqs = [(c, s) for c, s in SEQUENCES if f"{c}_{s}" in want]
+    print(f"methods={methods}  sequences={seqs}", flush=True)
 
     if "loftr" in methods:
         import loftr_baseline
@@ -137,23 +145,39 @@ def main() -> None:
         shared = loftr_baseline.LoftrRunner()
         loftr_baseline.LoftrRunner = lambda *a, **k: shared
 
+    import json
+    import time
+
     for method in methods:
         out_dir = os.path.join(_HERE, f"results_{method}")
         os.makedirs(out_dir, exist_ok=True)
-        for capture, seq_name in tqdm(SEQUENCES, desc=method, dynamic_ncols=True):
+        timing = {}
+        for capture, seq_name in tqdm(seqs, desc=method, dynamic_ncols=True):
             tag = f"{capture}_{seq_name}"
             out_path = os.path.join(out_dir, f"{tag}.npy")
-            if os.path.exists(out_path) and not args.overwrite:
+            if os.path.exists(out_path) and not args.overwrite and not args.time_only:
                 tqdm.write(f"  {method}/{tag}: already done, skipping")
                 continue
             seq = CapturedSequence(os.path.join(CAPTURED_ROOT, capture, seq_name))
             try:
-                poses = make_tracker(method, seq).run()
+                tracker = make_tracker(method, seq)
+                t0 = time.perf_counter()
+                poses = tracker.run()
+                dt = time.perf_counter() - t0
             except Exception as e:
                 tqdm.write(f"  {method}/{tag}: FAILED ({e})")
                 continue
+            if args.time_only:
+                # frame 0 is the GT seed; the remaining frames are tracked
+                timing[tag] = {"ms_per_frame": 1000.0 * dt / max(len(seq) - 1, 1),
+                               "frames": len(seq) - 1}
+                tqdm.write(f"  {method}/{tag}: {timing[tag]['ms_per_frame']:.1f} ms/frame")
+                continue
             np.save(out_path, poses)
             tqdm.write(f"  {method}/{tag}: {poses.shape} -> {out_path}")
+        if args.time_only and timing:
+            with open(os.path.join(_HERE, f"timing_{method}.json"), "w") as f:
+                json.dump(timing, f, indent=2)
 
     print("done.", flush=True)
 

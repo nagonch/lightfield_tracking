@@ -1,0 +1,9 @@
+== per-frame runtime on the captured EPI sequences [ms/frame] (FPS in parentheses) ==
+method              epi_diffuse         epi_reflective                   mean
+# fp: track_one only (registration excluded); bsdf: wall time incl. its NeRF thread; ours: steady-state per frame (frame 0 excluded); classic: tracker.run / frames
+pnp           170.7 ( 5.86 FPS)      173.5 ( 5.76 FPS)     172.1 ( 5.81 FPS)
+icp            82.1 (12.18 FPS)       71.7 (13.96 FPS)      76.9 (13.01 FPS)
+loftr         127.9 ( 7.82 FPS)      130.8 ( 7.64 FPS)     129.4 ( 7.73 FPS)
+fp             35.7 (28.04 FPS)       35.7 (28.00 FPS)      35.7 (28.02 FPS)
+bsdf         5752.7 ( 0.17 FPS)                      -    5752.7 ( 0.17 FPS)
+ours         1036.2 ( 0.97 FPS)     1467.2 ( 0.68 FPS)    1251.7 ( 0.80 FPS)

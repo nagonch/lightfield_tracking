@@ -1,0 +1,10 @@
+{
+  "epi_diffuse": {
+    "ms_per_frame": 82.11300556507447,
+    "frames": 46
+  },
+  "epi_reflective": {
+    "ms_per_frame": 71.6560596534375,
+    "frames": 46
+  }
+}

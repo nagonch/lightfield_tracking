@@ -272,19 +272,23 @@ def main():
                     help="alpha statistic flavour (reflection_separation.ALPHA_STAT_MODE)")
     ap.add_argument("--alpha-floor", type=float, default=None,
                     help="per-rig floor of the active alpha statistic (see calib_alpha_relative.py)")
+    ap.add_argument("--alpha-slope", type=float, default=None,
+                    help="per-rig slope of the active alpha statistic")
     args = ap.parse_args()
     set_lift_options(view_stride=args.view_stride)
-    if args.alpha_stat_mode or args.alpha_floor is not None:
+    if args.alpha_stat_mode or args.alpha_floor is not None or args.alpha_slope is not None:
         import reflection_separation as _rs
 
         if args.alpha_stat_mode:
             _rs.ALPHA_STAT_MODE = args.alpha_stat_mode
-        if args.alpha_floor is not None:
+        for idx, val in ((0, args.alpha_floor), (1, args.alpha_slope)):
+            if val is None:
+                continue
             for attr in (("ALPHA_CAL_REL_SINGLE", "ALPHA_CAL_REL_ACCUM")
                          if _rs.ALPHA_STAT_MODE == "relative"
                          else ("ALPHA_CAL_SINGLE", "ALPHA_CAL_ACCUM")):
                 cal = list(getattr(_rs, attr))
-                cal[0] = args.alpha_floor
+                cal[idx] = val
                 setattr(_rs, attr, tuple(cal))
 
     seqs = [
