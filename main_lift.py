@@ -134,6 +134,22 @@ def apply_overrides(sets: list[str], refine_cfg, lf_cfg):
             setattr(config_mod, key[len("tracking."):].upper(), float(val))
         elif key == "tracking.kf_min_inliers":
             config_mod.KF_MIN_INLIERS = int(val)
+        elif key == "alpha.stat_mode":
+            import reflection_separation as _rs
+
+            _rs.ALPHA_STAT_MODE = str(val)
+        elif key in ("alpha.floor", "alpha.slope"):
+            # Per-rig calibration of the active statistic (both single-frame and
+            # accumulated calibrations get the same floor/slope override).
+            import reflection_separation as _rs
+
+            idx = 0 if key == "alpha.floor" else 1
+            for attr in (("ALPHA_CAL_REL_SINGLE", "ALPHA_CAL_REL_ACCUM")
+                         if _rs.ALPHA_STAT_MODE == "relative"
+                         else ("ALPHA_CAL_SINGLE", "ALPHA_CAL_ACCUM")):
+                cal = list(getattr(_rs, attr))
+                cal[idx] = float(val)
+                setattr(_rs, attr, tuple(cal))
         elif key == "separation_iters":
             pipeline.SEPARATION_ITERS = int(val)
         elif key == "min_track_pixels":

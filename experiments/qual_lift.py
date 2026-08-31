@@ -268,8 +268,24 @@ def main():
         help="LF view thinning, must match the tracked run (2 for LiFT 9x9, "
         "1 for the 1x17 EPI cross)",
     )
+    ap.add_argument("--alpha-stat-mode", default=None, choices=[None, "absolute", "relative"],
+                    help="alpha statistic flavour (reflection_separation.ALPHA_STAT_MODE)")
+    ap.add_argument("--alpha-floor", type=float, default=None,
+                    help="per-rig floor of the active alpha statistic (see calib_alpha_relative.py)")
     args = ap.parse_args()
     set_lift_options(view_stride=args.view_stride)
+    if args.alpha_stat_mode or args.alpha_floor is not None:
+        import reflection_separation as _rs
+
+        if args.alpha_stat_mode:
+            _rs.ALPHA_STAT_MODE = args.alpha_stat_mode
+        if args.alpha_floor is not None:
+            for attr in (("ALPHA_CAL_REL_SINGLE", "ALPHA_CAL_REL_ACCUM")
+                         if _rs.ALPHA_STAT_MODE == "relative"
+                         else ("ALPHA_CAL_SINGLE", "ALPHA_CAL_ACCUM")):
+                cal = list(getattr(_rs, attr))
+                cal[0] = args.alpha_floor
+                setattr(_rs, attr, tuple(cal))
 
     seqs = [
         d

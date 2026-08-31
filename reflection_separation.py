@@ -168,6 +168,15 @@ ALPHA_ACCUM_MIN_FRAMES = 4  # use accumulation calibration past this many frames
 # stat = FLOOR + SLOPE * (1 - alpha)
 ALPHA_CAL_SINGLE = (0.0015, 0.0196)  # one-frame estimate
 ALPHA_CAL_ACCUM = (0.0016, 0.0237)  # p80 over accumulated frames
+# Statistic flavour. "absolute": std of luminance (Eq. 11 as written; its
+# calibration scales with object brightness). "relative": std / mean per point
+# (albedo/exposure invariant). Slopes below are fit on the synthetic dataset by
+# experiments/calib_alpha_relative.py; the FLOOR is a per-rig quantity (residual
+# cross-view spread of a diffuse surface from depth-noise misregistration) and is
+# overridable per setup (main_lift.py --set alpha.floor=...).
+ALPHA_STAT_MODE = "absolute"
+ALPHA_CAL_REL_SINGLE = (0.0043, 0.0724)
+ALPHA_CAL_REL_ACCUM = (0.0036, 0.0938)
 
 # No real surface is a perfect mirror or a perfect diffuser: even "fully diffuse"
 # materials have a faint specular sheen / ambient env contribution, and even
@@ -227,7 +236,15 @@ def estimate_alpha_stat(colors, valid, view_dirs, normals):
         weight = frontal.clamp(0.0, 1.0) ** ALPHA_FRONTAL_POW * vc
     else:
         weight = vc
+    if ALPHA_STAT_MODE == "relative":
+        std_l = std_l / mean_l.clamp(min=1e-3)
     return _weighted_quantile(std_l, weight, ALPHA_WITHIN_Q)
+
+
+def _alpha_cal(accum: bool):
+    if ALPHA_STAT_MODE == "relative":
+        return ALPHA_CAL_REL_ACCUM if accum else ALPHA_CAL_REL_SINGLE
+    return ALPHA_CAL_ACCUM if accum else ALPHA_CAL_SINGLE
 
 
 def _stat_to_alpha(stat, cal):
@@ -265,9 +282,9 @@ def estimate_alpha(colors, valid, view_dirs, normals, stat_history=None):
                 torch.tensor(history, dtype=torch.float32), ALPHA_ACROSS_Q
             )
         )
-        alpha = _stat_to_alpha(agg, ALPHA_CAL_ACCUM)
+        alpha = _stat_to_alpha(agg, _alpha_cal(accum=True))
     else:
-        alpha = _stat_to_alpha(history[-1], ALPHA_CAL_SINGLE)
+        alpha = _stat_to_alpha(history[-1], _alpha_cal(accum=False))
     return alpha, history
 
 
