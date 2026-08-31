@@ -1,0 +1,27 @@
+# EPI tuning sweeps (refined GT). roots: EPI_LF_dataset (shipped calibration), EPI_LF_dataset_cal (refine_epi_extrinsics.py).
+# nd_* = plane-sweep depth z[0.5,1.5] smooth 0.25 planes 384 (also used for all cal_*); alpha0.95 = pinned (oracle) alpha; r1280 = loftr_resize 1280; pnp = pnp_refine true
+run                                | diffuse ADD-S    rot    ATE | refl ADD-S    rot    ATE
+baseline(ours_epi)                 |         0.830  32.82   29.4 |         0.912   7.97   21.6
+alpha0.95_diffuse                  |         0.800  23.75   44.2 |             -      -      -
+blend1.0                           |         0.710  33.93   56.3 |         0.790  47.00   49.2
+cal_alpha0.95_diffuse              |         0.893  20.50   21.8 |             -      -      -
+cal_alpha0.95_r1280_pnp_diffuse    |         0.883  13.76   25.6 |             -      -      -
+cal_alpha0.95_r1280_pnp_refl       |             -      -      - |         0.827  38.70   31.0
+cal_default                        |         0.858  26.99   25.2 |         0.906  12.06   22.3
+cal_inl025_refl                    |             -      -      - |         0.901  12.92   22.3
+cal_kf20_a95_diffuse               |         0.850  29.43   23.8 |             -      -      -
+cal_kf20_diffuse                   |         0.851  22.88   34.3 |             -      -      -
+cal_norefine_refl                  |             -      -      - |         0.909  11.17   21.4
+cal_pnp_refl                       |             -      -      - |         0.907  12.13   22.1
+cal_res1280                        |         0.858  26.60   25.0 |         0.903  12.16   22.7
+inl0.05                            |         0.827  33.99   30.1 |         0.911   8.74   21.4
+inl0.05_pnp_res1280                |             -      -      - |             -      -      -
+kf                                 |         0.791  36.70   36.5 |         0.875  13.70   27.0
+nd_alpha0.95_r1280_pnp             |         0.892  15.15   25.2 |         0.907  19.06   20.3
+nd_default                         |         0.808  30.31   34.1 |         0.909   8.45   22.3
+nd_norefine_refl                   |             -      -      - |         0.915   7.04   21.6
+nd_res1280                         |         0.812  30.70   33.5 |         0.902   8.60   23.0
+pnp                                |         0.831  32.68   29.3 |         0.913   7.85   21.5
+res1280                            |         0.830  33.01   29.1 |         0.913   8.31   21.4
+
+# BundleSDF (refined GT): diffuse ADD-S 0.854 rot 19.89 ATE 34.4 | reflective ADD-S 0.916 rot 11.21 ATE 20.0
