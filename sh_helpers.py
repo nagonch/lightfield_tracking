@@ -115,7 +115,37 @@ def pad_views_with_extremes(
     b, n, _ = colors_rgb.shape
     k = int(math.isqrt(b))
     if k * k != b:
-        raise ValueError(f"b must be a perfect square, got b={b}")
+        # Non-square view sets (e.g. the 17-view EPI cross) cannot be grid-padded.
+        # Same spirit as the replicate-pad below: append extreme-direction
+        # pseudo-views, each carrying the colors of the view leaning furthest
+        # toward that extreme, duplicated so the extreme-to-data row ratio stays
+        # comparable to the square-grid path (4k+4 : k^2 ~ 1:1).
+        device, dtype = view_dirs.device, view_dirs.dtype
+
+        def _norm(v):
+            return v / v.norm(dim=-1, keepdim=True).clamp_min(1e-12)
+
+        card = torch.tensor(
+            [[0, 1, 0], [0, -1, 0], [-1, 0, 0], [1, 0, 0]], device=device, dtype=dtype
+        )
+        diag = _norm(
+            torch.tensor(
+                [[-1, 1, 0], [1, 1, 0], [-1, -1, 0], [1, -1, 0]],
+                device=device, dtype=dtype,
+            )
+        )
+        extremes = torch.cat([card, diag], dim=0)  # [8, 3]
+        mean_dirs = _norm(view_dirs.mean(dim=1))  # [b, 3] per-view mean direction
+        nearest = torch.argmax(mean_dirs @ extremes.T, dim=0)  # [8]
+
+        cols_add = colors_rgb[nearest].repeat_interleave(2, dim=0)  # [16, n, 3]
+        dirs_add = extremes.repeat_interleave(2, dim=0)[:, None, :].expand(-1, n, -1)
+        valid_add = torch.ones(16, n, device=device, dtype=torch.bool)
+        return (
+            torch.cat([colors_rgb, cols_add], dim=0),
+            torch.cat([view_dirs, dirs_add], dim=0),
+            torch.cat([valid.bool(), valid_add], dim=0),
+        )
 
     # reshape view grid
     colors_g = colors_rgb.view(k, k, n, 3)
