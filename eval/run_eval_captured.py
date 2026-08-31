@@ -41,7 +41,7 @@ RESULTS_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fi
                             "baselines_captured")
 SEQUENCES = ["realsense_diffuse", "realsense_reflective", "epi_diffuse", "epi_reflective"]
 MODEL_SAMPLE_PTS = 2000
-AXIS_LEN = 0.08
+AXIS_LEN = 0.12
 
 METRIC_KEYS = ["add_auc", "adds_auc", "ate_rmse", "mean_abs_rot_deg"]
 COL_NAMES = ["ADD↑ AUC", "ADD-S↑ AUC", "ATE↓ (m)", "Rot↓ (°)"]
@@ -81,6 +81,19 @@ def sample_model_points() -> np.ndarray:
 
 def visualize(tag, est, gt, K, img_paths, maps, out_dir, make_gif):
     os.makedirs(out_dir, exist_ok=True)
+
+    # GIF crop: the frame is mostly empty scene, which shrinks the axes into
+    # invisibility — crop to the union of projected GT positions, padded.
+    with Image.open(img_paths[0]) as im0:
+        W, H = im0.size
+    proj = gt[:, :3, 3] @ K.T
+    proj = proj[:, :2] / proj[:, 2:]
+    pad = 280
+    l = int(np.clip(proj[:, 0].min() - pad, 0, W - 1))
+    r = int(np.clip(proj[:, 0].max() + pad, 1, W))
+    t = int(np.clip(proj[:, 1].min() - pad, 0, H - 1))
+    b = int(np.clip(proj[:, 1].max() + pad, 1, H))
+
     frames = []
     for i, (e, g, p) in enumerate(zip(est, gt, img_paths)):
         img = Image.open(p).convert("RGB")
@@ -88,11 +101,11 @@ def visualize(tag, est, gt, K, img_paths, maps, out_dir, make_gif):
             img = Image.fromarray(cv2.remap(np.asarray(img), maps[0], maps[1],
                                             cv2.INTER_LINEAR))
         draw = ImageDraw.Draw(img)
-        _draw_axes(draw, K, g, _GT_COLORS, AXIS_LEN, width=2, dashed=True)
-        _draw_axes(draw, K, e, _EST_COLORS, AXIS_LEN, width=3, dashed=False)
+        _draw_axes(draw, K, g, _GT_COLORS, AXIS_LEN, width=5, dashed=True)
+        _draw_axes(draw, K, e, _EST_COLORS, AXIS_LEN, width=7, dashed=False)
         img.save(os.path.join(out_dir, f"frame_{i:04d}.png"))
         if make_gif:
-            frames.append(img.resize((img.width // 2, img.height // 2)))
+            frames.append(img.crop((l, t, r, b)))
     if make_gif and frames:
         frames[0].save(out_dir.rstrip("/") + ".gif", save_all=True,
                        append_images=frames[1:], duration=350, loop=0)
