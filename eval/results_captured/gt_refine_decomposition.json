@@ -1,0 +1,57 @@
+{
+  "joint_constant_mm": [
+    0.55,
+    -2.03,
+    -3.81
+  ],
+  "joint_constant_deg": 0.06242837841433666,
+  "diffuse": {
+    "realsense": {
+      "rigid": 6.752181590871608,
+      "joint_full": 5.180202088457473,
+      "joint_constant_only": 6.9157034742071275,
+      "joint_perframe_only": 5.359212099237645
+    },
+    "epi": {
+      "rigid": 5.357488500311019,
+      "joint_full": 3.9160274952015977,
+      "joint_constant_only": 5.4357088322335105,
+      "joint_perframe_only": 4.409456790761745
+    }
+  },
+  "reflective": {
+    "realsense": {
+      "rigid": 8.163075076772811,
+      "joint_full": 6.780625850596326,
+      "joint_constant_only": 7.967930697380228,
+      "joint_perframe_only": 7.137935415227362
+    },
+    "epi": {
+      "rigid": 13.088583438954455,
+      "joint_full": 11.175102426650676,
+      "joint_constant_only": 13.295798646642806,
+      "joint_perframe_only": 10.896182993625073
+    }
+  },
+  "loo": {
+    "realsense->epi": {
+      "rigid": 5.357488500311019,
+      "full": 6.848314031641534,
+      "constant_only": 5.411855783868344,
+      "perframe_only": 7.160177616362876,
+      "perframe_plus_own_constant": 6.961204594754158
+    },
+    "epi->realsense": {
+      "rigid": 6.752181590871608,
+      "full": 7.6830531181173125,
+      "constant_only": 6.791631500771705,
+      "perframe_only": 7.601456743605594,
+      "perframe_plus_own_constant": 7.7112044983721795
+    }
+  },
+  "perframe_translation_corr_xyz": [
+    -0.03644283618392485,
+    0.5993428456397966,
+    0.43607673191964436
+  ]
+}

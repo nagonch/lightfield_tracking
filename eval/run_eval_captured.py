@@ -47,8 +47,18 @@ METRIC_KEYS = ["add_auc", "adds_auc", "ate_rmse", "mean_abs_rot_deg"]
 COL_NAMES = ["ADD↑ AUC", "ADD-S↑ AUC", "ATE↓ (m)", "Rot↓ (°)"]
 
 
-def load_sequence_meta(tag: str):
-    """K, per-frame image paths, GT poses, and an undistortion map (epi) for one tag."""
+def rebase_to_gt(est: np.ndarray, gt0_rigid: np.ndarray, gt0_new: np.ndarray):
+    """Trackers saved trajectories rebased to the RIGID GT's frame 0 (poses_object);
+    re-express them relative to another GT's frame 0 (e.g. poses_object_refined)."""
+    return np.einsum("nij,jk->nik", est, np.linalg.inv(gt0_rigid) @ gt0_new)
+
+
+def load_sequence_meta(tag: str, gt_dir: str = "poses_object"):
+    """K, per-frame image paths, GT poses, and an undistortion map (epi) for one tag.
+
+    Returns gt from <gt_dir>; est trajectories must be passed through
+    rebase_to_gt(est, gt0_rigid, gt[0]) when gt_dir != "poses_object".
+    """
     capture, seq = tag.split("_", 1)
     seq_dir = os.path.join(CAPTURED_ROOT, capture, seq)
     K = np.loadtxt(os.path.join(seq_dir, "intrinsics.txt"))
@@ -61,7 +71,7 @@ def load_sequence_meta(tag: str):
         for e in entries
     ]
     gt = np.stack([
-        np.loadtxt(os.path.join(seq_dir, "poses_object", s + ".txt")) for s in stems
+        np.loadtxt(os.path.join(seq_dir, gt_dir, s + ".txt")) for s in stems
     ])
     maps = None
     dpath = os.path.join(seq_dir, "distortion.txt")
@@ -69,7 +79,8 @@ def load_sequence_meta(tag: str):
         D = np.loadtxt(dpath)
         h, w = np.asarray(Image.open(img_paths[0])).shape[:2]
         maps = cv2.initUndistortRectifyMap(K, D, None, K, (w, h), cv2.CV_32FC1)
-    return K, img_paths, gt, maps
+    gt0_rigid = np.loadtxt(os.path.join(seq_dir, "poses_object", stems[0] + ".txt"))
+    return K, img_paths, gt, maps, gt0_rigid
 
 
 def sample_model_points() -> np.ndarray:
@@ -120,13 +131,17 @@ def main() -> None:
         os.path.dirname(os.path.abspath(__file__)), "qual_captured"))
     ap.add_argument("--no-qual", action="store_true")
     ap.add_argument("--gifs", action="store_true")
+    ap.add_argument("--gt-dir", default="poses_object",
+                    help="GT pose subdir per sequence: poses_object (rigid mount "
+                         "model) or poses_object_refined (per-frame silhouette "
+                         "refinement, see refine_gt_poses.py)")
     args = ap.parse_args()
 
     methods = [m for m in args.methods.split(",") if m]
     model_pts = sample_model_points()
     os.makedirs(args.output_dir, exist_ok=True)
 
-    meta = {tag: load_sequence_meta(tag) for tag in SEQUENCES}
+    meta = {tag: load_sequence_meta(tag, args.gt_dir) for tag in SEQUENCES}
     rows = {}
     for method in methods:
         for tag in tqdm(SEQUENCES, desc=method, dynamic_ncols=True):
@@ -134,8 +149,8 @@ def main() -> None:
             if not os.path.exists(res_path):
                 tqdm.write(f"  {method}/{tag}: missing {res_path}")
                 continue
-            K, img_paths, gt, maps = meta[tag]
-            est = np.load(res_path)
+            K, img_paths, gt, maps, gt0_rigid = meta[tag]
+            est = rebase_to_gt(np.load(res_path).astype(np.float64), gt0_rigid, gt[0])
             m = eval_sequence(est, gt, model_pts)
             rows[(method, tag)] = m
             if not args.no_qual:

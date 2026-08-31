@@ -27,7 +27,9 @@ import trimesh
 from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from run_eval_captured import MESH_PATH, RESULTS_ROOT, load_sequence_meta  # noqa: E402
+from run_eval_captured import (  # noqa: E402
+    MESH_PATH, RESULTS_ROOT, load_sequence_meta, rebase_to_gt,
+)
 
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plots")
 METHODS = [  # (results dir key, display name)
@@ -67,14 +69,14 @@ def draw_contour(img, mask, color, thickness):
     cv2.drawContours(img, cnts, -1, color, thickness, cv2.LINE_AA)
 
 
-def build_figure(tag: str):
-    K, img_paths, gt, maps = load_sequence_meta(tag)
+def build_figure(tag: str, gt_dir: str = "poses_object", suffix: str = ""):
+    K, img_paths, gt, maps, gt0_rigid = load_sequence_meta(tag, gt_dir)
     mesh = trimesh.load(MESH_PATH, process=False)
     est = {}
     for key, _ in METHODS:
         p = os.path.join(RESULTS_ROOT, f"results_{key}", f"{tag}.npy")
         if os.path.exists(p):
-            est[key] = np.load(p).astype(np.float64)
+            est[key] = rebase_to_gt(np.load(p).astype(np.float64), gt0_rigid, gt[0])
     rows = [("gt", "GT")] + [(k, n) for k, n in METHODS if k in est]
 
     fig, axes = plt.subplots(
@@ -122,12 +124,19 @@ def build_figure(tag: str):
                         wspace=0.03, hspace=0.04)
     os.makedirs(OUT_DIR, exist_ok=True)
     for ext in ("pdf", "png"):
-        fig.savefig(os.path.join(OUT_DIR, f"epi_qual_{tag.split('_', 1)[1]}.{ext}"),
+        fig.savefig(os.path.join(OUT_DIR, f"epi_qual_{tag.split('_', 1)[1]}{suffix}.{ext}"),
                     dpi=200)
     plt.close(fig)
     print(f"[{tag}] rows={[n for _, n in rows]} -> {OUT_DIR}/epi_qual_*.{{pdf,png}}")
 
 
 if __name__ == "__main__":
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--gt-dir", default="poses_object",
+                    help="poses_object (rigid) or poses_object_refined (per-frame)")
+    args = ap.parse_args()
+    suffix = "" if args.gt_dir == "poses_object" else "_refined"
     for tag in ("epi_diffuse", "epi_reflective"):
-        build_figure(tag)
+        build_figure(tag, args.gt_dir, suffix)
