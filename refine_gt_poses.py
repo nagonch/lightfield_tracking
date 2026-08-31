@@ -128,10 +128,81 @@ def score(cams, deltas, pts):
     return out
 
 
+def fit_constant(cams, pts, step=2):
+    """One sequence-wide object-frame correction (no prior): absorbs a systematic
+    mesh-vs-object mismatch such as the foil shell of the reflective capture."""
+    n = len(cams[0].poses)
+    idx = list(range(0, n, step))
+
+    def loss(p):
+        d = to_T(p)
+        return sum(cs.chamfer(i, cs.poses[i] @ d, pts) for cs in cams for i in idx) / len(idx)
+
+    res = minimize(loss, np.zeros(6), method="Powell",
+                   options=dict(xtol=1e-4, ftol=1e-4, maxiter=3000))
+    return to_T(res.x)
+
+
+def refine_own(seq: str, pts):
+    """Fit `seq` on its OWN masks: constant correction, then per-frame deltas around
+    it. Used for reflective, where the foil-wrapped object's silhouette is bulkier
+    than the bare mesh, so the transferred diffuse deltas cannot fit the contours."""
+    cams = [CamSeq(c, seq) for c in CAPTURES]
+    n = len(cams[0].poses)
+    rigid = score(cams, None, pts)
+    print(f"[{seq}] rigid chamfer:", rigid, flush=True)
+
+    const = fit_constant(cams, pts)
+    ca, ct = mag(const)
+    t_cam = [np.round(cs.poses[0][:3, :3] @ const[:3, 3] * 1000, 1) for cs in cams]
+    print(f"[{seq}] constant correction: {ca:.2f} deg / {ct:.1f} mm "
+          f"(camera-frame dx,dy,dz at frame 0: {t_cam[0]} mm)", flush=True)
+    for cs in cams:
+        cs.poses = np.einsum("nij,jk->nik", cs.poses, const)
+    print(f"[{seq}] chamfer after constant:", score(cams, None, pts), flush=True)
+
+    per = np.stack([fit_frame(cams, i, pts) for i in range(n)])
+    deltas = np.einsum("ij,njk->nik", const, per)
+    final = score(cams, per, pts)
+    mags = np.array([mag(d) for d in per])
+    print(f"[{seq}] chamfer after per-frame:", final)
+    print(f"[{seq}] per-frame deltas: rot median {np.median(mags[:, 0]):.2f} deg, "
+          f"trans median {np.median(mags[:, 1]):.1f} mm (max {mags[:, 1].max():.1f})")
+
+    for cs in cams:
+        out = os.path.join(cs.dir, "poses_object_refined")
+        os.makedirs(out, exist_ok=True)
+        for i, s in enumerate(cs.stems):
+            np.savetxt(os.path.join(out, s + ".txt"), cs.poses[i] @ per[i])
+        np.save(os.path.join(cs.dir, "gt_refine_deltas.npy"), deltas)
+        print(f"wrote {out}")
+    return dict(rigid=rigid, constant_deg=float(ca), constant_mm=float(ct),
+                constant_cam_frame_mm_frame0=[float(v) for v in t_cam[0]],
+                after_constant=score(cams, None, pts), final=final,
+                perframe_rot_deg_median=float(np.median(mags[:, 0])),
+                perframe_t_mm_median=float(np.median(mags[:, 1])))
+
+
 def main():
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--own", default=None,
+                    help="refine this sequence on its OWN masks (constant + per-frame) "
+                         "instead of the default diffuse-fit + transfer, e.g. reflective")
+    args = ap.parse_args()
+
     mesh = trimesh.load(MESH_PATH, process=False)
     pts = mesh.sample(12000)
     report = {}
+
+    if args.own:
+        rep = refine_own(args.own, pts)
+        rpath = REPORT.replace(".json", f"_{args.own}_own.json")
+        with open(rpath, "w") as f:
+            json.dump(rep, f, indent=2)
+        print("report ->", rpath)
+        return
 
     # ---- diffuse: joint fit + validations ---------------------------------
     cams = [CamSeq(c, "diffuse") for c in CAPTURES]

@@ -1,0 +1,23 @@
+{
+  "rigid": {
+    "realsense/reflective": 8.161478519439697,
+    "epi/reflective": 13.091630002285571
+  },
+  "constant_deg": 9.974555065046378,
+  "constant_mm": 13.687461427132774,
+  "constant_cam_frame_mm_frame0": [
+    3.4,
+    12.6,
+    -4.0
+  ],
+  "after_constant": {
+    "realsense/reflective": 6.441848115718111,
+    "epi/reflective": 10.760248021876558
+  },
+  "final": {
+    "realsense/reflective": 3.7893424186300724,
+    "epi/reflective": 4.798591933351882
+  },
+  "perframe_rot_deg_median": 0.38556499732153143,
+  "perframe_t_mm_median": 11.186930249263431
+}
