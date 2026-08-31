@@ -1,0 +1,29 @@
+== realsense_diffuse ==
+method       ADD↑ AUC   ADD-S↑ AUC     ATE↓ (m)     Rot↓ (°)
+loftr          0.1567       0.4335       0.1070     112.3918
+icp            0.0882       0.2678       0.1609     120.3159
+pnp            0.0791       0.1891       0.2252     102.9290
+
+== realsense_reflective ==
+method       ADD↑ AUC   ADD-S↑ AUC     ATE↓ (m)     Rot↓ (°)
+loftr          0.1602       0.2502       0.1314     113.2038
+icp            0.0358       0.0747       0.2312      93.3145
+pnp            0.0303       0.0900       0.5477      94.5022
+
+== epi_diffuse ==
+method       ADD↑ AUC   ADD-S↑ AUC     ATE↓ (m)     Rot↓ (°)
+loftr          0.0923       0.4880       0.0979     107.6575
+icp            0.0580       0.1014       0.1935     102.9590
+pnp            0.1023       0.3251       0.1263      30.7874
+
+== epi_reflective ==
+method       ADD↑ AUC   ADD-S↑ AUC     ATE↓ (m)     Rot↓ (°)
+loftr          0.1313       0.2933       0.1319      99.8490
+icp            0.0282       0.1055       0.1784      80.8430
+pnp            0.1199       0.1746       0.3199     128.3249
+
+== average over all 4 sequences ==
+method       ADD↑ AUC   ADD-S↑ AUC     ATE↓ (m)     Rot↓ (°)
+loftr          0.1351       0.3662       0.1170     108.2755
+icp            0.0525       0.1374       0.1910      99.3581
+pnp            0.0829       0.1947       0.3047      89.1359
